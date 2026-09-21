@@ -1,11 +1,11 @@
 #!/bin/bash
-# LLMention Release Validation Script
+# Ghostping Release Validation Script
 # Run this before releasing a new version
 
 set -euo pipefail
 
 echo "=========================================="
-echo "LLMention Release Validation"
+echo "Ghostping Release Validation"
 echo "=========================================="
 echo ""
 
@@ -42,54 +42,54 @@ echo ""
 echo "3. Building release binary..."
 cargo build --release
 echo -e "${GREEN}✓ Release binary built${NC}"
-echo "   Binary size: $(ls -lh target/release/llmention | awk '{print $5}')"
+echo "   Binary size: $(ls -lh target/release/ghostping | awk '{print $5}')"
 
 echo ""
 echo "4. Running smoke tests..."
-SMOKE_DIR="/tmp/llmention-smoke-test-$$"
+SMOKE_DIR="/tmp/ghostping-smoke-test-$$"
 mkdir -p "$SMOKE_DIR"
 cd "$SMOKE_DIR"
 
 # Get the binary path
-BINARY="$(cd - >/dev/null && pwd)/target/release/llmention"
+BINARY="$(cd - >/dev/null && pwd)/target/release/ghostping"
 
 # Test init
-echo "   Testing: llmention init..."
+echo "   Testing: ghostping init..."
 $BINARY init --name "SmokeTest" --website "https://example.com" --category "test" --yes > /dev/null 2>&1
 echo -e "   ${GREEN}✓ init${NC}"
 
 # Test prompts discover
-echo "   Testing: llmention prompts discover..."
+echo "   Testing: ghostping prompts discover..."
 $BINARY prompts discover > /dev/null 2>&1
 echo -e "   ${GREEN}✓ prompts discover${NC}"
 
 # Test prompts list
-echo "   Testing: llmention prompts list..."
+echo "   Testing: ghostping prompts list..."
 $BINARY prompts list > /dev/null 2>&1
 echo -e "   ${GREEN}✓ prompts list${NC}"
 
 # Test audit run
-echo "   Testing: llmention audit run..."
+echo "   Testing: ghostping audit run..."
 $BINARY audit run --models mock --samples 1 > /dev/null 2>&1
 echo -e "   ${GREEN}✓ audit run${NC}"
 
 # Test audit list
-echo "   Testing: llmention audit list..."
+echo "   Testing: ghostping audit list..."
 $BINARY audit list > /dev/null 2>&1
 echo -e "   ${GREEN}✓ audit list${NC}"
 
 # Test audit show
-echo "   Testing: llmention audit show..."
+echo "   Testing: ghostping audit show..."
 $BINARY audit show 1 > /dev/null 2>&1
 echo -e "   ${GREEN}✓ audit show${NC}"
 
 # Test report
-echo "   Testing: llmention report..."
+echo "   Testing: ghostping report..."
 $BINARY report --output ./reports/ > /dev/null 2>&1
 echo -e "   ${GREEN}✓ report${NC}"
 
 # Test generate
-echo "   Testing: llmention generate..."
+echo "   Testing: ghostping generate..."
 $BINARY generate --output ./generated/ > /dev/null 2>&1
 echo -e "   ${GREEN}✓ generate${NC}"
 
@@ -99,12 +99,12 @@ $BINARY audit run --models mock --samples 1 > /dev/null 2>&1
 echo -e "   ${GREEN}✓ second audit run${NC}"
 
 # Test compare
-echo "   Testing: llmention audit compare..."
+echo "   Testing: ghostping audit compare..."
 $BINARY audit compare --before 1 --after 2 > /dev/null 2>&1
 echo -e "   ${GREEN}✓ audit compare${NC}"
 
 # Test diagnose
-echo "   Testing: llmention diagnose..."
+echo "   Testing: ghostping diagnose..."
 $BINARY diagnose https://example.com > /dev/null 2>&1
 echo -e "   ${GREEN}✓ diagnose${NC}"
 
