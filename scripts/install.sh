@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# LLMention installer for macOS and Linux
-# Usage: curl -fsSL https://raw.githubusercontent.com/wiramahendra/llMention/main/scripts/install.sh | bash
+# Ghostping installer for macOS and Linux
+# Usage: curl -fsSL https://raw.githubusercontent.com/commonfields/ghostping/main/scripts/install.sh | bash
 set -euo pipefail
 
-REPO="wiramahendra/llMention"
-BIN="llmention"
+REPO="commonfields/ghostping"
+BIN="ghostping"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
 # ── Detect platform ──────────────────────────────────────────────────────────
@@ -15,7 +15,7 @@ ARCH="$(uname -m)"
 case "$OS" in
   Linux)
     case "$ARCH" in
-      x86_64) ARCHIVE="llmention-linux-x86_64.tar.gz" ;;
+      x86_64) ARCHIVE="ghostping-linux-x86_64.tar.gz" ;;
       *)
         echo "Error: unsupported architecture $ARCH on Linux." >&2
         echo "Please build from source: cargo install --git https://github.com/$REPO" >&2
@@ -25,8 +25,8 @@ case "$OS" in
     ;;
   Darwin)
     case "$ARCH" in
-      x86_64) ARCHIVE="llmention-macos-x86_64.tar.gz" ;;
-      arm64)  ARCHIVE="llmention-macos-aarch64.tar.gz" ;;
+      x86_64) ARCHIVE="ghostping-macos-x86_64.tar.gz" ;;
+      arm64)  ARCHIVE="ghostping-macos-aarch64.tar.gz" ;;
       *)
         echo "Error: unsupported architecture $ARCH on macOS." >&2
         exit 1
@@ -50,7 +50,7 @@ if [ -z "$LATEST" ]; then
   exit 1
 fi
 
-echo "Installing llmention $LATEST ($ARCH)..."
+echo "Installing ghostping $LATEST ($ARCH)..."
 
 # ── Download and install ─────────────────────────────────────────────────────
 
@@ -71,7 +71,7 @@ chmod +x "$INSTALL_DIR/$BIN"
 # ── Verify installation ──────────────────────────────────────────────────────
 
 echo ""
-echo "  ✓ llmention $LATEST installed to $INSTALL_DIR/$BIN"
+echo "  ✓ ghostping $LATEST installed to $INSTALL_DIR/$BIN"
 
 if ! command -v "$BIN" &>/dev/null; then
   echo ""
@@ -83,7 +83,7 @@ fi
 
 echo ""
 echo "  Quick start:"
-echo "    llmention config"
-echo "    llmention audit myproject.com --niche 'your niche'"
-echo "    llmention optimize myproject.com --niche 'your niche' --auto-apply"
+echo "    ghostping config"
+echo "    ghostping audit myproject.com --niche 'your niche'"
+echo "    ghostping optimize myproject.com --niche 'your niche' --auto-apply"
 echo ""
