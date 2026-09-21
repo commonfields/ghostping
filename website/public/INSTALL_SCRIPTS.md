@@ -1,8 +1,8 @@
 # Install Script Placeholders
 
 These files should be hosted at:
-- https://llmention.dev/install.sh (macOS/Linux)
-- https://llmention.dev/install.ps1 (Windows)
+- https://ghostping.dev/install.sh (macOS/Linux)
+- https://ghostping.dev/install.ps1 (Windows)
 
 ## Setup Instructions
 
@@ -11,16 +11,16 @@ These files should be hosted at:
    - `../scripts/install.ps1` → host as `install.ps1`
 
 2. Update the URLs in `app/page.tsx`:
-   - Change `INSTALL_SH_URL` from `'https://llmention.dev/install.sh'` to your actual URL
-   - Change `INSTALL_PS1_URL` from `'https://llmention.dev/install.ps1'` to your actual URL
+   - Change `INSTALL_SH_URL` from `'https://ghostping.dev/install.sh'` to your actual URL
+   - Change `INSTALL_PS1_URL` from `'https://ghostping.dev/install.ps1'` to your actual URL
 
 ## Alternative: Direct GitHub Raw URLs
 
 If you're hosting these scripts on GitHub, you can use raw.githubusercontent.com URLs:
 
 ```typescript
-const INSTALL_SH_URL = 'https://raw.githubusercontent.com/yourusername/llmention/main/scripts/install.sh';
-const INSTALL_PS1_URL = 'https://raw.githubusercontent.com/yourusername/llmention/main/scripts/install.ps1';
+const INSTALL_SH_URL = 'https://raw.githubusercontent.com/yourusername/ghostping/main/scripts/install.sh';
+const INSTALL_PS1_URL = 'https://raw.githubusercontent.com/yourusername/ghostping/main/scripts/install.ps1';
 ```
 
 ## Current Placeholder
