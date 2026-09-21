@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2.json",
-  "productName": "LLMention",
+  "productName": "Ghostping",
   "version": "0.2.0",
-  "identifier": "com.llmention.app",
+  "identifier": "com.ghostping.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "LLMention",
+        "title": "Ghostping",
         "width": 1280,
         "height": 820,
         "minWidth": 960,
