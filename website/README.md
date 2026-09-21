@@ -1,6 +1,6 @@
-# LLMention Landing Page
+# Ghostping Landing Page
 
-A clean, developer-focused landing page for LLMention — the local-first CLI workbench for auditing AI model visibility.
+A clean, developer-focused landing page for Ghostping — the local-first CLI workbench for auditing AI model visibility.
 
 ## Quick Start
 
@@ -55,11 +55,11 @@ Before deploying, update these values in `app/page.tsx`:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GITHUB_REPO` | Your GitHub repository URL | `'https://github.com/yourusername/llmention'` |
-| `RELEASES_URL` | GitHub releases page | `'https://github.com/yourusername/llmention/releases'` |
-| `DOCS_URL` | Documentation URL | `'https://github.com/yourusername/llmention#readme'` |
-| `INSTALL_SH_URL` | macOS/Linux install script | `'https://llmention.dev/install.sh'` |
-| `INSTALL_PS1_URL` | Windows install script | `'https://llmention.dev/install.ps1'` |
+| `GITHUB_REPO` | Your GitHub repository URL | `'https://github.com/yourusername/ghostping'` |
+| `RELEASES_URL` | GitHub releases page | `'https://github.com/yourusername/ghostping/releases'` |
+| `DOCS_URL` | Documentation URL | `'https://github.com/yourusername/ghostping#readme'` |
+| `INSTALL_SH_URL` | macOS/Linux install script | `'https://ghostping.dev/install.sh'` |
+| `INSTALL_PS1_URL` | Windows install script | `'https://ghostping.dev/install.ps1'` |
 
 ## Project Structure
 
@@ -104,4 +104,4 @@ website/
 
 ## License
 
-MIT — same as the LLMention project.
+MIT — same as the Ghostping project.
