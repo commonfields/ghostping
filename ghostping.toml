@@ -1,6 +1,6 @@
 [project]
-name = "LLMention"
-website = "https://llmention.dev"
+name = "Ghostping"
+website = "https://ghostping.dev"
 category = "local-first AI visibility and GEO tool"
 description = "A local-first CLI workbench that helps indie builders and open-source maintainers audit whether AI models mention, cite, or recommend their projects."
 audience = [
