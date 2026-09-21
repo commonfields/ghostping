@@ -1,15 +1,15 @@
-# LLMention v0.2 Evidence Engine - Implementation Complete
+# Ghostping v0.2 Evidence Engine - Implementation Complete
 
 ## Summary
 
-Successfully implemented LLMention v0.2, an evidence-first local GEO workbench with comprehensive audit capabilities, prompt discovery, and content generation from audit gaps.
+Successfully implemented Ghostping v0.2, an evidence-first local GEO workbench with comprehensive audit capabilities, prompt discovery, and content generation from audit gaps.
 
 ## Files Created
 
 ### Core Modules (7 new files)
 
 1. **`src/project_config.rs`** (247 lines)
-   - Project-level configuration via `llmention.toml`
+   - Project-level configuration via `ghostping.toml`
    - Support for project metadata, competitors, keywords, providers
    - Config validation and directory traversal
 
@@ -62,7 +62,7 @@ Successfully implemented LLMention v0.2, an evidence-first local GEO workbench w
 11. **`src/providers/mod.rs`**
     - Added mock provider exports
 
-12. **`src/bin/llmention.rs`**
+12. **`src/bin/ghostping.rs`**
     - Added 8 new CLI commands (init2, prompts2, audit2, report2, generate2, compare, diagnose2)
     - Added command handlers for all new functionality
     - ~600 lines of new CLI integration code
@@ -77,21 +77,21 @@ Successfully implemented LLMention v0.2, an evidence-first local GEO workbench w
 
 | Command | Description |
 |---------|-------------|
-| `llmention init2` | Initialize project with llmention.toml |
-| `llmention prompts2 discover` | Generate prompts from project config |
-| `llmention prompts2 list` | List stored prompts |
-| `llmention audit2 run` | Run multi-sample audit |
-| `llmention audit2 list` | List audit runs |
-| `llmention audit2 show <id>` | Show audit details |
-| `llmention report2` | Generate markdown report |
-| `llmention generate2` | Generate content from gaps |
-| `llmention compare` | Compare two audit runs |
-| `llmention diagnose2 <url>` | URL crawlability check |
+| `ghostping init2` | Initialize project with ghostping.toml |
+| `ghostping prompts2 discover` | Generate prompts from project config |
+| `ghostping prompts2 list` | List stored prompts |
+| `ghostping audit2 run` | Run multi-sample audit |
+| `ghostping audit2 list` | List audit runs |
+| `ghostping audit2 show <id>` | Show audit details |
+| `ghostping report2` | Generate markdown report |
+| `ghostping generate2` | Generate content from gaps |
+| `ghostping compare` | Compare two audit runs |
+| `ghostping diagnose2 <url>` | URL crawlability check |
 
 ## Key Features Implemented
 
 ### 1. Project-Level Configuration
-- ✅ `llmention.toml` with project metadata
+- ✅ `ghostping.toml` with project metadata
 - ✅ Competitor and keyword tracking
 - ✅ Project-specific provider configuration
 - ✅ Config validation
@@ -178,34 +178,34 @@ The following workflow works end-to-end:
 cargo build
 
 # 2. Initialize project
-./target/debug/llmention init2 --name "TestProject" --yes
+./target/debug/ghostping init2 --name "TestProject" --yes
 
 # 3. Discover prompts
-./target/debug/llmention prompts2 discover
+./target/debug/ghostping prompts2 discover
 
 # 4. List prompts
-./target/debug/llmention prompts2 list
+./target/debug/ghostping prompts2 list
 
 # 5. Run mock audit
-./target/debug/llmention audit2 run --models mock --samples 2
+./target/debug/ghostping audit2 run --models mock --samples 2
 
 # 6. List audits
-./target/debug/llmention audit2 list
+./target/debug/ghostping audit2 list
 
 # 7. Show audit details
-./target/debug/llmention audit2 show 1
+./target/debug/ghostping audit2 show 1
 
 # 8. Generate report
-./target/debug/llmention report2
+./target/debug/ghostping report2
 
 # 9. Generate content
-./target/debug/llmention generate2
+./target/debug/ghostping generate2
 
 # 10. Compare (requires 2 runs)
-./target/debug/llmention compare --before 1 --after 1
+./target/debug/ghostping compare --before 1 --after 1
 
 # 11. Diagnose URL
-./target/debug/llmention diagnose2 https://example.com
+./target/debug/ghostping diagnose2 https://example.com
 ```
 
 ## Architecture Highlights
@@ -260,7 +260,7 @@ Each major feature is in its own module:
 
 ## Conclusion
 
-LLMention v0.2 Evidence Engine is complete and functional. The implementation provides:
+Ghostping v0.2 Evidence Engine is complete and functional. The implementation provides:
 
 - ✅ A complete local-first GEO workbench
 - ✅ Evidence-based auditing with statistical rigor
