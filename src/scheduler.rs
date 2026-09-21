@@ -26,7 +26,7 @@ impl ScheduleInterval {
     }
 }
 
-/// Install a launchd plist on macOS that re-runs `llmention audit` periodically.
+/// Install a launchd plist on macOS that re-runs `ghostping audit` periodically.
 /// Returns the path to the written plist file.
 pub fn install_launchd(
     domain: &str,
@@ -34,7 +34,7 @@ pub fn install_launchd(
     interval: ScheduleInterval,
     binary_path: &str,
 ) -> Result<PathBuf> {
-    let label = format!("com.llmention.audit.{}", domain.replace('.', "_"));
+    let label = format!("com.ghostping.audit.{}", domain.replace('.', "_"));
     let interval_secs = interval.hours() as u64 * 3600;
 
     let niche_args = niche
@@ -65,9 +65,9 @@ pub fn install_launchd(
     <key>RunAtLoad</key>
     <false/>
     <key>StandardOutPath</key>
-    <string>/tmp/llmention-{domain_safe}.log</string>
+    <string>/tmp/ghostping-{domain_safe}.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/llmention-{domain_safe}.log</string>
+    <string>/tmp/ghostping-{domain_safe}.log</string>
 </dict>
 </plist>
 "#,
@@ -108,7 +108,7 @@ pub fn cron_line(
     };
 
     format!(
-        "{} {} audit {}{} --quiet >> /tmp/llmention-{}.log 2>&1",
+        "{} {} audit {}{} --quiet >> /tmp/ghostping-{}.log 2>&1",
         schedule,
         binary_path,
         domain,
