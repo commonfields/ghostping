@@ -20,32 +20,32 @@ import {
 } from 'lucide-react';
 
 // ── Placeholders — update before deploying ───────────────
-const GITHUB_REPO   = 'https://github.com/yourusername/llmention';   // TODO
-const RELEASES_URL  = 'https://github.com/yourusername/llmention/releases'; // TODO
-const DOCS_URL      = 'https://github.com/yourusername/llmention#readme';   // TODO
-const INSTALL_SH    = 'https://llmention.dev/install.sh';   // TODO
-const INSTALL_PS1   = 'https://llmention.dev/install.ps1';  // TODO
+const GITHUB_REPO   = 'https://github.com/yourusername/ghostping';   // TODO
+const RELEASES_URL  = 'https://github.com/yourusername/ghostping/releases'; // TODO
+const DOCS_URL      = 'https://github.com/yourusername/ghostping#readme';   // TODO
+const INSTALL_SH    = 'https://ghostping.dev/install.sh';   // TODO
+const INSTALL_PS1   = 'https://ghostping.dev/install.ps1';  // TODO
 // ─────────────────────────────────────────────────────────
 
 const TERMINAL_LINES = [
   {
-    cmd: 'llmention init --name "MyProject" --website "https://example.com" --category "developer tool" --yes',
-    out: '✓ Project initialized: MyProject\n  Config saved to .llmention/project.toml',
+    cmd: 'ghostping init --name "MyProject" --website "https://example.com" --category "developer tool" --yes',
+    out: '✓ Project initialized: MyProject\n  Config saved to .ghostping/project.toml',
   },
   {
-    cmd: 'llmention prompts discover',
+    cmd: 'ghostping prompts discover',
     out: '✓ Discovered 12 high-intent prompts for "developer tool"',
   },
   {
-    cmd: 'llmention audit run --models mock --samples 3',
+    cmd: 'ghostping audit run --models mock --samples 3',
     out: '  Running 3-sample audit with mock provider…\n✓ Audit complete: 2 mentions · 1 citation · 0 recommendations',
   },
   {
-    cmd: 'llmention report --output ./reports/',
+    cmd: 'ghostping report --output ./reports/',
     out: '✓ Evidence report: ./reports/audit-2024-01-15.md',
   },
   {
-    cmd: 'llmention generate --output ./generated/',
+    cmd: 'ghostping generate --output ./generated/',
     out: '✓ Generated 5 content assets from visibility gaps',
   },
 ];
@@ -149,7 +149,7 @@ function PhosphorTerminal() {
           className="ml-3 text-xs font-mono tracking-widest uppercase select-none"
           style={{ color: 'rgba(245,167,42,0.35)' }}
         >
-          llmention — zsh
+          ghostping — zsh
         </span>
       </div>
 
@@ -261,7 +261,7 @@ export default function Page() {
             className="font-display font-bold text-sm tracking-[0.18em] uppercase"
             style={{ color: 'var(--text)' }}
           >
-            LLMention
+            Ghostping
           </span>
         </div>
 
@@ -363,7 +363,7 @@ export default function Page() {
             className="fade-up d2 text-lg leading-relaxed mb-3 max-w-xl mx-auto"
             style={{ color: 'var(--text-2)' }}
           >
-            LLMention audits whether AI models mention, cite, or recommend your project —
+            Ghostping audits whether AI models mention, cite, or recommend your project —
             then generates markdown content to help close the gaps.
           </p>
           <p
@@ -584,7 +584,7 @@ export default function Page() {
                   </span>
                 </div>
                 <div style={{ color: 'var(--amber)', textShadow: '0 0 8px rgba(245,167,42,0.3)' }}>
-                  ~/.llmention/
+                  ~/.ghostping/
                 </div>
                 <div className="pl-4 mt-2 space-y-1.5" style={{ color: 'rgba(245,167,42,0.45)' }}>
                   <div>├── projects/</div>
@@ -675,11 +675,11 @@ export default function Page() {
             </p>
             <ol className="space-y-5">
               {[
-                { n: '1', cmd: 'llmention init',                        desc: 'Initialize your project with name, website, and category' },
-                { n: '2', cmd: 'llmention prompts discover',            desc: 'Find high-intent prompts your audience uses' },
-                { n: '3', cmd: 'llmention audit run --models mock',     desc: 'Run a mock audit to test the workflow — no API keys needed' },
-                { n: '4', cmd: 'llmention report',                      desc: 'Generate a markdown evidence report' },
-                { n: '5', cmd: 'llmention generate',                    desc: 'Generate content assets from visibility gaps' },
+                { n: '1', cmd: 'ghostping init',                        desc: 'Initialize your project with name, website, and category' },
+                { n: '2', cmd: 'ghostping prompts discover',            desc: 'Find high-intent prompts your audience uses' },
+                { n: '3', cmd: 'ghostping audit run --models mock',     desc: 'Run a mock audit to test the workflow — no API keys needed' },
+                { n: '4', cmd: 'ghostping report',                      desc: 'Generate a markdown evidence report' },
+                { n: '5', cmd: 'ghostping generate',                    desc: 'Generate content assets from visibility gaps' },
               ].map(({ n, cmd, desc }) => (
                 <li key={n} className="flex items-start gap-4">
                   <span
@@ -714,7 +714,7 @@ export default function Page() {
             style={{ border: '1px solid var(--border)', color: 'var(--text-3)', background: 'var(--surface)' }}
           >
             <span style={{ color: 'var(--text-2)' }}>NOTICE: </span>
-            LLMention does not guarantee AI visibility. Results are probabilistic and depend on model
+            Ghostping does not guarantee AI visibility. Results are probabilistic and depend on model
             training data, prompt variations, and timing. The mock provider is for workflow testing only
             and does not reflect real model behavior. Real provider audits require user-configured API keys.
             Always verify results independently before making strategic decisions.
@@ -732,7 +732,7 @@ export default function Page() {
             <div className="flex items-center gap-2">
               <Terminal className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--amber)' }} />
               <span className="font-display font-bold text-sm tracking-[0.18em] uppercase">
-                LLMention
+                Ghostping
               </span>
             </div>
 
@@ -762,7 +762,7 @@ export default function Page() {
             className="mt-8 text-xs font-mono"
             style={{ color: 'var(--text-3)' }}
           >
-            © {new Date().getFullYear()} LLMention — MIT License
+            © {new Date().getFullYear()} Ghostping — MIT License
           </div>
         </div>
       </footer>
