@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Project-level configuration stored in llmention.toml
-/// This is distinct from the global ~/.llmention/config.toml
+/// Project-level configuration stored in ghostping.toml
+/// This is distinct from the global ~/.ghostping/config.toml
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ProjectConfig {
     #[serde(default)]
@@ -86,9 +86,15 @@ fn default_true() -> bool {
 }
 
 impl ProjectConfig {
-    /// Load project config from llmention.toml in the given directory
+    /// Load project config from ghostping.toml in the given directory
+    /// (falls back to legacy llmention.toml from before the rebrand).
     pub fn load_from_dir(dir: &Path) -> Result<Option<Self>> {
-        let path = dir.join("llmention.toml");
+        let path = dir.join("ghostping.toml");
+        let path = if !path.exists() && dir.join("llmention.toml").exists() {
+            dir.join("llmention.toml")
+        } else {
+            path
+        };
         if !path.exists() {
             return Ok(None);
         }
@@ -99,11 +105,18 @@ impl ProjectConfig {
         Ok(Some(config))
     }
 
-    /// Find and load the nearest llmention.toml by walking up from current dir
+    /// Find and load the nearest ghostping.toml by walking up from current dir
+    /// (falls back to legacy llmention.toml from before the rebrand).
     pub fn find_and_load() -> Result<Option<(Self, PathBuf)>> {
         let mut current = std::env::current_dir()?;
         loop {
-            let config_path = current.join("llmention.toml");
+            let config_path = current.join("ghostping.toml");
+            let config_path = if !config_path.exists() && current.join("llmention.toml").exists()
+            {
+                current.join("llmention.toml")
+            } else {
+                config_path
+            };
             if config_path.exists() {
                 let contents = std::fs::read_to_string(&config_path)
                     .with_context(|| format!("Failed to read {}", config_path.display()))?;
@@ -118,9 +131,9 @@ impl ProjectConfig {
         Ok(None)
     }
 
-    /// Save project config to llmention.toml in the given directory
+    /// Save project config to ghostping.toml in the given directory
     pub fn save_to_dir(&self, dir: &Path) -> Result<PathBuf> {
-        let path = dir.join("llmention.toml");
+        let path = dir.join("ghostping.toml");
         let contents =
             toml::to_string_pretty(self).context("Failed to serialize project config")?;
         std::fs::write(&path, contents)
@@ -131,7 +144,7 @@ impl ProjectConfig {
     /// Validate required fields
     pub fn validate(&self) -> Result<()> {
         if self.project.name.is_empty() {
-            anyhow::bail!("Project name is required in llmention.toml");
+            anyhow::bail!("Project name is required in ghostping.toml");
         }
         Ok(())
     }
@@ -155,9 +168,9 @@ impl ProjectConfig {
     }
 }
 
-pub const EXAMPLE_PROJECT_CONFIG: &str = r#"# LLMention Project Configuration
+pub const EXAMPLE_PROJECT_CONFIG: &str = r#"# Ghostping Project Configuration
 # This file defines your project for local GEO auditing
-# Place this in your project root as llmention.toml
+# Place this in your project root as ghostping.toml
 
 [project]
 name = "MyProject"
