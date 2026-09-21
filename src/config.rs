@@ -120,6 +120,12 @@ fn default_timeout() -> u64 {
 impl Config {
     pub fn load() -> Result<Self> {
         let path = config_path();
+        // Fall back to the pre-rebrand location so existing installs keep working.
+        let path = if !path.exists() && legacy_config_path().exists() {
+            legacy_config_path()
+        } else {
+            path
+        };
         if !path.exists() {
             return Ok(Self::default());
         }
@@ -142,13 +148,28 @@ impl Config {
     pub fn config_dir() -> PathBuf {
         home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
+            .join(".ghostping")
+    }
+
+    /// Previous config location before the Ghostping rebrand.
+    /// Used for one-time automatic migration.
+    pub fn legacy_config_dir() -> PathBuf {
+        home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
             .join(".llmention")
     }
 
-    /// Creates ~/.llmention/ and ~/.llmention/cache/ if they don't exist.
+    /// Creates ~/.ghostping/ and ~/.ghostping/cache/ if they don't exist.
     /// Returns (dir, is_first_run).
+    /// If a legacy ~/.llmention/ directory exists and ~/.ghostping/ does not,
+    /// it is migrated automatically (copied, original kept as backup).
     pub fn ensure_dir() -> Result<(PathBuf, bool)> {
         let dir = Self::config_dir();
+        let legacy = Self::legacy_config_dir();
+        if !dir.exists() && legacy.exists() {
+            // Best-effort migration: copy legacy config + plugins + db.
+            let _ = copy_dir_all(&legacy, &dir);
+        }
         let is_new = !dir.exists();
         std::fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create config dir {}", dir.display()))?;
@@ -177,8 +198,31 @@ pub fn config_path() -> PathBuf {
     Config::config_dir().join("config.toml")
 }
 
-pub const EXAMPLE_CONFIG: &str = r#"# LLMention configuration
-# ~/.llmention/config.toml
+/// Previous config file location (pre-rebrand). Used as a read fallback.
+pub fn legacy_config_path() -> PathBuf {
+    Config::legacy_config_dir().join("config.toml")
+}
+
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dst_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path)?;
+        } else {
+            // Don't overwrite files the user may have already created under the new name.
+            if !dst_path.exists() {
+                std::fs::copy(entry.path(), &dst_path)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub const EXAMPLE_CONFIG: &str = r#"# Ghostping configuration
+# ~/.ghostping/config.toml
 
 # Cloud providers — set enabled = true and add your API key.
 # temperature = 0 gives deterministic, cacheable results (recommended).
@@ -222,7 +266,7 @@ enabled   = false
 
 # LLM-as-judge: re-evaluates each response with a local model for
 # higher-accuracy mention/sentiment detection. Uses Ollama.
-# Enable with: llmention track ... --judge
+# Enable with: ghostping track ... --judge
 [judge]
 enabled   = false
 base_url  = "http://localhost:11434"
