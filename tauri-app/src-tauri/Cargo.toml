@@ -2,18 +2,18 @@
 resolver = "2"
 
 [package]
-name = "llmention-app"
+name = "ghostping-app"
 version = "0.2.0"
 edition = "2021"
-description = "LLMention desktop — local-first GEO agent"
+description = "Ghostping desktop — local-first GEO agent"
 
 [lib]
-name = "llmention_app_lib"
+name = "ghostping_app_lib"
 crate-type = ["staticlib", "cdylib"]
 
-# The llmention core library (path relative to this Cargo.toml)
+# The ghostping core library (path relative to this Cargo.toml)
 [dependencies]
-llmention = { path = "../.." }
+ghostping = { path = "../.." }
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
