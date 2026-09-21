@@ -57,7 +57,7 @@ interface Props {
 export default function Sidebar({ active, onChange }: Props) {
   return (
     <div style={styles.sidebar}>
-      <div style={styles.logo}>LLMention</div>
+      <div style={styles.logo}>Ghostping</div>
       <nav style={styles.nav}>
         {items.map((item) => (
           <div
