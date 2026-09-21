@@ -35,19 +35,19 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            archive: llmention-linux-x86_64.tar.gz
+            archive: ghostping-linux-x86_64.tar.gz
 
           - target: x86_64-apple-darwin
             os: macos-latest
-            archive: llmention-macos-x86_64.tar.gz
+            archive: ghostping-macos-x86_64.tar.gz
 
           - target: aarch64-apple-darwin
             os: macos-latest
-            archive: llmention-macos-aarch64.tar.gz
+            archive: ghostping-macos-aarch64.tar.gz
 
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            archive: llmention-windows-x86_64.zip
+            archive: ghostping-windows-x86_64.zip
 
     steps:
       - uses: actions/checkout@v4
@@ -63,20 +63,20 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} --bin llmention
+        run: cargo build --release --target ${{ matrix.target }} --bin ghostping
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../${{ matrix.archive }} llmention
+          tar czf ../../../${{ matrix.archive }} ghostping
           cd -
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path target/${{ matrix.target }}/release/llmention.exe `
+          Compress-Archive -Path target/${{ matrix.target }}/release/ghostping.exe `
             -DestinationPath ${{ matrix.archive }}
 
       - name: Upload release archive
@@ -97,12 +97,12 @@ jobs:
           latest: false
           tag: ${{ github.ref_name }}
           out-file-path: "dist"
-          fileName: "llmention-*"
+          fileName: "ghostping-*"
 
       - name: Generate SHA256 checksums
         run: |
           cd dist
-          sha256sum llmention-* > checksums.txt
+          sha256sum ghostping-* > checksums.txt
           cat checksums.txt
 
       - name: Upload checksums
@@ -133,24 +133,24 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
 
-          AARCH64_SHA=$(grep "llmention-macos-aarch64.tar.gz" dist/checksums.txt | awk '{print $1}')
-          X86_64_SHA=$(grep "llmention-macos-x86_64.tar.gz" dist/checksums.txt | awk '{print $1}')
-          LINUX_SHA=$(grep "llmention-linux-x86_64.tar.gz" dist/checksums.txt | awk '{print $1}')
+          AARCH64_SHA=$(grep "ghostping-macos-aarch64.tar.gz" dist/checksums.txt | awk '{print $1}')
+          X86_64_SHA=$(grep "ghostping-macos-x86_64.tar.gz" dist/checksums.txt | awk '{print $1}')
+          LINUX_SHA=$(grep "ghostping-linux-x86_64.tar.gz" dist/checksums.txt | awk '{print $1}')
 
-          sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/llmention.rb
-          sed -i "s/PLACEHOLDER_AARCH64_SHA256/${AARCH64_SHA}/" Formula/llmention.rb
-          sed -i "s/PLACEHOLDER_X86_64_SHA256/${X86_64_SHA}/" Formula/llmention.rb
-          sed -i "s/PLACEHOLDER_LINUX_SHA256/${LINUX_SHA}/" Formula/llmention.rb
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/ghostping.rb
+          sed -i "s/PLACEHOLDER_AARCH64_SHA256/${AARCH64_SHA}/" Formula/ghostping.rb
+          sed -i "s/PLACEHOLDER_X86_64_SHA256/${X86_64_SHA}/" Formula/ghostping.rb
+          sed -i "s/PLACEHOLDER_LINUX_SHA256/${LINUX_SHA}/" Formula/ghostping.rb
 
           # Also replace already-filled SHA256s on re-release
-          sed -i "s/sha256 \"[a-f0-9]\{64\}\".*aarch64/sha256 \"${AARCH64_SHA}\" # aarch64/" Formula/llmention.rb || true
+          sed -i "s/sha256 \"[a-f0-9]\{64\}\".*aarch64/sha256 \"${AARCH64_SHA}\" # aarch64/" Formula/ghostping.rb || true
 
-          cat Formula/llmention.rb
+          cat Formula/ghostping.rb
 
       - name: Commit updated formula
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/llmention.rb
+          git add Formula/ghostping.rb
           git diff --staged --quiet || git commit -m "chore: update Homebrew formula for ${{ github.ref_name }}"
           git push
