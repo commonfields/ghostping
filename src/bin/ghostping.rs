@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use colored::Colorize;
 use std::path::{Path, PathBuf};
 
-use llmention::{
+use ghostping::{
     agent::optimizer::{self, OptimizeOptions},
     audit_engine::{build_providers_for_project, AuditEngine, AuditOptions, PromptInput},
     audit_storage::{AuditStorage, NewGeneratedAsset, NewPrompt},
@@ -28,29 +28,29 @@ use llmention::{
 };
 
 const BANNER: &str = r#"
-   ██╗     ██╗     ███╗   ███╗███████╗███╗   ██╗████████╗██╗ ██████╗ ███╗   ██╗
-   ██║     ██║     ████╗ ████║██╔════╝████╗  ██║╚══██╔══╝██║██╔═══██╗████╗  ██║
-   ██║     ██║     ██╔████╔██║█████╗  ██╔██╗ ██║   ██║   ██║██║   ██║██╔██╗ ██║
-   ██║     ██║     ██║╚██╔╝██║██╔══╝  ██║╚██╗██║   ██║   ██║██║   ██║██║╚██╗██║
-   ███████╗███████╗██║ ╚═╝ ██║███████╗██║ ╚████║   ██║   ██║╚██████╔╝██║ ╚████║
-   ╚══════╝╚══════╝╚═╝     ╚═╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
+   ██████╗ ██╗  ██╗ ██████╗ ███████╗████████╗██████╗ ██╗███╗   ██╗ ██████╗
+  ██╔════╝ ██║  ██║██╔═══██╗██╔════╝╚══██╔══╝██╔══██╗██║████╗  ██║██╔════╝
+  ██║  ███╗███████║██║   ██║███████╗   ██║   ██████╔╝██║██╔██╗ ██║██║  ███╗
+  ██║   ██║██╔══██║██║   ██║╚════██║   ██║   ██╔═══╝ ██║██║╚██╗██║██║   ██║
+  ╚██████╔╝██║  ██║╚██████╔╝███████║   ██║   ██║     ██║██║ ╚████║╚██████╔╝
+   ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝   ╚═╝     ╚═╝╚═╝  ╚═══╝ ╚═════╝
 "#;
 
 const TAGLINE: &str = "The private, local-first GEO companion for indie builders — track, generate, and optimize your visibility in AI answers.";
 
 #[derive(Parser)]
 #[command(
-    name = "llmention",
+    name = "ghostping",
     about = "The private, local-first GEO companion for indie builders",
-    long_about = "LLMention — The private, local-first GEO companion for indie builders.
+    long_about = "Ghostping — The private, local-first GEO companion for indie builders.
 
 Track, generate, and optimize your visibility in AI answers (ChatGPT, Claude, Perplexity, Grok, Ollama).
 
 Quick start:
-  llmention config                          # create config
-  llmention audit myproject.com             # quick scan
-  llmention optimize myproject.com --niche \"your niche\"  # auto-optimize
-  llmention quickstart                      # guided beginner flow
+  ghostping config                          # create config
+  ghostping audit myproject.com             # quick scan
+  ghostping optimize myproject.com --niche \"your niche\"  # auto-optimize
+  ghostping quickstart                      # guided beginner flow
 
 Key commands:
   audit    — Quick visibility scan (12 smart prompts)
@@ -88,9 +88,9 @@ enum Commands {
     /// Run prompts against configured models and record brand mentions
     ///
     /// Examples:
-    ///   llmention track myproject.com
-    ///   llmention track myproject.com --prompts prompts.txt --models openai,ollama
-    ///   llmention track myproject.com --judge
+    ///   ghostping track myproject.com
+    ///   ghostping track myproject.com --prompts prompts.txt --models openai,ollama
+    ///   ghostping track myproject.com --judge
     Track {
         /// Domain or brand to track (e.g. myproject.com)
         domain: String,
@@ -107,22 +107,22 @@ enum Commands {
     /// comprehensive results including raw responses, citations, and metrics.
     ///
     /// Examples:
-    ///   llmention audit run                        # Run audit with stored prompts
-    ///   llmention audit run --models mock          # Test with mock provider
-    ///   llmention audit run --samples 5            # More samples per prompt
-    ///   llmention audit list                       # List previous audits
-    ///   llmention audit show 42                    # Show audit details
-    ///   llmention audit compare --before 1 --after 2  # Compare two runs
+    ///   ghostping audit run                        # Run audit with stored prompts
+    ///   ghostping audit run --models mock          # Test with mock provider
+    ///   ghostping audit run --samples 5            # More samples per prompt
+    ///   ghostping audit list                       # List previous audits
+    ///   ghostping audit show 42                    # Show audit details
+    ///   ghostping audit compare --before 1 --after 2  # Compare two runs
     #[command(subcommand)]
     Audit(AuditCommand),
     /// Quick audit using 12 smart default prompts — legacy mode
     ///
     /// This is the legacy audit command. For evidence-based audits,
-    /// use: llmention audit run
+    /// use: ghostping audit run
     ///
     /// Examples:
-    ///   llmention audit-legacy myproject.com
-    ///   llmention audit-legacy myproject.com --niche "CLI tool"
+    ///   ghostping audit-legacy myproject.com
+    ///   ghostping audit-legacy myproject.com --niche "CLI tool"
     #[command(name = "audit-legacy")]
     AuditLegacy {
         /// Domain or brand to audit
@@ -139,11 +139,11 @@ enum Commands {
     },
     /// Show mention history and trends from the local database (legacy)
     ///
-    /// For the new evidence-based reports, use: llmention report
+    /// For the new evidence-based reports, use: ghostping report
     ///
     /// Examples:
-    ///   llmention report-legacy myproject.com
-    ///   llmention report-legacy myproject.com --days 30
+    ///   ghostping report-legacy myproject.com
+    ///   ghostping report-legacy myproject.com --days 30
     #[command(name = "report-legacy")]
     ReportLegacy {
         /// Domain or brand
@@ -158,12 +158,12 @@ enum Commands {
     /// Autonomous GEO agent: discover prompts, audit visibility, generate content, show lift
     ///
     /// Examples:
-    ///   llmention optimize igrisinertial.com --niche "deterministic edge runtime"
-    ///   llmention optimize myproject.com --niche "rust cli tool" --competitors "ripgrep,fd" --steps 5
-    ///   llmention optimize myproject.com --niche "..." --dry-run
-    ///   llmention optimize myproject.com --niche "..." --auto-apply
-    ///   llmention optimize myproject.com --niche "Rust CLI" --plugin rust-crate
-    ///   llmention optimize myproject.com --niche "..." --max-rounds 3
+    ///   ghostping optimize igrisinertial.com --niche "deterministic edge runtime"
+    ///   ghostping optimize myproject.com --niche "rust cli tool" --competitors "ripgrep,fd" --steps 5
+    ///   ghostping optimize myproject.com --niche "..." --dry-run
+    ///   ghostping optimize myproject.com --niche "..." --auto-apply
+    ///   ghostping optimize myproject.com --niche "Rust CLI" --plugin rust-crate
+    ///   ghostping optimize myproject.com --niche "..." --max-rounds 3
     Optimize {
         /// Domain or brand to optimize (e.g. myproject.com)
         domain: String,
@@ -191,10 +191,10 @@ enum Commands {
     },
     /// Generate GEO-optimized markdown content for a target query (legacy)
     ///
-    /// For content generation from audit gaps, use: llmention generate
+    /// For content generation from audit gaps, use: ghostping generate
     ///
     /// Examples:
-    ///   llmention generate-legacy "best tool" --about "..."
+    ///   ghostping generate-legacy "best tool" --about "..."
     #[command(name = "generate-legacy")]
     GenerateLegacy {
         /// Target query or topic to generate content for
@@ -218,9 +218,9 @@ enum Commands {
     /// Manage saved projects (domain + niche pairs for quick re-auditing)
     ///
     /// Examples:
-    ///   llmention projects
-    ///   llmention projects add myproject.com --niche "Rust CLI tool"
-    ///   llmention projects remove myproject.com
+    ///   ghostping projects
+    ///   ghostping projects add myproject.com --niche "Rust CLI tool"
+    ///   ghostping projects remove myproject.com
     Projects {
         #[command(subcommand)]
         action: Option<ProjectAction>,
@@ -228,8 +228,8 @@ enum Commands {
     /// Watch a domain and re-audit it on a fixed interval
     ///
     /// Examples:
-    ///   llmention watch myproject.com --niche "Rust CLI tool"
-    ///   llmention watch myproject.com --interval 30 --models ollama
+    ///   ghostping watch myproject.com --niche "Rust CLI tool"
+    ///   ghostping watch myproject.com --interval 30 --models ollama
     Watch {
         /// Domain or brand to watch
         domain: String,
@@ -243,9 +243,9 @@ enum Commands {
     /// Manage installed prompt plugins
     ///
     /// Examples:
-    ///   llmention plugins
-    ///   llmention plugins enable rust-crate
-    ///   llmention plugins disable rust-crate
+    ///   ghostping plugins
+    ///   ghostping plugins enable rust-crate
+    ///   ghostping plugins disable rust-crate
     Plugins {
         #[command(subcommand)]
         action: Option<PluginAction>,
@@ -255,19 +255,19 @@ enum Commands {
     /// Discover project-specific prompts or browse community templates.
     ///
     /// Examples:
-    ///   llmention prompts discover              # Generate prompts from project config
-    ///   llmention prompts list                  # List stored prompts
-    ///   llmention prompts templates list        # Browse community templates
-    ///   llmention prompts templates search rust
-    ///   llmention prompts templates install rust-crate
+    ///   ghostping prompts discover              # Generate prompts from project config
+    ///   ghostping prompts list                  # List stored prompts
+    ///   ghostping prompts templates list        # Browse community templates
+    ///   ghostping prompts templates search rust
+    ///   ghostping prompts templates install rust-crate
     #[command(subcommand)]
     Prompts(PromptsCommand),
     /// Export a shareable visibility report
     ///
     /// Examples:
-    ///   llmention share myproject.com
-    ///   llmention share myproject.com --days 30 > report.md
-    ///   llmention share myproject.com --format json > report.json
+    ///   ghostping share myproject.com
+    ///   ghostping share myproject.com --days 30 > report.md
+    ///   ghostping share myproject.com --format json > report.json
     Share {
         /// Domain to export
         domain: String,
@@ -281,8 +281,8 @@ enum Commands {
     /// Show personal usage stats and trends
     ///
     /// Examples:
-    ///   llmention stats myproject.com
-    ///   llmention stats myproject.com --days 30
+    ///   ghostping stats myproject.com
+    ///   ghostping stats myproject.com --days 30
     Stats {
         /// Domain to show stats for (omit to list all tracked domains)
         domain: Option<String>,
@@ -293,8 +293,8 @@ enum Commands {
     /// Interactive goal-oriented GEO assistant in your terminal
     ///
     /// Examples:
-    ///   llmention chat
-    ///   llmention chat --models ollama
+    ///   ghostping chat
+    ///   ghostping chat --models ollama
     Chat,
     /// Print command documentation as markdown
     Docs,
@@ -304,14 +304,14 @@ enum Commands {
     Doctor,
     /// Guided beginner flow — prints the recommended steps to get started
     Quickstart,
-    /// Initialize a new LLMention project
+    /// Initialize a new Ghostping project
     ///
-    /// Creates llmention.toml in the current directory for project-specific
+    /// Creates ghostping.toml in the current directory for project-specific
     /// configuration including prompts, competitors, and audit settings.
     ///
     /// Examples:
-    ///   llmention init
-    ///   llmention init --name "MyProject" --website "https://example.com" --yes
+    ///   ghostping init
+    ///   ghostping init --name "MyProject" --website "https://example.com" --yes
     Init {
         /// Project name
         #[arg(short, long)]
@@ -332,10 +332,10 @@ enum Commands {
     /// Set up automatic background auditing (launchd on macOS, prints cron line on Linux)
     ///
     /// Examples:
-    ///   llmention schedule myproject.com
-    ///   llmention schedule myproject.com --niche "Rust CLI tool" --interval weekly
-    ///   llmention schedule myproject.com --interval daily
-    ///   llmention schedule myproject.com --uninstall
+    ///   ghostping schedule myproject.com
+    ///   ghostping schedule myproject.com --niche "Rust CLI tool" --interval weekly
+    ///   ghostping schedule myproject.com --interval daily
+    ///   ghostping schedule myproject.com --uninstall
     Schedule {
         /// Domain to audit automatically
         domain: String,
@@ -352,11 +352,11 @@ enum Commands {
     /// Stamp a publish checkpoint — records your current mention rate as a before/after baseline
     ///
     /// Run this right after publishing GEO content. Then re-audit in a few days and run
-    /// `llmention results <domain>` to see whether your rate improved.
+    /// `ghostping results <domain>` to see whether your rate improved.
     ///
     /// Examples:
-    ///   llmention publish myproject.com
-    ///   llmention publish myproject.com --note "published geo/ section on blog"
+    ///   ghostping publish myproject.com
+    ///   ghostping publish myproject.com --note "published geo/ section on blog"
     Publish {
         /// Domain to stamp
         domain: String,
@@ -367,8 +367,8 @@ enum Commands {
     /// Show before/after visibility delta since your last publish checkpoint
     ///
     /// Examples:
-    ///   llmention results myproject.com
-    ///   llmention results myproject.com --all
+    ///   ghostping results myproject.com
+    ///   ghostping results myproject.com --all
     Results {
         /// Domain to inspect
         domain: String,
@@ -383,10 +383,10 @@ enum Commands {
     /// and content gaps from your audit runs.
     ///
     /// Examples:
-    ///   llmention report                           # Report from latest audit
-    ///   llmention report --run 42                  # Report from specific audit
-    ///   llmention report --output ./reports/       # Custom output directory
-    ///   llmention report --full                    # Include full raw responses
+    ///   ghostping report                           # Report from latest audit
+    ///   ghostping report --run 42                  # Report from specific audit
+    ///   ghostping report --output ./reports/       # Custom output directory
+    ///   ghostping report --full                    # Include full raw responses
     Report {
         /// Audit run ID (latest if not specified)
         #[arg(short, long)]
@@ -410,9 +410,9 @@ enum Commands {
     /// markdown content assets to fill those gaps.
     ///
     /// Examples:
-    ///   llmention generate                          # Generate from latest audit
-    ///   llmention generate --from-audit 42          # Generate from specific run
-    ///   llmention generate --output ./content/      # Custom output directory
+    ///   ghostping generate                          # Generate from latest audit
+    ///   ghostping generate --from-audit 42          # Generate from specific run
+    ///   ghostping generate --output ./content/      # Custom output directory
     Generate {
         /// Source audit run ID or "latest"
         #[arg(short, long, default_value = "latest")]
@@ -430,7 +430,7 @@ enum Commands {
     /// and understand your content.
     ///
     /// Examples:
-    ///   llmention diagnose https://example.com
+    ///   ghostping diagnose https://example.com
     Diagnose {
         /// URL to diagnose
         url: String,
@@ -442,8 +442,8 @@ enum Prompts2Command {
     /// Discover prompts based on project configuration
     ///
     /// Examples:
-    ///   llmention prompts discover
-    ///   llmention prompts discover --limit 20
+    ///   ghostping prompts discover
+    ///   ghostping prompts discover --limit 20
     Discover {
         /// Limit number of prompts to generate
         #[arg(short, long)]
@@ -452,7 +452,7 @@ enum Prompts2Command {
     /// List stored prompts
     ///
     /// Examples:
-    ///   llmention prompts list
+    ///   ghostping prompts list
     List,
 }
 
@@ -461,9 +461,9 @@ enum Audit2Command {
     /// Run a new audit with the evidence engine
     ///
     /// Examples:
-    ///   llmention audit run
-    ///   llmention audit run --provider mock --samples 3
-    ///   llmention audit run --models ollama:llama3.2 --temperature 0.5
+    ///   ghostping audit run
+    ///   ghostping audit run --provider mock --samples 3
+    ///   ghostping audit run --models ollama:llama3.2 --temperature 0.5
     Run {
         /// Number of samples per prompt
         #[arg(short, long)]
@@ -484,8 +484,8 @@ enum Audit2Command {
     /// List previous audit runs
     ///
     /// Examples:
-    ///   llmention audit list
-    ///   llmention audit list --limit 10
+    ///   ghostping audit list
+    ///   ghostping audit list --limit 10
     List {
         /// Limit number of results
         #[arg(short, long, default_value = "20")]
@@ -494,7 +494,7 @@ enum Audit2Command {
     /// Show details of a specific audit run
     ///
     /// Examples:
-    ///   llmention audit show 42
+    ///   ghostping audit show 42
     Show {
         /// Audit run ID
         id: i64,
@@ -545,8 +545,8 @@ enum PromptsCommand {
     /// Generates prompts from your project category, audience, and competitors.
     ///
     /// Examples:
-    ///   llmention prompts discover
-    ///   llmention prompts discover --limit 20
+    ///   ghostping prompts discover
+    ///   ghostping prompts discover --limit 20
     Discover {
         /// Limit number of prompts to generate
         #[arg(short, long)]
@@ -557,16 +557,16 @@ enum PromptsCommand {
     /// Shows all prompts discovered for your project with metadata.
     ///
     /// Examples:
-    ///   llmention prompts list
+    ///   ghostping prompts list
     List,
     /// Browse and install community prompt templates
     ///
     /// Access community-contributed prompt templates.
     ///
     /// Examples:
-    ///   llmention prompts templates list
-    ///   llmention prompts templates search rust
-    ///   llmention prompts templates install rust-crate
+    ///   ghostping prompts templates list
+    ///   ghostping prompts templates search rust
+    ///   ghostping prompts templates install rust-crate
     #[command(subcommand)]
     Templates(PromptTemplatesCommand),
 }
@@ -594,9 +594,9 @@ enum AuditCommand {
     /// Execute multi-sample audits across configured models.
     ///
     /// Examples:
-    ///   llmention audit run
-    ///   llmention audit run --models mock --samples 3
-    ///   llmention audit run --temperature 0.5
+    ///   ghostping audit run
+    ///   ghostping audit run --models mock --samples 3
+    ///   ghostping audit run --temperature 0.5
     Run {
         /// Number of samples per prompt
         #[arg(short, long)]
@@ -617,8 +617,8 @@ enum AuditCommand {
     /// List previous audit runs
     ///
     /// Examples:
-    ///   llmention audit list
-    ///   llmention audit list --limit 10
+    ///   ghostping audit list
+    ///   ghostping audit list --limit 10
     List {
         /// Limit results
         #[arg(short, long, default_value = "20")]
@@ -627,7 +627,7 @@ enum AuditCommand {
     /// Show details of a specific audit run
     ///
     /// Examples:
-    ///   llmention audit show 42
+    ///   ghostping audit show 42
     Show {
         /// Audit run ID
         id: i64,
@@ -637,7 +637,7 @@ enum AuditCommand {
     /// Shows before/after metrics and visibility changes.
     ///
     /// Examples:
-    ///   llmention audit compare --before 10 --after 20
+    ///   ghostping audit compare --before 10 --after 20
     Compare {
         /// Before audit run ID
         #[arg(long)]
@@ -666,7 +666,7 @@ async fn main() -> Result<()> {
     if is_first_run {
         print_welcome();
         // Bootstrap config on very first run
-        let path = llmention::config::config_path();
+        let path = ghostping::config::config_path();
         if !path.exists() {
             std::fs::write(&path, EXAMPLE_CONFIG)?;
             println!(
@@ -1084,7 +1084,7 @@ async fn main() -> Result<()> {
                         if let Some(p) = prev_rate {
                             if p - rate > 5.0 {
                                 scheduler::notify(
-                                    "LLMention — Visibility Drop",
+                                    "Ghostping — Visibility Drop",
                                     &format!(
                                         "{}: mention rate dropped {:.0}pp to {:.0}%",
                                         domain,
@@ -1117,7 +1117,7 @@ async fn main() -> Result<()> {
                     if installed.is_empty() {
                         println!(
                             "\n  No plugins installed. Try:\n  {}\n",
-                            "llmention prompts install rust-crate".cyan()
+                            "ghostping prompts install rust-crate".cyan()
                         );
                     } else {
                         use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
@@ -1159,7 +1159,7 @@ async fn main() -> Result<()> {
                             "\n  {}  Plugin {} is not installed. Run:\n  {}\n",
                             "!".yellow(),
                             name.cyan(),
-                            format!("llmention prompts install {}", name).cyan()
+                            format!("ghostping prompts install {}", name).cyan()
                         );
                     }
                 }
@@ -1181,7 +1181,7 @@ async fn main() -> Result<()> {
                     "\n  {}  No data for {}. Run {} first.\n",
                     "!".yellow(),
                     domain.cyan(),
-                    format!("llmention audit {}", domain).cyan()
+                    format!("ghostping audit {}", domain).cyan()
                 );
             } else {
                 match format {
@@ -1208,13 +1208,13 @@ async fn main() -> Result<()> {
                 if domains.is_empty() {
                     println!(
                         "\n  No data yet. Run {} to start tracking.\n",
-                        "llmention audit <domain>".cyan()
+                        "ghostping audit <domain>".cyan()
                     );
                 } else {
                     for d in &domains {
                         println!("  {}  {}", "·".dimmed(), d.cyan());
                     }
-                    println!("\n  {}  llmention stats <domain>\n", "→".cyan());
+                    println!("\n  {}  ghostping stats <domain>\n", "→".cyan());
                 }
             }
             Some(domain) => {
@@ -1257,11 +1257,11 @@ async fn main() -> Result<()> {
 
             let binary_path = std::env::current_exe()
                 .map(|p| p.display().to_string())
-                .unwrap_or_else(|_| "llmention".to_string());
+                .unwrap_or_else(|_| "ghostping".to_string());
 
             #[cfg(target_os = "macos")]
             {
-                let label = format!("com.llmention.audit.{}", domain.replace('.', "_"));
+                let label = format!("com.ghostping.audit.{}", domain.replace('.', "_"));
                 let plist_path = dirs::home_dir()
                     .unwrap_or_default()
                     .join("Library/LaunchAgents")
@@ -1310,7 +1310,7 @@ async fn main() -> Result<()> {
                     println!(
                         "  {}  Logs:  {}",
                         "→".cyan(),
-                        format!("/tmp/llmention-{}.log", domain.replace('.', "_")).dimmed()
+                        format!("/tmp/ghostping-{}.log", domain.replace('.', "_")).dimmed()
                     );
                     println!();
                     println!(
@@ -1320,7 +1320,7 @@ async fn main() -> Result<()> {
                     println!(
                         "  {}  To remove: {}\n",
                         "→".cyan(),
-                        format!("llmention schedule {} --uninstall", domain).cyan()
+                        format!("ghostping schedule {} --uninstall", domain).cyan()
                     );
                 }
             }
@@ -1352,7 +1352,7 @@ async fn main() -> Result<()> {
                     println!(
                         "  {}  Logs will be appended to {}\n",
                         "→".cyan(),
-                        format!("/tmp/llmention-{}.log", domain.replace('.', "_")).dimmed()
+                        format!("/tmp/ghostping-{}.log", domain.replace('.', "_")).dimmed()
                     );
                 }
                 let _ = parsed_interval;
@@ -1366,7 +1366,7 @@ async fn main() -> Result<()> {
                     "\n  {}  No audit data for {}. Run {} first.\n",
                     "!".yellow(),
                     domain.cyan(),
-                    format!("llmention audit {}", domain).cyan()
+                    format!("ghostping audit {}", domain).cyan()
                 );
             } else {
                 storage.record_publish_snapshot(
@@ -1396,7 +1396,7 @@ async fn main() -> Result<()> {
                 println!(
                     "  {}  Re-audit in a few days, then run {} to measure lift.",
                     "Tip".yellow().bold(),
-                    format!("llmention results {}", domain).cyan()
+                    format!("ghostping results {}", domain).cyan()
                 );
                 println!();
             }
@@ -1409,7 +1409,7 @@ async fn main() -> Result<()> {
                     "\n  {}  No publish checkpoints for {}. Run {} after publishing content.\n",
                     "!".yellow(),
                     domain.cyan(),
-                    format!("llmention publish {}", domain).cyan()
+                    format!("ghostping publish {}", domain).cyan()
                 );
             } else {
                 let (current_rate, current_mentioned, current_total) =
@@ -1448,9 +1448,9 @@ async fn main() -> Result<()> {
                 Ok(Some((p, d))) => (p, d),
                 Ok(None) => {
                     println!(
-                        "\n  {} No llmention.toml found. Run {} first.\n",
+                        "\n  {} No ghostping.toml found. Run {} first.\n",
                         "!".yellow(),
-                        "llmention init".cyan()
+                        "ghostping init".cyan()
                     );
                     std::process::exit(1);
                 }
@@ -1483,9 +1483,9 @@ async fn main() -> Result<()> {
                 Ok(Some((p, d))) => (p, d),
                 Ok(None) => {
                     println!(
-                        "\n  {} No llmention.toml found. Run {} first.\n",
+                        "\n  {} No ghostping.toml found. Run {} first.\n",
                         "!".yellow(),
-                        "llmention init".cyan()
+                        "ghostping init".cyan()
                     );
                     std::process::exit(1);
                 }
@@ -1549,9 +1549,9 @@ async fn main() -> Result<()> {
                 Ok(Some((p, d))) => (p, d),
                 Ok(None) => {
                     println!(
-                        "\n  {} No llmention.toml found. Run {} first.\n",
+                        "\n  {} No ghostping.toml found. Run {} first.\n",
                         "!".yellow(),
-                        "llmention init".cyan()
+                        "ghostping init".cyan()
                     );
                     std::process::exit(1);
                 }
@@ -1578,9 +1578,9 @@ async fn main() -> Result<()> {
                 Ok(Some((p, d))) => (p, d),
                 Ok(None) => {
                     println!(
-                        "\n  {} No llmention.toml found. Run {} first.\n",
+                        "\n  {} No ghostping.toml found. Run {} first.\n",
                         "!".yellow(),
-                        "llmention init".cyan()
+                        "ghostping init".cyan()
                     );
                     std::process::exit(1);
                 }
@@ -1620,7 +1620,7 @@ fn no_providers_error() -> ! {
     eprintln!("  Options:");
     eprintln!(
         "    • Add an API key in {}",
-        "~/.llmention/config.toml".cyan()
+        "~/.ghostping/config.toml".cyan()
     );
     eprintln!(
         "    • Or run {} and set {} for free local inference",
@@ -1629,7 +1629,7 @@ fn no_providers_error() -> ! {
     );
     eprintln!(
         "\n  Run {} to see setup instructions.\n",
-        "llmention config".cyan()
+        "ghostping config".cyan()
     );
     std::process::exit(1);
 }
@@ -1699,7 +1699,7 @@ fn is_missing_api_key(api_key: &str) -> bool {
 fn provider_config<'a>(
     config: &'a Config,
     provider: &str,
-) -> Option<&'a llmention::config::ProviderConfig> {
+) -> Option<&'a ghostping::config::ProviderConfig> {
     match normalize_provider_name(provider) {
         "openai" => config.providers.openai.as_ref(),
         "anthropic" => config.providers.anthropic.as_ref(),
@@ -1828,7 +1828,7 @@ fn ensure_cloud_api_keys(selected: &[String], config: &Config) -> Result<()> {
 
         if missing {
             bail!(
-                "Missing {} API key. Set {} or configure {} in ~/.llmention/config.toml. For local testing without API keys, run: llmention audit run --models mock --samples 3",
+                "Missing {} API key. Set {} or configure {} in ~/.ghostping/config.toml. For local testing without API keys, run: ghostping audit run --models mock --samples 3",
                 provider_display_name(provider),
                 env_var,
                 provider_config_path(provider)
@@ -1859,10 +1859,10 @@ fn warn_cloud_audit_if_needed(selected: &[String], config: &Config, yes: bool) {
 
 fn run_config_command() -> Result<()> {
     let (dir, _) = Config::ensure_dir()?;
-    let path = llmention::config::config_path();
+    let path = ghostping::config::config_path();
 
     println!();
-    println!("{}", "LLMention — Configuration".bold());
+    println!("{}", "Ghostping — Configuration".bold());
     println!("{}", "━".repeat(56).dimmed());
     println!();
     println!("  Config dir   {}", dir.display().to_string().cyan());
@@ -1917,7 +1917,7 @@ fn run_config_command() -> Result<()> {
     println!(
         "  {}  Run {} after editing to verify your setup.",
         "Tip".yellow().bold(),
-        "llmention doctor".cyan()
+        "ghostping doctor".cyan()
     );
     println!();
     Ok(())
@@ -1925,12 +1925,12 @@ fn run_config_command() -> Result<()> {
 
 async fn run_doctor(config: &Config, base_dir: &Path) -> Result<()> {
     println!();
-    println!("{}", "LLMention Doctor".bold());
+    println!("{}", "Ghostping Doctor".bold());
     println!("{}", "━".repeat(56).dimmed());
     println!();
 
     // ── Paths ──
-    let config_path = llmention::config::config_path();
+    let config_path = ghostping::config::config_path();
     check(
         "Config file  ",
         config_path.exists(),
@@ -1939,12 +1939,12 @@ async fn run_doctor(config: &Config, base_dir: &Path) -> Result<()> {
     check(
         "Cache dir    ",
         base_dir.join("cache").exists(),
-        "~/.llmention/cache/",
+        "~/.ghostping/cache/",
     );
     check(
         "Database     ",
         base_dir.join("mentions.db").exists(),
-        "~/.llmention/mentions.db",
+        "~/.ghostping/mentions.db",
     );
 
     println!();
@@ -2072,13 +2072,13 @@ async fn run_doctor(config: &Config, base_dir: &Path) -> Result<()> {
         println!(
             "  {} At least one provider is active. Try: {}",
             "✓".green().bold(),
-            "llmention audit myproject.com".cyan()
+            "ghostping audit myproject.com".cyan()
         );
     } else {
         println!(
             "  {} No providers enabled. Edit {} to get started.",
             "✗".red().bold(),
-            "~/.llmention/config.toml".cyan()
+            "~/.ghostping/config.toml".cyan()
         );
     }
     println!();
@@ -2106,26 +2106,26 @@ fn check(label: &str, ok: bool, detail: &str) {
 
 fn run_quickstart() -> Result<()> {
     println!();
-    println!("{}", "LLMention Quickstart".bold());
+    println!("{}", "Ghostping Quickstart".bold());
     println!("{}", "━".repeat(56).dimmed());
     println!();
     println!("  {}  {}", "1.".bold(), "Create config".bold());
-    println!("      {}", "llmention config".cyan());
+    println!("      {}", "ghostping config".cyan());
     println!();
     println!(
         "  {}  {}",
         "2.".bold(),
         "Add your API key (or enable Ollama for free)".bold()
     );
-    println!("      {}", "Edit ~/.llmention/config.toml".cyan());
+    println!("      {}", "Edit ~/.ghostping/config.toml".cyan());
     println!();
     println!("  {}  {}", "3.".bold(), "Verify your setup".bold());
-    println!("      {}", "llmention doctor".cyan());
+    println!("      {}", "ghostping doctor".cyan());
     println!();
     println!("  {}  {}", "4.".bold(), "Run your first audit".bold());
     println!(
         "      {}",
-        "llmention audit myproject.com --niche \"your niche\"".cyan()
+        "ghostping audit myproject.com --niche \"your niche\"".cyan()
     );
     println!();
     println!(
@@ -2135,7 +2135,7 @@ fn run_quickstart() -> Result<()> {
     );
     println!(
         "      {}",
-        "llmention optimize myproject.com --niche \"your niche\" --auto-apply".cyan()
+        "ghostping optimize myproject.com --niche \"your niche\" --auto-apply".cyan()
     );
     println!();
     println!("{}", "─".repeat(56).dimmed());
@@ -2143,7 +2143,7 @@ fn run_quickstart() -> Result<()> {
     println!(
         "  {}  Need help? Run {} for full documentation.",
         "Tip".yellow().bold(),
-        "llmention docs".cyan()
+        "ghostping docs".cyan()
     );
     println!();
     Ok(())
@@ -2152,7 +2152,7 @@ fn run_quickstart() -> Result<()> {
 fn build_judge_provider(
     flag: bool,
     config: &Config,
-) -> Option<std::sync::Arc<dyn llmention::providers::LlmProvider>> {
+) -> Option<std::sync::Arc<dyn ghostping::providers::LlmProvider>> {
     if flag || config.judge.enabled {
         tracker::build_judge(config)
     } else {
@@ -2216,38 +2216,38 @@ fn resolve_discover_template(name: Option<&str>, config_dir: &Path) -> Option<St
 }
 
 fn generate_docs() -> String {
-    let mut out = String::from("# LLMention — Command Reference\n\n");
+    let mut out = String::from("# Ghostping — Command Reference\n\n");
     out.push_str("Local-first GEO (Generative Engine Optimization) agent for indie hackers.\n\n");
     out.push_str("---\n\n");
 
     let commands = [
         ("audit", "Quick visibility scan using smart default prompts.",
-         "llmention audit myproject.com\nllmention audit myproject.com --niche \"Rust CLI tool\"\nllmention audit myproject.com --models ollama"),
+         "ghostping audit myproject.com\nghostping audit myproject.com --niche \"Rust CLI tool\"\nghostping audit myproject.com --models ollama"),
         ("track", "Run custom prompts from a file and record brand mentions.",
-         "llmention track myproject.com --prompts prompts.txt\nllmention track myproject.com --prompts prompts.json --models anthropic"),
+         "ghostping track myproject.com --prompts prompts.txt\nghostping track myproject.com --prompts prompts.json --models anthropic"),
         ("report", "Show mention history and trends from the local database.",
-         "llmention report myproject.com\nllmention report myproject.com --days 30\nllmention report myproject.com --export csv > results.csv"),
+         "ghostping report myproject.com\nghostping report myproject.com --days 30\nghostping report myproject.com --export csv > results.csv"),
         ("generate", "Generate GEO-optimized markdown content for a target query.",
-         "llmention generate \"best rust cli tool\" --about \"myproject.io is a ...\"\nllmention generate \"...\" --plugin rust-crate --about \"...\"\nllmention generate \"...\" --evaluate"),
+         "ghostping generate \"best rust cli tool\" --about \"myproject.io is a ...\"\nghostping generate \"...\" --plugin rust-crate --about \"...\"\nghostping generate \"...\" --evaluate"),
         ("optimize", "5-step autonomous GEO agent: discover, audit, generate, refine, evaluate.",
-         "llmention optimize myproject.com --niche \"Rust CLI tool\"\nllmention optimize myproject.com --niche \"...\" --steps 5 --auto-apply\nllmention optimize myproject.com --niche \"...\" --max-rounds 3\nllmention optimize myproject.com --niche \"...\" --plugin rust-crate"),
+         "ghostping optimize myproject.com --niche \"Rust CLI tool\"\nghostping optimize myproject.com --niche \"...\" --steps 5 --auto-apply\nghostping optimize myproject.com --niche \"...\" --max-rounds 3\nghostping optimize myproject.com --niche \"...\" --plugin rust-crate"),
         ("chat", "Structured TUI assistant — state a goal, get a guided GEO plan.",
-         "llmention chat\nllmention chat --models ollama"),
+         "ghostping chat\nghostping chat --models ollama"),
         ("projects", "Manage saved domain + niche pairs.",
-         "llmention projects\nllmention projects add myproject.com --niche \"Rust CLI tool\"\nllmention projects remove myproject.com"),
+         "ghostping projects\nghostping projects add myproject.com --niche \"Rust CLI tool\"\nghostping projects remove myproject.com"),
         ("watch", "Background polling audit on a fixed interval.",
-         "llmention watch myproject.com --niche \"Rust CLI tool\"\nllmention watch myproject.com --interval 30 --models ollama"),
+         "ghostping watch myproject.com --niche \"Rust CLI tool\"\nghostping watch myproject.com --interval 30 --models ollama"),
         ("stats", "Personal usage trends and per-day breakdown.",
-         "llmention stats\nllmention stats myproject.com\nllmention stats myproject.com --days 30"),
+         "ghostping stats\nghostping stats myproject.com\nghostping stats myproject.com --days 30"),
         ("share", "Export a shareable visibility report.",
-         "llmention share myproject.com\nllmention share myproject.com --days 30 > report.md\nllmention share myproject.com --format json > report.json"),
+         "ghostping share myproject.com\nghostping share myproject.com --days 30 > report.md\nghostping share myproject.com --format json > report.json"),
         ("prompts", "Browse and install community prompt templates.",
-         "llmention prompts list\nllmention prompts search rust\nllmention prompts install rust-crate"),
+         "ghostping prompts list\nghostping prompts search rust\nghostping prompts install rust-crate"),
         ("plugins", "Manage installed plugins.",
-         "llmention plugins\nllmention plugins enable rust-crate\nllmention plugins disable rust-crate"),
-        ("config", "Create ~/.llmention/config.toml and show setup instructions.", "llmention config"),
-        ("doctor", "Verify config, providers, and Ollama connectivity.", "llmention doctor"),
-        ("docs", "Print this command reference as markdown.", "llmention docs > COMMANDS.md"),
+         "ghostping plugins\nghostping plugins enable rust-crate\nghostping plugins disable rust-crate"),
+        ("config", "Create ~/.ghostping/config.toml and show setup instructions.", "ghostping config"),
+        ("doctor", "Verify config, providers, and Ollama connectivity.", "ghostping doctor"),
+        ("docs", "Print this command reference as markdown.", "ghostping docs > COMMANDS.md"),
     ];
 
     for (name, desc, examples) in &commands {
@@ -2265,7 +2265,7 @@ fn generate_docs() -> String {
     out.push_str("| `--verbose` | Show raw LLM response previews |\n");
     out.push_str("| `--quiet` | Suppress progress output (CI-friendly) |\n\n");
     out.push_str("---\n\n");
-    out.push_str("_Generated by `llmention docs` — [LLMention](https://github.com/wiramahendra/llMention)_\n");
+    out.push_str("_Generated by `ghostping docs` — [Ghostping](https://github.com/commonfields/ghostping)_\n");
     out
 }
 
@@ -2282,7 +2282,7 @@ fn run_projects_list(storage: &Storage) -> anyhow::Result<()> {
     if projects.is_empty() {
         println!(
             "\n  No projects yet. Add one:\n  {}\n",
-            "llmention projects add myproject.com --niche \"your niche\"".cyan()
+            "ghostping projects add myproject.com --niche \"your niche\"".cyan()
         );
         return Ok(());
     }
@@ -2311,7 +2311,7 @@ fn run_projects_list(storage: &Storage) -> anyhow::Result<()> {
     }
     println!("{table}");
     println!(
-        "\n  {}  llmention audit <domain>  or  llmention optimize <domain> --niche <niche>\n",
+        "\n  {}  ghostping audit <domain>  or  ghostping optimize <domain> --niche <niche>\n",
         "Tip".yellow().bold()
     );
     Ok(())
@@ -2328,9 +2328,9 @@ fn run_init2(
 ) -> Result<()> {
     use std::io::{self, Write};
 
-    // Check if llmention.toml already exists
-    if PathBuf::from("llmention.toml").exists() && !force {
-        println!("\n  {} llmention.toml already exists", "!".yellow());
+    // Check if ghostping.toml already exists
+    if PathBuf::from("ghostping.toml").exists() && !force {
+        println!("\n  {} ghostping.toml already exists", "!".yellow());
         println!("  Use {} to overwrite\n", "--force".cyan());
         return Ok(());
     }
@@ -2400,15 +2400,15 @@ fn run_init2(
     println!("  Next steps:");
     println!(
         "    1. Edit {} to customize your project",
-        "llmention.toml".cyan()
+        "ghostping.toml".cyan()
     );
     println!(
         "    2. Run {} to discover prompts",
-        "llmention prompts discover".cyan()
+        "ghostping prompts discover".cyan()
     );
     println!(
         "    3. Run {} to start auditing",
-        "llmention audit run".cyan()
+        "ghostping audit run".cyan()
     );
     println!();
 
@@ -2483,7 +2483,7 @@ fn run_prompts_list(project: &ProjectConfig, storage: &AuditStorage) -> Result<(
     if prompts.is_empty() {
         println!(
             "\n  No prompts found. Run {} first.\n",
-            "llmention prompts discover".cyan()
+            "ghostping prompts discover".cyan()
         );
         return Ok(());
     }
@@ -2521,7 +2521,7 @@ async fn run_prompts_templates(
     template_cmd: PromptTemplatesCommand,
 ) -> Result<()> {
     use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
-    use llmention::marketplace::{builtin, registry};
+    use ghostping::marketplace::{builtin, registry};
 
     match template_cmd {
         PromptTemplatesCommand::List => {
@@ -2549,7 +2549,7 @@ async fn run_prompts_templates(
             }
             println!("{table}");
             println!(
-                "\n  {}  llmention prompts templates install <name>\n",
+                "\n  {}  ghostping prompts templates install <name>\n",
                 "→".cyan()
             );
         }
@@ -2591,7 +2591,7 @@ async fn run_prompts_templates(
                     "\n  {}  Template {} not found. Run {} to see available templates.\n",
                     "✗".red().bold(),
                     name.cyan(),
-                    "llmention prompts templates list".cyan()
+                    "ghostping prompts templates list".cyan()
                 );
             }
             Some(info) => {
@@ -2628,7 +2628,7 @@ async fn run_prompts_templates(
                     "\n  {}  Use it with:\n  {}\n",
                     "→".cyan(),
                     format!(
-                        "llmention generate-legacy \"...\" --plugin {} --about \"...\"",
+                        "ghostping generate-legacy \"...\" --plugin {} --about \"...\"",
                         name
                     )
                     .cyan()
@@ -2659,7 +2659,7 @@ async fn run_audit_run(
         println!(
             "\n  {} No prompts found. Run {} first.\n",
             "!".yellow(),
-            "llmention prompts discover".cyan()
+            "ghostping prompts discover".cyan()
         );
         return Ok(());
     }
@@ -2671,19 +2671,19 @@ async fn run_audit_run(
 
     // Build providers
     let providers = if request.models.as_deref() == Some("mock") {
-        use llmention::providers::mock::MockProviderBuilder;
+        use ghostping::providers::mock::MockProviderBuilder;
         vec![std::sync::Arc::new(
             MockProviderBuilder::new("mock")
                 .with_default_response("This is a mock response for testing.")
                 .build(),
         )
-            as std::sync::Arc<dyn llmention::providers::LlmProvider>]
+            as std::sync::Arc<dyn ghostping::providers::LlmProvider>]
     } else {
         build_providers_for_project(&project.providers, global_config, request.models.as_deref())
     };
 
     if providers.is_empty() {
-        bail!("No providers configured. Check ~/.llmention/config.toml or use --models mock");
+        bail!("No providers configured. Check ~/.ghostping/config.toml or use --models mock");
     }
 
     // Build options
@@ -2742,7 +2742,7 @@ async fn run_audit_run(
         println!();
         println!(
             "  Next: {} to generate content",
-            "llmention generate".cyan()
+            "ghostping generate".cyan()
         );
         println!();
     }
@@ -2756,7 +2756,7 @@ fn run_audit_list(project: &ProjectConfig, storage: &AuditStorage, limit: usize)
     if runs.is_empty() {
         println!(
             "\n  No audit runs found. Run {} first.\n",
-            "llmention audit run".cyan()
+            "ghostping audit run".cyan()
         );
         return Ok(());
     }
@@ -2779,7 +2779,7 @@ fn run_audit_list(project: &ProjectConfig, storage: &AuditStorage, limit: usize)
         let summary = r
             .summary_json
             .as_deref()
-            .and_then(|s| serde_json::from_str::<llmention::audit_storage::AuditSummary>(s).ok());
+            .and_then(|s| serde_json::from_str::<ghostping::audit_storage::AuditSummary>(s).ok());
 
         if let Some(s) = summary {
             println!(
@@ -3060,7 +3060,7 @@ fn generate_markdown_report(
 
     // Header
     report.push_str(&format!(
-        r#"# LLMention Evidence Report
+        r#"# Ghostping Evidence Report
 
 ## {}
 
@@ -3110,7 +3110,7 @@ fn generate_markdown_report(
 
     let mut by_provider: std::collections::HashMap<
         String,
-        Vec<&llmention::audit_storage::AuditResult>,
+        Vec<&ghostping::audit_storage::AuditResult>,
     > = std::collections::HashMap::new();
     for r in &results {
         by_provider.entry(r.provider.clone()).or_default().push(r);
@@ -3144,7 +3144,7 @@ fn generate_markdown_report(
 
 ---
 
-_Generated by [LLMention](https://github.com/wiramahendra/llMention) — local-first AI visibility tooling_
+_Generated by [Ghostping](https://github.com/commonfields/ghostping) — local-first AI visibility tooling_
 "#,
         run.samples_per_prompt,
         Utc::now().format("%Y-%m-%d %H:%M UTC"),
@@ -3213,7 +3213,7 @@ async fn run_diagnose2(url: &str) -> Result<()> {
         }
         _ => {
             println!(
-                "  {} llms.txt not found (generate with: llmention generate)",
+                "  {} llms.txt not found (generate with: ghostping generate)",
                 "○".dimmed()
             );
         }
