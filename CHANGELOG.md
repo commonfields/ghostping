@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0] - 2026-05-06
 
 ### Release Summary
-This is the first public release candidate for LLMention v0.3.0, featuring a completely normalized CLI with clean command names and an evidence-based workflow. The CLI has been stabilized with production-ready commands for project initialization, prompt discovery, multi-sample auditing, report generation, and content gap analysis.
+This is the first public release candidate for Ghostping v0.3.0, featuring a completely normalized CLI with clean command names and an evidence-based workflow. The CLI has been stabilized with production-ready commands for project initialization, prompt discovery, multi-sample auditing, report generation, and content gap analysis.
 
 ### Final Pre-Release Patch
 - Fixed release-blocking build and clippy warnings
@@ -21,7 +21,7 @@ This is the first public release candidate for LLMention v0.3.0, featuring a com
 
 ### Changed
 - Promoted v0.2 evidence engine workflow to primary CLI commands
-- `init2` → `init`: Initialize project with llmention.toml
+- `init2` → `init`: Initialize project with ghostping.toml
 - `prompts2 discover/list` → `prompts discover/list`: Prompt management
 - `audit2 run/list/show` → `audit run/list/show`: Evidence-based audits
 - `report2` → `report`: Generate markdown reports from audit results
@@ -35,7 +35,7 @@ This is the first public release candidate for LLMention v0.3.0, featuring a com
 - Legacy domain-based workflow is preserved as `*-legacy` commands
 
 ### Added
-- Project-level configuration via `llmention.toml`
+- Project-level configuration via `ghostping.toml`
 - Multi-sample audits with statistical significance
 - Raw evidence storage for transparency
 - Prompt categorization with intent and funnel stage
@@ -94,7 +94,7 @@ The old `*2` commands will continue to work with a deprecation warning.
 ## [0.1.0] - 2026-05-01
 
 ### Added
-- Initial release of LLMention
+- Initial release of Ghostping
 - Domain-based visibility tracking (`track`, `audit`)
 - Quick audit with 12 smart prompts
 - Autonomous GEO optimization agent (`optimize`)
@@ -104,7 +104,7 @@ The old `*2` commands will continue to work with a deprecation warning.
 - Plugin system for custom templates
 - Desktop app (Tauri-based)
 
-[Unreleased]: https://github.com/wiramahendra/llMention/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/wiramahendra/llMention/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/wiramahendra/llMention/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/wiramahendra/llMention/releases/tag/v0.1.0
+[Unreleased]: https://github.com/commonfields/ghostping/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/commonfields/ghostping/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/commonfields/ghostping/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/commonfields/ghostping/releases/tag/v0.1.0
