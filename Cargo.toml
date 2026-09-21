@@ -14,24 +14,24 @@ targets = [
 ]
 
 [package]
-name = "llmention"
+name = "ghostping"
 version = "0.3.0"
 edition = "2021"
 description = "Local-first GEO agent: track, generate, and optimize your brand's visibility in LLMs"
 license = "MIT"
 keywords = ["geo", "llm", "visibility", "seo", "cli"]
 categories = ["command-line-utilities", "development-tools"]
-repository = "https://github.com/wiramahendra/llMention"
-homepage = "https://github.com/wiramahendra/llMention"
-documentation = "https://github.com/wiramahendra/llMention#readme"
+repository = "https://github.com/commonfields/ghostping"
+homepage = "https://github.com/commonfields/ghostping"
+documentation = "https://github.com/commonfields/ghostping#readme"
 readme = "README.md"
 
 [[bin]]
-name = "llmention"
-path = "src/bin/llmention.rs"
+name = "ghostping"
+path = "src/bin/ghostping.rs"
 
 [lib]
-name = "llmention"
+name = "ghostping"
 path = "src/lib.rs"
 
 [profile.release]
@@ -74,7 +74,7 @@ async-trait = "0.1"
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
-# Directories (for ~/.llmention)
+# Directories (for ~/.ghostping)
 dirs = "5"
 
 # Hashing (for cache keys)
