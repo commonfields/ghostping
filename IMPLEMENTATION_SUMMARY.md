@@ -1,13 +1,13 @@
-# LLMention v0.2 Evidence Engine - Implementation Summary
+# Ghostping v0.2 Evidence Engine - Implementation Summary
 
 ## Overview
 
-This implementation transforms LLMention into an evidence-first local GEO workbench. The following components have been added or enhanced:
+This implementation transforms Ghostping into an evidence-first local GEO workbench. The following components have been added or enhanced:
 
 ## New Files Created
 
 ### 1. `/src/project_config.rs` - Project-level Configuration
-- **Purpose**: Defines project-specific configuration via `llmention.toml`
+- **Purpose**: Defines project-specific configuration via `ghostping.toml`
 - **Key Features**:
   - Project metadata (name, website, category, description, audience)
   - Competitor tracking
@@ -117,23 +117,23 @@ This implementation transforms LLMention into an evidence-first local GEO workbe
 ## Integration Points
 
 ### With Existing Code
-- Preserves existing `~/.llmention/config.toml` for global provider settings
+- Preserves existing `~/.ghostping/config.toml` for global provider settings
 - Extends existing SQLite database (backward compatible)
 - Uses existing provider implementations
 - Leverages existing parser for mention/citation/sentiment detection
 
 ### New CLI Workflow (to be integrated)
 ```bash
-llmention init                    # Create llmention.toml
-llmention prompts discover        # Generate prompts from project config
-llmention audit run               # Run multi-sample audit
-llmention audit list              # Show audit history
-llmention audit show <id>         # Show audit details
-llmention audit compare --before <id> --after <id>  # Compare runs
-llmention generate --from-audit latest  # Create content from gaps
-llmention report --format markdown      # Generate evidence report
-llmention diagnose <url>          # Check crawlability
-llmention doctor                  # Verify setup
+ghostping init                    # Create ghostping.toml
+ghostping prompts discover        # Generate prompts from project config
+ghostping audit run               # Run multi-sample audit
+ghostping audit list              # Show audit history
+ghostping audit show <id>         # Show audit details
+ghostping audit compare --before <id> --after <id>  # Compare runs
+ghostping generate --from-audit latest  # Create content from gaps
+ghostping report --format markdown      # Generate evidence report
+ghostping diagnose <url>          # Check crawlability
+ghostping doctor                  # Verify setup
 ```
 
 ## Metrics and Scoring
@@ -155,8 +155,8 @@ visibility_score = mention_rate * 0.35
 
 ## Security and Privacy
 
-- Project config stored locally in `llmention.toml`
-- API keys remain in `~/.llmention/config.toml` only
+- Project config stored locally in `ghostping.toml`
+- API keys remain in `~/.ghostping/config.toml` only
 - Raw responses stored locally in SQLite
 - No external data transmission except explicit LLM queries
 
@@ -176,7 +176,7 @@ Key test areas:
 
 ## Next Steps for Full Integration
 
-1. **Update CLI binary** (`src/bin/llmention.rs`):
+1. **Update CLI binary** (`src/bin/ghostping.rs`):
    - Add new Commands variants for evidence workflow
    - Integrate new command handlers
    - Preserve backward compatibility with existing commands
@@ -189,7 +189,7 @@ Key test areas:
 3. **Documentation**:
    - Update README with new workflow
    - Add examples for each command
-   - Document llmention.toml schema
+   - Document ghostping.toml schema
 
 4. **Additional Tests**:
    - Integration tests with mock providers
