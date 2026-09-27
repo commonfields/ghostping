@@ -239,6 +239,13 @@ pub async fn run_track(
     })
 }
 
+/// Source marker for every summary produced by the legacy tracker path.
+/// Legacy results live in `mentions.db` and must never be mistaken for
+/// current evidence-engine audits (`evidence.db`, see `AuditSummary`).
+/// Callers that surface these numbers (CLI, Tauri, TUI) must present the
+/// legacy identity alongside them.
+pub const AUDIT_SOURCE_LEGACY: &str = "legacy-tracker";
+
 fn make_result(
     domain: &str,
     prompt: &str,
