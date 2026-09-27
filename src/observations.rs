@@ -104,6 +104,49 @@ pub enum FailureClass {
     Unknown,
 }
 
+/// Declared identity of a first-party report export.
+///
+/// Google report exports do not cryptographically establish origin: a user
+/// declaration remains a user declaration. Ordinary `Top queries` exports
+/// are `GenericSearch` and MUST NOT enter generative-AI metrics. The AI
+/// identities are accepted only with an explicit `--report` declaration and
+/// remain UNVERIFIED against a genuine authorized AI-report sample
+/// (see `docs/engineering/observation-integrity.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportIdentity {
+    GenericSearch,
+    GenerativeAiSearch,
+    GenerativeAiDiscover,
+    Unknown,
+}
+
+impl ReportIdentity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::GenericSearch => "generic_search",
+            Self::GenerativeAiSearch => "generative_ai_search",
+            Self::GenerativeAiDiscover => "generative_ai_discover",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "generic_search" => Ok(Self::GenericSearch),
+            "generative_ai_search" => Ok(Self::GenerativeAiSearch),
+            "generative_ai_discover" => Ok(Self::GenerativeAiDiscover),
+            "unknown" => Ok(Self::Unknown),
+            other => bail!("Unknown report identity '{}'", other),
+        }
+    }
+
+    /// True only for confirmed generative-AI report identities.
+    pub fn is_confirmed_ai(self) -> bool {
+        matches!(self, Self::GenerativeAiSearch | Self::GenerativeAiDiscover)
+    }
+}
+
 impl FailureClass {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -159,6 +202,7 @@ pub struct ObservationEnvelope {
     pub raw_digest: String,
     pub raw_ref: String,
     pub payload: serde_json::Value,
+    pub report_identity: ReportIdentity,
 }
 
 /// Input for recording one observation. `observation_id` is generated when
@@ -184,12 +228,24 @@ pub struct NewObservation<'a> {
     pub failure_class: FailureClass,
     pub latency_ms: Option<i64>,
     pub cost_usd: Option<f64>,
-    /// Dedupe key scoped to (project, type): re-importing the same source
-    /// row must not create a second observation.
+    /// Dedupe key scoped to (project, type, report identity, period):
+    /// re-importing the same source row must not create a second observation.
     pub dedupe_key: &'a str,
+    pub report_identity: ReportIdentity,
     /// Raw evidence bytes, stored content-addressed.
     pub raw_bytes: &'a [u8],
     pub payload: &'a serde_json::Value,
+}
+
+/// Input for recording one import batch.
+pub struct ImportBatchRecord<'a> {
+    pub project_id: &'a str,
+    pub source_kind: &'a str,
+    pub source_digest: &'a str,
+    pub source_name: &'a str,
+    pub identity: &'a str,
+    pub period: &'a str,
+    pub row_count: i64,
 }
 
 /// Record of one import batch, used to reject duplicate file imports.
@@ -249,6 +305,7 @@ pub fn init_observation_schema(conn: &rusqlite::Connection) -> Result<()> {
             raw_digest TEXT NOT NULL,
             payload_json TEXT NOT NULL,
             dedupe_key TEXT NOT NULL DEFAULT '',
+            report_identity TEXT NOT NULL DEFAULT 'unknown',
             created_at TEXT NOT NULL
         );
 
@@ -271,13 +328,85 @@ pub fn init_observation_schema(conn: &rusqlite::Connection) -> Result<()> {
             source_kind TEXT NOT NULL,
             source_digest TEXT NOT NULL,
             source_name TEXT NOT NULL,
+            identity TEXT NOT NULL DEFAULT '',
+            period TEXT NOT NULL DEFAULT '',
             row_count INTEGER NOT NULL DEFAULT 0,
             imported_at TEXT NOT NULL,
-            UNIQUE (project_id, source_kind, source_digest)
+            UNIQUE (project_id, source_kind, source_digest, identity, period)
         );
         "#,
     )?;
+    migrate_observation_schema_v2(conn)?;
     Ok(())
+}
+
+/// Additive, non-destructive migrations for databases created by earlier
+/// kernel versions. Raw evidence and existing rows are never rewritten.
+fn migrate_observation_schema_v2(conn: &rusqlite::Connection) -> Result<()> {
+    // observations.report_identity (V1 rows predate report identity).
+    if !table_has_column(conn, "observations", "report_identity")? {
+        conn.execute_batch(
+            "ALTER TABLE observations ADD COLUMN report_identity TEXT NOT NULL DEFAULT 'unknown';",
+        )?;
+    }
+    // import_batches v1 had UNIQUE(project, kind, digest) with no period:
+    // identical bytes for another reporting period must neither vanish nor
+    // fabricate rows, so scope the key by period via table rebuild.
+    // Natural key scopes (project, type, report identity, dedupe key) so
+    // the same logical row under a different declared identity does not
+    // collide with pre-identity history.
+    conn.execute_batch(
+        "DROP INDEX IF EXISTS idx_observations_natural_key;
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_observations_natural_key_v2
+            ON observations(project_id, observation_type, report_identity, dedupe_key);",
+    )?;
+    if !table_has_column(conn, "import_batches", "period")?
+        || !table_has_column(conn, "import_batches", "identity")?
+    {
+        let has_period = table_has_column(conn, "import_batches", "period")?;
+        let period_expr = if has_period { "period" } else { "''" };
+        conn.execute_batch(&format!(
+            r#"
+            CREATE TABLE import_batches_v2 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id TEXT NOT NULL,
+                source_kind TEXT NOT NULL,
+                source_digest TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                identity TEXT NOT NULL DEFAULT '',
+                period TEXT NOT NULL DEFAULT '',
+                row_count INTEGER NOT NULL DEFAULT 0,
+                imported_at TEXT NOT NULL,
+                UNIQUE (project_id, source_kind, source_digest, identity, period)
+            );
+            INSERT INTO import_batches_v2
+                (id, project_id, source_kind, source_digest, source_name,
+                 identity, period, row_count, imported_at)
+                SELECT id, project_id, source_kind, source_digest, source_name,
+                 '', {} , row_count, imported_at FROM import_batches;
+            DROP TABLE import_batches;
+            ALTER TABLE import_batches_v2 RENAME TO import_batches;
+            "#,
+            period_expr
+        ))?;
+    }
+    Ok(())
+}
+
+fn table_has_column(conn: &rusqlite::Connection, table: &str, column: &str) -> Result<bool> {
+    // Table name is caller-controlled (fixed strings above), never user input.
+    let sql = format!(
+        "SELECT name FROM pragma_table_info('{}')",
+        table.replace('\'', "")
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let names = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    for name in names {
+        if name? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Columns selected by `observation_select_sql`, in order. `map_observation`
@@ -286,13 +415,15 @@ const OBS_COLUMNS: &str = "observation_id, project_id, observation_type, surface
     collected_at, collector_version, schema_version, provider,
     model, retrieval_mode, region, language, prompt_group,
     prompt_variant, url_digest, planned, succeeded, failed,
-    failure_class, latency_ms, cost_usd, raw_digest, payload_json";
+    failure_class, latency_ms, cost_usd, raw_digest, payload_json,
+    report_identity";
 
 fn map_observation(row: &Row) -> std::result::Result<ObservationEnvelope, rusqlite::Error> {
     let obs_type: String = row.get(2)?;
     let retrieval: String = row.get(9)?;
     let failure: String = row.get(18)?;
     let payload_raw: String = row.get(22)?;
+    let identity_raw: String = row.get(23)?;
     Ok(ObservationEnvelope {
         observation_id: row.get(0)?,
         project_id: row.get(1)?,
@@ -318,6 +449,7 @@ fn map_observation(row: &Row) -> std::result::Result<ObservationEnvelope, rusqli
         raw_digest: row.get(21)?,
         raw_ref: row.get(21)?,
         payload: serde_json::from_str(&payload_raw).unwrap_or(serde_json::Value::Null),
+        report_identity: ReportIdentity::parse(&identity_raw).unwrap_or(ReportIdentity::Unknown),
     })
 }
 
@@ -358,10 +490,10 @@ impl AuditStorage {
               collector_version, schema_version, provider, model, retrieval_mode,
               region, language, prompt_group, prompt_variant, url_digest,
               planned, succeeded, failed, failure_class, latency_ms, cost_usd,
-              raw_digest, payload_json, dedupe_key, created_at)
+              raw_digest, payload_json, dedupe_key, report_identity, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
                      ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
-                     ?21, ?22, ?23, ?24, ?25)",
+                     ?21, ?22, ?23, ?24, ?25, ?26)",
             params![
                 id,
                 obs.project_id,
@@ -387,6 +519,7 @@ impl AuditStorage {
                 digest,
                 obs.payload.to_string(),
                 obs.dedupe_key,
+                obs.report_identity.as_str(),
                 chrono::Utc::now().to_rfc3339(),
             ],
         )?;
@@ -450,30 +583,133 @@ impl AuditStorage {
     }
 
     /// Record an import batch. Returns `Ok(false)` when this exact
-    /// (project, kind, file digest) was already imported — the caller must
-    /// skip the file to prevent duplicate imports.
-    pub fn record_import_batch(
-        &self,
-        project_id: &str,
-        source_kind: &str,
-        source_digest: &str,
-        source_name: &str,
-        row_count: i64,
-    ) -> Result<bool> {
+    /// (project, kind, file digest, period) was already imported — the caller
+    /// must skip the file to prevent duplicate imports. Identical bytes
+    /// asserted for another period are a *different* batch, never silently
+    /// dropped.
+    pub fn record_import_batch(&self, batch: &ImportBatchRecord) -> Result<bool> {
         let changed = self.connection().execute(
             "INSERT OR IGNORE INTO import_batches
-             (project_id, source_kind, source_digest, source_name, row_count, imported_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             (project_id, source_kind, source_digest, source_name, identity, period, row_count, imported_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
-                project_id,
-                source_kind,
-                source_digest,
-                source_name,
-                row_count,
+                batch.project_id,
+                batch.source_kind,
+                batch.source_digest,
+                batch.source_name,
+                batch.identity,
+                batch.period,
+                batch.row_count,
                 chrono::Utc::now().to_rfc3339(),
             ],
         )?;
         Ok(changed == 1)
+    }
+
+    /// Run `f` inside an IMMEDIATE transaction, rolling back completely on
+    /// failure. Importers must parse and validate everything *before*
+    /// opening the transaction, then persist batch + raw + rows atomically.
+    pub fn import_transaction<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        self.connection().execute_batch("BEGIN IMMEDIATE")?;
+        match f() {
+            Ok(v) => {
+                self.connection().execute_batch("COMMIT")?;
+                Ok(v)
+            }
+            Err(e) => {
+                let _ = self.connection().execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
+    /// Find one observation by its natural key. Used for conflict detection:
+    /// same key with different measurements must be surfaced, never silently
+    /// overwritten (rows are immutable).
+    pub fn find_observation(
+        &self,
+        project_id: &str,
+        obs_type: ObservationType,
+        identity: ReportIdentity,
+        dedupe_key: &str,
+    ) -> Result<Option<ObservationEnvelope>> {
+        let sql = format!(
+            "SELECT {} FROM observations
+             WHERE project_id = ?1 AND observation_type = ?2
+               AND report_identity = ?3 AND dedupe_key = ?4
+             LIMIT 1",
+            OBS_COLUMNS
+        );
+        let mut stmt = self.connection().prepare(&sql)?;
+        let mut rows = stmt.query_map(
+            params![project_id, obs_type.as_str(), identity.as_str(), dedupe_key],
+            Self::map_observation_row,
+        )?;
+        Ok(rows.next().transpose()?)
+    }
+
+    /// Record an integrity observation describing a collection problem
+    /// (conflicting measurements, invalid references, failed batches).
+    /// Integrity rows accompany affected evidence — never replace it.
+    pub fn record_integrity_observation(
+        &self,
+        project_id: &str,
+        surface: &str,
+        detail: &serde_json::Value,
+        raw_bytes: &[u8],
+    ) -> Result<bool> {
+        let dedupe_key = format!(
+            "integrity|{}|{}",
+            surface,
+            sha256_hex(detail.to_string().as_bytes())
+        );
+        self.insert_observation(&NewObservation {
+            observation_id: None,
+            project_id,
+            observation_type: ObservationType::Integrity,
+            surface,
+            collected_at: &chrono::Utc::now().to_rfc3339(),
+            provider: None,
+            model: None,
+            retrieval_mode: RetrievalMode::Unknown,
+            region: None,
+            language: None,
+            prompt_group: None,
+            prompt_variant: None,
+            url_digest: None,
+            planned: 0,
+            succeeded: 0,
+            failed: 0,
+            failure_class: FailureClass::Unknown,
+            latency_ms: None,
+            cost_usd: None,
+            dedupe_key: &dedupe_key,
+            report_identity: ReportIdentity::Unknown,
+            raw_bytes,
+            payload: detail,
+        })
+    }
+
+    /// True when this exact (project, kind, file digest, period) batch
+    /// was already imported.
+    pub fn import_batch_exists(
+        &self,
+        project_id: &str,
+        source_kind: &str,
+        source_digest: &str,
+        identity: &str,
+        period: &str,
+    ) -> Result<bool> {
+        let mut stmt = self.connection().prepare(
+            "SELECT COUNT(*) FROM import_batches
+             WHERE project_id = ?1 AND source_kind = ?2 AND source_digest = ?3
+               AND identity = ?4 AND period = ?5",
+        )?;
+        let n: i64 = stmt.query_row(
+            params![project_id, source_kind, source_digest, identity, period],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
     }
 
     /// Previously imported file digests for a project + source kind.
@@ -488,6 +724,24 @@ impl AuditStorage {
         let rows = stmt.query_map(params![project_id, source_kind], |r| r.get(0))?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
+}
+
+/// Effective report identity for views.
+///
+/// Stored identity wins. Pre-identity rows (`unknown`) from the generic CSV
+/// parser — which requires clicks — overlay as `generic_search` for display
+/// without rewriting history. They never count as confirmed AI exposure;
+/// only `is_confirmed_ai()` identities do.
+pub fn effective_identity(env: &ObservationEnvelope) -> ReportIdentity {
+    if env.report_identity != ReportIdentity::Unknown {
+        return env.report_identity;
+    }
+    if env.observation_type == ObservationType::SearchConsoleAggregate
+        && env.payload.get("clicks").and_then(|v| v.as_i64()).is_some()
+    {
+        return ReportIdentity::GenericSearch;
+    }
+    ReportIdentity::Unknown
 }
 
 #[cfg(test)]
@@ -505,6 +759,15 @@ mod tests {
         dedupe_key: &'a str,
         raw: &'a [u8],
         payload: &'a serde_json::Value,
+    ) -> NewObservation<'a> {
+        sample_observation_with_identity(dedupe_key, raw, payload, ReportIdentity::GenericSearch)
+    }
+
+    fn sample_observation_with_identity<'a>(
+        dedupe_key: &'a str,
+        raw: &'a [u8],
+        payload: &'a serde_json::Value,
+        identity: ReportIdentity,
     ) -> NewObservation<'a> {
         NewObservation {
             observation_id: None,
@@ -527,6 +790,7 @@ mod tests {
             latency_ms: None,
             cost_usd: None,
             dedupe_key,
+            report_identity: identity,
             raw_bytes: raw,
             payload,
         }
@@ -589,14 +853,38 @@ mod tests {
     fn test_import_batch_dedupe_rejects_same_file() {
         let (_dir, storage) = open_test_db();
         assert!(storage
-            .record_import_batch("example.com", "search_console_csv", "abc123", "Q.csv", 4)
+            .record_import_batch(&ImportBatchRecord {
+                project_id: "example.com",
+                source_kind: "search_console_csv",
+                source_digest: "abc123",
+                source_name: "Q.csv",
+                identity: "generic_search",
+                period: "2026-09-01",
+                row_count: 4,
+            })
             .unwrap());
         assert!(!storage
-            .record_import_batch("example.com", "search_console_csv", "abc123", "Q.csv", 4)
+            .record_import_batch(&ImportBatchRecord {
+                project_id: "example.com",
+                source_kind: "search_console_csv",
+                source_digest: "abc123",
+                source_name: "Q.csv",
+                identity: "generic_search",
+                period: "2026-09-01",
+                row_count: 4,
+            })
             .unwrap());
         // Same digest, different project: independent.
         assert!(storage
-            .record_import_batch("other.com", "search_console_csv", "abc123", "Q.csv", 4)
+            .record_import_batch(&ImportBatchRecord {
+                project_id: "other.com",
+                source_kind: "search_console_csv",
+                source_digest: "abc123",
+                source_name: "Q.csv",
+                identity: "generic_search",
+                period: "2026-09-01",
+                row_count: 4,
+            })
             .unwrap());
         assert_eq!(
             storage
@@ -634,6 +922,71 @@ mod tests {
             .insert_observation(&sample_observation("m1", b"raw", &payload))
             .unwrap());
         assert_eq!(storage.count_observations("example.com", None).unwrap(), 1);
+    }
+
+    #[test]
+    fn test_import_batches_v1_migrates_with_identity_and_period() {
+        // A v1 import_batches table (no period/identity, narrow UNIQUE key)
+        // migrates without losing rows; afterwards identical bytes for
+        // another period or identity are independent batches.
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("v1.db");
+        {
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE import_batches (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL,
+                 source_kind TEXT NOT NULL, source_digest TEXT NOT NULL,
+                 source_name TEXT NOT NULL, row_count INTEGER NOT NULL DEFAULT 0,
+                 imported_at TEXT NOT NULL,
+                 UNIQUE (project_id, source_kind, source_digest));
+                 INSERT INTO import_batches (project_id, source_kind, source_digest,
+                 source_name, row_count, imported_at) VALUES
+                 ('p', 'search_console_csv', 'abc', 'Q.csv', 4, 't');",
+            )
+            .unwrap();
+        }
+        let storage = AuditStorage::open(&db_path).unwrap();
+        let digests = storage
+            .imported_source_digests("p", "search_console_csv")
+            .unwrap();
+        assert_eq!(digests, vec!["abc".to_string()]);
+        // Same digest, new period: independent batch now.
+        assert!(storage
+            .record_import_batch(&ImportBatchRecord {
+                project_id: "p",
+                source_kind: "search_console_csv",
+                source_digest: "abc",
+                source_name: "Q.csv",
+                identity: "generic_search",
+                period: "2026-09-01",
+                row_count: 4,
+            })
+            .unwrap());
+        // Same again: duplicate.
+        assert!(!storage
+            .record_import_batch(&ImportBatchRecord {
+                project_id: "p",
+                source_kind: "search_console_csv",
+                source_digest: "abc",
+                source_name: "Q.csv",
+                identity: "generic_search",
+                period: "2026-09-01",
+                row_count: 4,
+            })
+            .unwrap());
+        // Same bytes, different declared identity: independent, not silent.
+        assert!(storage
+            .record_import_batch(&ImportBatchRecord {
+                project_id: "p",
+                source_kind: "search_console_csv",
+                source_digest: "abc",
+                source_name: "Q.csv",
+                identity: "generative_ai_search",
+                period: "2026-09-01",
+                row_count: 0,
+            })
+            .unwrap());
     }
 
     #[test]

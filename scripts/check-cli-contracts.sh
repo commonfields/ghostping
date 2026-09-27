@@ -115,13 +115,19 @@ new_sandbox
 "${BIN}" init --name C --website "https://example.com" --yes >/dev/null 2>&1
 FIXDIR="${REPO_ROOT}/tests/fixtures"
 expect_exit zero "observations report with zero observations" "${BIN}" observations report
-expect_exit zero "observations import-gsc queries" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_queries.csv" --date 2026-09-01
-expect_exit zero "observations import-gsc pages" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_pages.csv" --date 2026-09-01
-expect_exit zero "observations re-import is idempotent" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_queries.csv" --date 2026-09-01
+expect_exit zero "observations import-gsc queries" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_queries.csv" --report generic-search --date 2026-09-01
+expect_exit zero "observations import-gsc pages" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_pages.csv" --report generic-search --date 2026-09-01
+expect_exit zero "observations import-gsc AI shape" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_ai_search_synthetic.csv" --report generative-ai-search --date 2026-09-01
+expect_exit zero "observations re-import is idempotent" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_queries.csv" --report generic-search --date 2026-09-01
+expect_exit zero "observations import-gsc range period" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_pages.csv" --report generic-search --start-date 2026-09-01 --end-date 2026-09-07
+expect_exit zero "observations import-grounded fixture" "${BIN}" observations import-grounded --file "${FIXDIR}/gemini_grounded.json" --prompt "best rust cli" --group smoke
 expect_exit zero "observations report after import" "${BIN}" observations report
-expect_exit nonzero "observations import-gsc missing file" "${BIN}" observations import-gsc --file ./no-such.csv --date 2026-09-01
-expect_exit nonzero "observations import-gsc bad date" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_queries.csv" --date 09-01-2026
-expect_exit nonzero "observations import-gsc malformed" "${BIN}" observations import-gsc --file "${REPO_ROOT}/Cargo.toml" --date 2026-09-01
+expect_exit nonzero "observations import-gsc missing file" "${BIN}" observations import-gsc --file ./no-such.csv --report generic-search --date 2026-09-01
+expect_exit nonzero "observations import-gsc bad date" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_queries.csv" --report generic-search --date 09-01-2026
+expect_exit nonzero "observations import-gsc malformed" "${BIN}" observations import-gsc --file "${REPO_ROOT}/Cargo.toml" --report generic-search --date 2026-09-01
+expect_exit nonzero "observations import-gsc missing report" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_queries.csv" --date 2026-09-01
+expect_exit nonzero "observations import-gsc bad report" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_queries.csv" --report ai-magic --date 2026-09-01
+expect_exit nonzero "ordinary export rejected for AI import" "${BIN}" observations import-gsc --file "${FIXDIR}/gsc_queries.csv" --report generative-ai-search --date 2026-09-01
 drop_sandbox
 
 echo ""
