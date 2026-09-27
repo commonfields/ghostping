@@ -51,14 +51,49 @@ impl LlmProvider for AnthropicProvider {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
+            let text = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<unreadable error body: {}>", e));
             bail!("Anthropic error {}: {}", status, text);
         }
 
         let json: Value = resp.json().await?;
-        Ok(json["content"][0]["text"]
-            .as_str()
-            .unwrap_or("")
-            .to_string())
+        extract_content(&json)
+    }
+}
+
+/// Extract the reply text from a Messages payload.
+/// Malformed payloads are explicit errors — they must never become
+/// successful empty-string observations.
+fn extract_content(json: &Value) -> Result<String> {
+    json["content"][0]["text"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("Anthropic response missing content[0].text"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_extract_content_valid() {
+        let v = json!({"content": [{"text": "hello"}]});
+        assert_eq!(extract_content(&v).unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_extract_content_malformed_is_error() {
+        for v in [
+            json!({}),
+            json!({"content": []}),
+            json!({"content": [{"type": "tool_use"}]}),
+            json!({"content": [{"text": 7}]}),
+            json!({"error": {"message": "bad key"}}),
+        ] {
+            assert!(extract_content(&v).is_err(), "payload: {}", v);
+        }
     }
 }
