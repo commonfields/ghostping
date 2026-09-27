@@ -1,0 +1,4 @@
+Page,Country,Device,Impressions,Position
+"https://example.com/docs","United States","desktop",1400,1.8
+"https://example.com/blog/geo-guide","United Kingdom","mobile",620,
+"https://example.com/faq","Germany","desktop",88,4.2
