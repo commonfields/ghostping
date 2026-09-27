@@ -337,12 +337,10 @@ enum Commands {
     ///   ghostping schedule myproject.com --interval daily
     ///   ghostping schedule myproject.com --uninstall
     Schedule {
-        /// Domain to audit automatically
+        /// Domain label for the scheduled job (used for the job name and log file)
         domain: String,
-        /// Product niche for smarter prompts
-        #[arg(long)]
-        niche: Option<String>,
-        /// How often to audit: daily, weekly, or a number of hours (e.g. 48)
+        /// How often to audit: daily, weekly, or a number of hours (e.g. 6).
+        /// Custom hours must be 1-24 for cron-based systems.
         #[arg(long, default_value = "daily")]
         interval: String,
         /// Remove the scheduled job instead of installing it
@@ -1237,7 +1235,6 @@ async fn main() -> Result<()> {
 
         Commands::Schedule {
             domain,
-            niche,
             interval,
             uninstall,
         } => {
@@ -1248,7 +1245,7 @@ async fn main() -> Result<()> {
                     match h.parse::<u32>() {
                         Ok(n) if n > 0 => scheduler::ScheduleInterval::Custom(n),
                         _ => {
-                            eprintln!("  {} Unknown interval '{}'. Use daily, weekly, or a number of hours.", "Error:".red().bold(), h);
+                            eprintln!("  {} Unknown interval '{}'. Use daily, weekly, or a number of hours (1-24 for cron).", "Error:".red().bold(), h);
                             std::process::exit(1);
                         }
                     }
@@ -1259,9 +1256,19 @@ async fn main() -> Result<()> {
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|_| "ghostping".to_string());
 
+            // Scheduled jobs run the canonical evidence audit from the
+            // project directory holding ghostping.toml.
+            let job = scheduler::ScheduledAudit {
+                project_dir: std::env::current_dir()?,
+                models: cli.models.clone(),
+                label: domain.clone(),
+                binary: binary_path,
+            };
+            let safe_label = scheduler::sanitize_label(&domain);
+
             #[cfg(target_os = "macos")]
             {
-                let label = format!("com.ghostping.audit.{}", domain.replace('.', "_"));
+                let label = format!("com.ghostping.audit.{}", safe_label);
                 let plist_path = dirs::home_dir()
                     .unwrap_or_default()
                     .join("Library/LaunchAgents")
@@ -1286,18 +1293,13 @@ async fn main() -> Result<()> {
                         );
                     }
                 } else {
-                    let path = scheduler::install_launchd(
-                        &domain,
-                        niche.as_deref(),
-                        parsed_interval,
-                        &binary_path,
-                    )?;
+                    let path = scheduler::install_launchd(&job, parsed_interval)?;
                     let _ = std::process::Command::new("launchctl")
                         .args(["load", &path.display().to_string()])
                         .output();
                     println!();
                     println!(
-                        "  {}  Scheduled {} audit for {}",
+                        "  {}  Scheduled {} evidence audit for {}",
                         "✓".green().bold(),
                         parsed_interval.label().cyan(),
                         domain.cyan()
@@ -1310,12 +1312,14 @@ async fn main() -> Result<()> {
                     println!(
                         "  {}  Logs:  {}",
                         "→".cyan(),
-                        format!("/tmp/ghostping-{}.log", domain.replace('.', "_")).dimmed()
+                        job.log_path().dimmed()
                     );
                     println!();
                     println!(
-                        "  {}  macOS will notify you if the mention rate drops >5pp.",
-                        "Tip".yellow().bold()
+                        "  {}  The job runs {} from {} (project must contain ghostping.toml).",
+                        "→".cyan(),
+                        "ghostping audit run".cyan(),
+                        job.project_dir.display().to_string().dimmed()
                     );
                     println!(
                         "  {}  To remove: {}\n",
@@ -1334,12 +1338,7 @@ async fn main() -> Result<()> {
                         "crontab -e".cyan()
                     );
                 } else {
-                    let line = scheduler::cron_line(
-                        &domain,
-                        niche.as_deref(),
-                        parsed_interval,
-                        &binary_path,
-                    );
+                    let line = scheduler::cron_line(&job, parsed_interval)?;
                     println!();
                     println!(
                         "  {}  Add this line to your crontab ({}):",
@@ -1352,7 +1351,7 @@ async fn main() -> Result<()> {
                     println!(
                         "  {}  Logs will be appended to {}\n",
                         "→".cyan(),
-                        format!("/tmp/ghostping-{}.log", domain.replace('.', "_")).dimmed()
+                        job.log_path().dimmed()
                     );
                 }
                 let _ = parsed_interval;
