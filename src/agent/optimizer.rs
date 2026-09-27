@@ -316,9 +316,5 @@ fn cite_rate(results: &[crate::geo::evaluator::EvalResult]) -> f64 {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max.saturating_sub(1)])
-    }
+    crate::types::truncate_chars(s, max)
 }
