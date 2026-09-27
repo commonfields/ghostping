@@ -834,11 +834,7 @@ fn sentiment_cell(s: &Sentiment) -> Cell {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max - 1])
-    }
+    crate::types::truncate_chars(s, max)
 }
 
 #[cfg(test)]
@@ -922,6 +918,18 @@ mod tests {
         let t = truncate(&s, 44);
         assert!(t.len() <= 44 + 3); // '…' is multibyte
         assert!(t.ends_with('…'));
+    }
+
+    #[test]
+    fn truncate_multibyte_never_panics_or_splits_chars() {
+        // Every split point lands inside a multibyte char with byte slicing.
+        for max in 0..12 {
+            let t = truncate(&"🦀".repeat(10), max);
+            assert!(t.chars().all(|c| c == '🦀' || c == '…'));
+        }
+        let t = truncate(&"日本語テストです。Hello world, this is long.", 10);
+        assert!(t.ends_with('…'));
+        assert_eq!(t.chars().count(), 10);
     }
 
     #[test]
