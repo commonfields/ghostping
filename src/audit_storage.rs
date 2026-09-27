@@ -770,13 +770,23 @@ pub fn canonical_host(input: &str) -> String {
     } else {
         match host_port.rfind(':') {
             // Only treat as port when the suffix is all digits.
-            Some(i) if host_port[i + 1..].chars().all(|c| c.is_ascii_digit()) => {
-                &host_port[..i]
-            }
+            Some(i) if host_port[i + 1..].chars().all(|c| c.is_ascii_digit()) => &host_port[..i],
             _ => host_port,
         }
     };
-    host.trim_end_matches('.').to_string()
+    // Only accept strings that plausibly denote a host: either a scheme
+    // was present, or the result contains a dot (or is localhost/IPv6).
+    // Bare garbage ("not a url") yields "" rather than a junk host.
+    let host = host.trim_end_matches('.');
+    if host.is_empty() {
+        return String::new();
+    }
+    let had_scheme = input.contains("://");
+    if had_scheme || host.contains('.') || host == "localhost" || host.starts_with('[') {
+        host.to_string()
+    } else {
+        String::new()
+    }
 }
 
 /// True when `url` points at the project's canonical host or a valid
@@ -1160,7 +1170,10 @@ mod tests {
 
     #[test]
     fn test_canonical_host_normalizes_inputs() {
-        assert_eq!(canonical_host("https://Example.COM/docs?a=1"), "example.com");
+        assert_eq!(
+            canonical_host("https://Example.COM/docs?a=1"),
+            "example.com"
+        );
         assert_eq!(canonical_host("example.com"), "example.com");
         assert_eq!(
             canonical_host("http://user:pw@Sub.Example.com:8080/x"),
