@@ -76,17 +76,26 @@ fn query_count(db: &PathBuf, sql: &str) -> i64 {
 #[test]
 fn canonical_audit_writes_evidence_records_with_full_accounting() {
     let sb = Sandbox::new();
-    assert_eq!(sb.run(&["init", "--name", "C", "--website", "https://example.com", "--yes"]).0, 0);
+    assert_eq!(
+        sb.run(&[
+            "init",
+            "--name",
+            "C",
+            "--website",
+            "https://example.com",
+            "--yes"
+        ])
+        .0,
+        0
+    );
     assert_eq!(sb.run(&["prompts", "discover"]).0, 0);
     let (code, _) = sb.run(&["audit", "run", "--models", "mock", "--samples", "1"]);
     assert_eq!(code, 0);
 
     // Evidence rows exist with planned = succeeded + failed.
-    let total: i64 =
-        query_count(&sb.evidence_db(), "SELECT COUNT(*) FROM audit_results");
+    let total: i64 = query_count(&sb.evidence_db(), "SELECT COUNT(*) FROM audit_results");
     assert!(total > 0, "expected stored evidence responses");
-    let failed: i64 =
-        query_count(&sb.evidence_db(), "SELECT COUNT(*) FROM audit_errors");
+    let failed: i64 = query_count(&sb.evidence_db(), "SELECT COUNT(*) FROM audit_errors");
     let planned = total + failed;
     assert_eq!(planned, total, "mock run should have zero failures");
 
@@ -112,9 +121,24 @@ fn canonical_audit_writes_evidence_records_with_full_accounting() {
 #[test]
 fn legacy_history_cannot_appear_as_current_evidence() {
     let sb = Sandbox::new();
-    assert_eq!(sb.run(&["init", "--name", "C", "--website", "https://example.com", "--yes"]).0, 0);
+    assert_eq!(
+        sb.run(&[
+            "init",
+            "--name",
+            "C",
+            "--website",
+            "https://example.com",
+            "--yes"
+        ])
+        .0,
+        0
+    );
     assert_eq!(sb.run(&["prompts", "discover"]).0, 0);
-    assert_eq!(sb.run(&["audit", "run", "--models", "mock", "--samples", "1"]).0, 0);
+    assert_eq!(
+        sb.run(&["audit", "run", "--models", "mock", "--samples", "1"])
+            .0,
+        0
+    );
 
     // Plant legacy history directly in the same HOME, as an old `track`
     // run would have left it.
@@ -144,18 +168,15 @@ fn legacy_history_cannot_appear_as_current_evidence() {
 
     // Evidence summary counts only evidence rows: 5 legacy mentions must
     // not inflate anything.
-    let before_total: i64 =
-        query_count(&sb.evidence_db(), "SELECT COUNT(*) FROM audit_results");
+    let before_total: i64 = query_count(&sb.evidence_db(), "SELECT COUNT(*) FROM audit_results");
     let (code, _) = sb.run(&["audit", "run", "--models", "mock", "--samples", "1"]);
     assert_eq!(code, 0);
-    let after_total: i64 =
-        query_count(&sb.evidence_db(), "SELECT COUNT(*) FROM audit_results");
+    let after_total: i64 = query_count(&sb.evidence_db(), "SELECT COUNT(*) FROM audit_results");
     assert!(
         after_total > before_total,
         "second run should add evidence rows"
     );
-    let legacy_count: i64 =
-        query_count(&sb.legacy_db(), "SELECT COUNT(*) FROM mentions");
+    let legacy_count: i64 = query_count(&sb.legacy_db(), "SELECT COUNT(*) FROM mentions");
     assert!(legacy_count >= 5);
     // Evidence responses never contain the planted legacy marker text.
     let leaked: i64 = query_count(
@@ -169,10 +190,7 @@ fn legacy_history_cannot_appear_as_current_evidence() {
 fn legacy_summaries_carry_explicit_source_marker() {
     // Unit-level pin: the legacy path's summary type is self-identifying,
     // so no consumer can mistake it for an evidence-engine AuditSummary.
-    assert_eq!(
-        ghostping::tracker::AUDIT_SOURCE_LEGACY,
-        "legacy-tracker"
-    );
+    assert_eq!(ghostping::tracker::AUDIT_SOURCE_LEGACY, "legacy-tracker");
     let summary = ghostping::types::TrackSummary {
         domain: "x.example".to_string(),
         total_queries: 1,
