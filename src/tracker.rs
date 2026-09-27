@@ -236,6 +236,7 @@ pub async fn run_track(
         citation_count,
         models_with_mention,
         results,
+        source: AUDIT_SOURCE_LEGACY.to_string(),
     })
 }
 
