@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod gemini;
+pub mod gemini_grounded;
 mod llm_trait;
 pub mod mock;
 pub mod ollama;
