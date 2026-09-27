@@ -61,6 +61,9 @@ pub struct TrackSummary {
     pub citation_count: usize,
     pub models_with_mention: Vec<String>,
     pub results: Vec<MentionResult>,
+    /// Provenance marker. Always [`crate::tracker::AUDIT_SOURCE_LEGACY`]
+    /// for this path; evidence-engine summaries use `AuditSummary` instead.
+    pub source: String,
 }
 
 impl TrackSummary {
