@@ -71,9 +71,7 @@ fn extract_content(json: &Value) -> Result<String> {
     json["choices"][0]["message"]["content"]
         .as_str()
         .map(|s| s.to_string())
-        .ok_or_else(|| {
-            anyhow::anyhow!("Perplexity response missing choices[0].message.content")
-        })
+        .ok_or_else(|| anyhow::anyhow!("Perplexity response missing choices[0].message.content"))
 }
 
 #[cfg(test)]
