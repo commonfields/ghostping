@@ -1235,10 +1235,11 @@ async fn main() -> Result<()> {
                 label: domain.clone(),
                 binary: binary_path,
             };
-            let safe_label = scheduler::sanitize_label(&domain);
-
             #[cfg(target_os = "macos")]
             {
+                // macOS-only: Linux cron derives its label inside
+                // `ScheduledAudit`, so this binding lives here.
+                let safe_label = scheduler::sanitize_label(&domain);
                 let label = format!("com.ghostping.audit.{}", safe_label);
                 let plist_path = dirs::home_dir()
                     .unwrap_or_default()
