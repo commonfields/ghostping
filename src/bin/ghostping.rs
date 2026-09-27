@@ -2657,12 +2657,9 @@ async fn run_audit_run(
     // Get prompts
     let prompts = storage.list_prompts(&project.domain())?;
     if prompts.is_empty() {
-        println!(
-            "\n  {} No prompts found. Run {} first.\n",
-            "!".yellow(),
-            "ghostping prompts discover".cyan()
+        bail!(
+            "No prompts found for this project. Run 'ghostping prompts discover' first."
         );
-        return Ok(());
     }
 
     let is_mock_run = request.models.as_deref() == Some("mock");
@@ -2793,6 +2790,12 @@ async fn run_audit_run(
             "ghostping generate".cyan()
         );
         println!();
+    }
+
+    // Partial audits print their results but exit non-zero so scripts and
+    // CI can detect the shortfall. See docs/engineering/cli-exit-contracts.md.
+    if result.summary.failed_queries > 0 {
+        std::process::exit(2);
     }
 
     Ok(())
