@@ -444,17 +444,7 @@ impl AuditEngine {
 
         for cap in url_regex.captures_iter(response) {
             let url = cap.get(0).unwrap().as_str().to_string();
-            let domain = url.split('/').nth(2).unwrap_or("").to_lowercase();
-            let project_domain = project.to_lowercase();
-
-            let is_project = domain == project_domain
-                || domain.ends_with(&format!(
-                    ".{}.{}.{}",
-                    project_domain.split('.').next().unwrap_or(""),
-                    project_domain.split('.').nth(1).unwrap_or(""),
-                    project_domain.split('.').nth(2).unwrap_or("")
-                ));
-
+            let is_project = crate::audit_storage::is_project_citation(&url, project);
             citations.push((url, is_project));
         }
 
