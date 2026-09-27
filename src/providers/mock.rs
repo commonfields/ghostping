@@ -17,7 +17,7 @@ impl MockProvider {
         Self {
             name: name.into(),
             responses: Mutex::new(HashMap::new()),
-            default_response: "This is a mock response for testing.".to_string(),
+            default_response: "MOCK TEST DATA — This is a synthetic mock response for workflow validation only. It is not a real AI model output.".to_string(),
         }
     }
 

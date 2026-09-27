@@ -55,6 +55,17 @@ struct QueryResult {
     citations: Vec<(String, bool)>, // (url, is_project)
 }
 
+/// A planned query that failed before producing a storable response.
+/// The error text is sanitized: truncated and scrubbed of secret-like tokens.
+#[derive(Debug, Clone)]
+struct FailedQuery {
+    prompt_id: Option<i64>,
+    provider: String,
+    model: String,
+    sample_index: usize,
+    error: String,
+}
+
 /// The core audit engine
 pub struct AuditEngine {
     providers: Vec<Arc<dyn LlmProvider>>,
@@ -126,6 +137,7 @@ impl AuditEngine {
         let sem = Arc::new(Semaphore::new(self.options.concurrency));
 
         let mut all_results: Vec<QueryResult> = Vec::new();
+        let mut failed_queries: Vec<FailedQuery> = Vec::new();
 
         for (prompt_idx, prompt) in prompts.iter().enumerate() {
             let prompt_id = stored_prompt_ids[prompt_idx];
@@ -140,20 +152,42 @@ impl AuditEngine {
                     let project_id_owned = project_id.to_string();
 
                     // Execute query asynchronously
-                    let result = async move {
+                    enum QueryOutcome {
+                        Ok(QueryResult),
+                        Err(FailedQuery),
+                    }
+                    let result: QueryOutcome = async move {
                         let _permit = sem.acquire().await.unwrap();
 
                         // Query the provider
                         let response = match provider.query(&prompt_text).await {
                             Ok(resp) => resp,
                             Err(e) => {
+                                let error = Self::sanitize_error(&e.to_string());
                                 eprintln!(
                                     "  {} Query failed for {}: {}",
                                     "✗".red(),
                                     provider.name().cyan(),
-                                    e
+                                    error
                                 );
-                                return None;
+                                let n = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                                if !opts.quiet {
+                                    eprintln!(
+                                        "  {} [{:>3}/{}] [{}] sample {} — failed",
+                                        "✗".red(),
+                                        n,
+                                        total_queries,
+                                        provider.name().cyan(),
+                                        sample_idx + 1,
+                                    );
+                                }
+                                return QueryOutcome::Err(FailedQuery {
+                                    prompt_id,
+                                    provider: provider.name().to_string(),
+                                    model: provider.name().to_string(),
+                                    sample_index: sample_idx,
+                                    error,
+                                });
                             }
                         };
 
@@ -192,7 +226,7 @@ impl AuditEngine {
                             }
                         }
 
-                        Some(QueryResult {
+                        QueryOutcome::Ok(QueryResult {
                             prompt_id,
                             provider: provider.name().to_string(),
                             model: provider.name().to_string(),
@@ -207,8 +241,9 @@ impl AuditEngine {
                     }
                     .await;
 
-                    if let Some(r) = result {
-                        all_results.push(r);
+                    match result {
+                        QueryOutcome::Ok(r) => all_results.push(r),
+                        QueryOutcome::Err(f) => failed_queries.push(f),
                     }
                 }
             }
@@ -250,25 +285,110 @@ impl AuditEngine {
             }
         }
 
+        // Store failure diagnostics (sanitized, no secrets) so partial runs
+        // stay auditable.
+        for failed in &failed_queries {
+            storage.insert_audit_error(&crate::audit_storage::NewAuditError {
+                audit_run_id: run_id,
+                prompt_id: failed.prompt_id,
+                provider: &failed.provider,
+                model: &failed.model,
+                sample_index: failed.sample_index,
+                error: &failed.error,
+            })?;
+        }
+
         // Generate summary
         let summary = storage.get_audit_summary(run_id)?;
-        storage.complete_audit_run(run_id, &summary)?;
+        let failed_count = summary.failed_queries;
+
+        if summary.successful_queries == 0 {
+            storage.fail_audit_run(run_id, "all queries failed")?;
+            anyhow::bail!(
+                "Audit run {} failed: all {} planned querie(s) failed. \
+                 First error [{}]: {}. No results were stored, so there is \
+                 nothing to report. Fix the provider configuration and retry.",
+                run_id,
+                summary.planned_queries,
+                failed_queries
+                    .first()
+                    .map(|f| f.provider.as_str())
+                    .unwrap_or("unknown"),
+                failed_queries
+                    .first()
+                    .map(|f| f.error.as_str())
+                    .unwrap_or("unknown error"),
+            );
+        }
+
+        if failed_count > 0 {
+            storage.complete_audit_run_with_status(run_id, "completed_with_errors", &summary)?;
+        } else {
+            storage.complete_audit_run(run_id, &summary)?;
+        }
 
         if !self.options.quiet {
-            println!(
-                "  {} Audit run {} completed — Mention rate: {:.1}%, Recommendation rate: {:.1}%",
-                "✓".green(),
-                run_id,
-                summary.mention_rate * 100.0,
-                summary.recommendation_rate * 100.0
-            );
+            if failed_count > 0 {
+                println!(
+                    "  {} Audit run {} completed WITH ERRORS — {}/{} queries failed. \
+                     Mention rate: {:.1}%, Recommendation rate: {:.1}%. \
+                     Results are partial and marked 'completed_with_errors', not 'completed'.",
+                    "⚠".yellow(),
+                    run_id,
+                    failed_count,
+                    summary.planned_queries,
+                    summary.mention_rate * 100.0,
+                    summary.recommendation_rate * 100.0
+                );
+            } else {
+                println!(
+                    "  {} Audit run {} completed — Mention rate: {:.1}%, Recommendation rate: {:.1}%",
+                    "✓".green(),
+                    run_id,
+                    summary.mention_rate * 100.0,
+                    summary.recommendation_rate * 100.0
+                );
+            }
         }
 
         Ok(AuditRunResult {
             run_id,
             project_id: project_id.to_string(),
             summary,
+            planned_queries: total_queries,
+            failed_queries: failed_queries
+                .iter()
+                .map(|f| format!("[{}] {}", f.provider, f.error))
+                .collect(),
         })
+    }
+
+    /// Sanitize a provider error for storage and display: truncate to a
+    /// bounded length and redact secret-like tokens (API keys, bearer tokens)
+    /// so failure diagnostics never leak credentials.
+    fn sanitize_error(raw: &str) -> String {
+        let collapsed: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+        let truncated: String = collapsed.chars().take(500).collect();
+        Self::redact_secrets(&truncated)
+    }
+
+    fn redact_secrets(s: &str) -> String {
+        // Secret-shaped tokens we must never persist or print in full.
+        let patterns = [
+            r"sk-[A-Za-z0-9._\-]{8,}",
+            r"sk-ant-[A-Za-z0-9._\-]{8,}",
+            r"xai-[A-Za-z0-9._\-]{8,}",
+            r"pplx-[A-Za-z0-9._\-]{8,}",
+            r"AIza[A-Za-z0-9._\-]{8,}",
+            r"(?i)bearer\s+[A-Za-z0-9._\-]{8,}",
+        ];
+        let mut out = s.to_string();
+        for pattern in patterns {
+            if let Ok(re) = regex::Regex::new(pattern) {
+                out = re.replace_all(&out, "[REDACTED]").to_string();
+            }
+        }
+        out
     }
 
     /// Detect if the response contains a recommendation
@@ -391,6 +511,11 @@ pub struct AuditRunResult {
     pub run_id: i64,
     pub project_id: String,
     pub summary: AuditSummary,
+    /// Total planned queries (prompts × samples × providers).
+    pub planned_queries: usize,
+    /// Sanitized per-query failure diagnostics ("[provider] error").
+    /// Empty when the run had no failures.
+    pub failed_queries: Vec<String>,
 }
 
 fn cloud_provider_config(
@@ -636,6 +761,66 @@ pub fn build_providers_for_project(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::LlmProvider;
+    use async_trait::async_trait;
+
+    struct StubProvider {
+        name: String,
+        response: Option<String>,
+    }
+
+    impl StubProvider {
+        fn ok(name: &str, response: &str) -> Self {
+            Self {
+                name: name.to_string(),
+                response: Some(response.to_string()),
+            }
+        }
+
+        fn failing(name: &str) -> Self {
+            Self {
+                name: name.to_string(),
+                response: None,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl LlmProvider for StubProvider {
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        async fn query_with_system(&self, _system: Option<&str>, _prompt: &str) -> Result<String> {
+            match &self.response {
+                Some(r) => Ok(r.clone()),
+                None => anyhow::bail!("stub provider {} is down", self.name),
+            }
+        }
+    }
+
+    fn test_storage() -> (tempfile::TempDir, AuditStorage) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let storage = AuditStorage::open(&dir.path().join("test.db")).unwrap();
+        (dir, storage)
+    }
+
+    fn quiet_options(samples: usize) -> AuditOptions {
+        AuditOptions {
+            samples_per_prompt: samples,
+            temperature: 0.0,
+            store_raw_responses: false,
+            verbose: false,
+            quiet: true,
+            concurrency: 2,
+        }
+    }
+
+    fn prompts(n: usize) -> Vec<PromptInput> {
+        (0..n)
+            .map(|i| PromptInput::new(format!("fixture prompt {}", i)))
+            .collect()
+    }
 
     #[test]
     fn test_detect_recommendation() {
@@ -654,5 +839,101 @@ mod tests {
         assert_eq!(citations.len(), 2);
         assert!(!citations[0].1); // example.com is not project
         assert!(citations[1].1); // myproject.com is project
+    }
+
+    #[test]
+    fn test_sanitize_error_truncates_and_redacts_secrets() {
+        let long = format!(
+            "connection reset sk-SECRETKEY1234567890 {}",
+            "x".repeat(600)
+        );
+        let clean = AuditEngine::sanitize_error(&long);
+        assert!(clean.chars().count() <= 500);
+        assert!(!clean.contains("SECRETKEY"));
+        assert!(clean.contains("[REDACTED]"));
+
+        let bearer = AuditEngine::sanitize_error("401 Unauthorized: Bearer abcdefgh12345678");
+        assert!(!bearer.contains("abcdefgh"));
+    }
+
+    #[tokio::test]
+    async fn test_zero_successful_queries_marks_run_failed() {
+        let (_dir, storage) = test_storage();
+        let engine = AuditEngine::new(
+            vec![Arc::new(StubProvider::failing("down"))],
+            quiet_options(2),
+        );
+
+        let err = engine
+            .run_audit("example.com", &prompts(2), &storage)
+            .await
+            .expect_err("all-failing audit must return an error");
+
+        let msg = err.to_string();
+        assert!(msg.contains("all 4 planned querie(s) failed"), "got: {msg}");
+
+        let run = storage.get_audit_run(1).unwrap().unwrap();
+        assert_eq!(run.status, "failed");
+        assert_eq!(storage.get_audit_results(1).unwrap().len(), 0);
+        assert_eq!(storage.get_audit_errors(1).unwrap().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn test_partial_provider_failures_are_explicit_not_completed() {
+        let (_dir, storage) = test_storage();
+        let engine = AuditEngine::new(
+            vec![
+                Arc::new(StubProvider::ok(
+                    "good",
+                    "Example is great, I recommend Example.",
+                )),
+                Arc::new(StubProvider::failing("bad")),
+            ],
+            quiet_options(2),
+        );
+
+        let result = engine
+            .run_audit("example.com", &prompts(1), &storage)
+            .await
+            .expect("partial audit must still return a result");
+
+        // 1 prompt × 2 samples × 2 providers = 4 planned; the "good"
+        // provider succeeds twice, the "bad" one fails twice.
+        assert_eq!(result.planned_queries, 4);
+        assert_eq!(result.summary.successful_queries, 2);
+        assert_eq!(result.summary.failed_queries, 2);
+        assert_eq!(result.summary.planned_queries, 4);
+        assert!(!result.summary.is_complete());
+        assert_eq!(result.failed_queries.len(), 2);
+        assert!(result.failed_queries[0].starts_with("[bad]"));
+
+        let run = storage.get_audit_run(result.run_id).unwrap().unwrap();
+        assert_eq!(run.status, "completed_with_errors");
+    }
+
+    #[tokio::test]
+    async fn test_complete_mock_audit_reports_full_counts() {
+        let (_dir, storage) = test_storage();
+        let engine = AuditEngine::new(
+            vec![Arc::new(StubProvider::ok(
+                "mock",
+                "Example is great. See https://example.com for details.",
+            ))],
+            quiet_options(3),
+        );
+
+        let result = engine
+            .run_audit("example.com", &prompts(2), &storage)
+            .await
+            .unwrap();
+
+        assert_eq!(result.planned_queries, 6);
+        assert_eq!(result.summary.successful_queries, 6);
+        assert_eq!(result.summary.failed_queries, 0);
+        assert!(result.summary.is_complete());
+        assert!(result.failed_queries.is_empty());
+
+        let run = storage.get_audit_run(result.run_id).unwrap().unwrap();
+        assert_eq!(run.status, "completed");
     }
 }

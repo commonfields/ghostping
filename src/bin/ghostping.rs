@@ -1636,6 +1636,8 @@ fn no_providers_error() -> ! {
 
 const CLOUD_AUDIT_NOTICE: &str = "Notice: this audit will send prompts to the selected cloud provider using your configured API key. Project data and audit history remain local, but provider requests are processed by the selected provider.";
 
+const MOCK_AUDIT_NOTICE: &str = "Notice: the mock provider returns synthetic TEST DATA for workflow validation only. Mock results are not real-world AI visibility measurements and must not be presented as evidence.";
+
 fn provider_display_name(provider: &str) -> &'static str {
     match provider {
         "openai" => "OpenAI",
@@ -2664,17 +2666,25 @@ async fn run_audit_run(
         return Ok(());
     }
 
+    let is_mock_run = request.models.as_deref() == Some("mock");
     let selected_providers =
         selected_audit_provider_names(project, global_config, request.models.as_deref());
     ensure_cloud_api_keys(&selected_providers, global_config)?;
     warn_cloud_audit_if_needed(&selected_providers, global_config, request.yes);
+    if is_mock_run {
+        eprintln!("\n  {}", MOCK_AUDIT_NOTICE.yellow().bold());
+    }
 
     // Build providers
-    let providers = if request.models.as_deref() == Some("mock") {
+    let providers = if is_mock_run {
         use ghostping::providers::mock::MockProviderBuilder;
         vec![std::sync::Arc::new(
             MockProviderBuilder::new("mock")
-                .with_default_response("This is a mock response for testing.")
+                .with_default_response(
+                    "MOCK TEST DATA — This is a synthetic mock response for workflow \
+                     validation only. It is not a real AI model output and must not \
+                     be presented as real-world AI visibility evidence.",
+                )
                 .build(),
         )
             as std::sync::Arc<dyn ghostping::providers::LlmProvider>]
@@ -2735,10 +2745,49 @@ async fn run_audit_run(
             result.summary.recommendation_rate * 100.0
         );
         println!(
-            "  Citation rate:         {:.1}%",
-            result.summary.citation_rate * 100.0
+            "  Citation rate:         {:.1}% ({} of {} responses with a project citation)",
+            result.summary.citation_rate * 100.0,
+            result.summary.citation_response_count,
+            result.summary.total_queries
         );
         println!("  Total queries:         {}", result.summary.total_queries);
+        println!(
+            "  Coverage:              {}/{} planned queries succeeded{}",
+            result.summary.successful_queries,
+            result.summary.planned_queries,
+            if result.summary.failed_queries > 0 {
+                format!(" ({} failed)", result.summary.failed_queries)
+            } else {
+                String::new()
+            }
+        );
+        if result.summary.failed_queries > 0 {
+            println!();
+            println!(
+                "  {}  Partial results: {} of {} planned queries failed. This run is",
+                "⚠".yellow().bold(),
+                result.summary.failed_queries,
+                result.summary.planned_queries,
+            );
+            println!(
+                "  marked 'completed_with_errors', not 'completed'. See {} for diagnostics.",
+                format!("ghostping audit show {}", result.run_id).cyan()
+            );
+            for failure in result.failed_queries.iter().take(5) {
+                println!("    {} {}", "·".dimmed(), failure.dimmed());
+            }
+            if result.failed_queries.len() > 5 {
+                println!(
+                    "    {} ... and {} more (see audit show)",
+                    "·".dimmed(),
+                    result.failed_queries.len() - 5
+                );
+            }
+        }
+        if is_mock_run {
+            println!();
+            println!("  {}  {}", "⚠".yellow().bold(), MOCK_AUDIT_NOTICE.yellow());
+        }
         println!();
         println!(
             "  Next: {} to generate content",
@@ -2772,9 +2821,11 @@ fn run_audit_list(project: &ProjectConfig, storage: &AuditStorage, limit: usize)
     for r in &runs {
         let status_icon = match r.status.as_str() {
             "completed" => "✓".green(),
+            "completed_with_errors" => "◐".yellow(),
             "failed" => "✗".red(),
             _ => "○".yellow(),
         };
+        let is_mock = r.provider_models_json.to_lowercase().contains("mock");
 
         let summary = r
             .summary_json
@@ -2782,23 +2833,41 @@ fn run_audit_list(project: &ProjectConfig, storage: &AuditStorage, limit: usize)
             .and_then(|s| serde_json::from_str::<ghostping::audit_storage::AuditSummary>(s).ok());
 
         if let Some(s) = summary {
+            let coverage = if s.failed_queries > 0 {
+                format!(" ({} failed)", s.failed_queries)
+                    .yellow()
+                    .to_string()
+            } else {
+                String::new()
+            };
             println!(
-                "  {} Run {} — {:.0}% mentioned — {}/{}/{} — {}",
+                "  {} Run {} — {:.0}% mentioned — {}/{}/{} — {}{}{}",
                 status_icon,
                 r.id.to_string().cyan(),
                 s.mention_rate * 100.0,
                 r.started_at.split('T').next().unwrap_or("-").dimmed(),
                 format!("{} samples", r.samples_per_prompt).dimmed(),
                 format!("{:.1} temp", r.temperature).dimmed(),
-                r.status.dimmed()
+                r.status.dimmed(),
+                coverage,
+                if is_mock {
+                    " [mock test data]".yellow().to_string()
+                } else {
+                    String::new()
+                },
             );
         } else {
             println!(
-                "  {} Run {} — {} — {}",
+                "  {} Run {} — {} — {}{}",
                 status_icon,
                 r.id.to_string().cyan(),
                 r.started_at.split('T').next().unwrap_or("-").dimmed(),
-                r.status.dimmed()
+                r.status.dimmed(),
+                if is_mock {
+                    " [mock test data]".yellow().to_string()
+                } else {
+                    String::new()
+                },
             );
         }
     }
@@ -2827,6 +2896,60 @@ fn run_audit_show(storage: &AuditStorage, id: i64) -> Result<()> {
             println!("  Temperature: {:.2}", r.temperature);
             println!();
             println!("  Results:     {} row(s)", results.len());
+
+            if r.provider_models_json.to_lowercase().contains("mock") {
+                println!();
+                println!("  {}  {}", "⚠".yellow().bold(), MOCK_AUDIT_NOTICE.yellow());
+            }
+
+            // Surface explicit planned/successful/failed counts plus any
+            // failure diagnostics so partial runs are never misread.
+            // Prefer a live recomputation so runs recorded by older
+            // versions (old summary JSON, no error rows) still show
+            // correct coverage under the current metric definitions.
+            let errors = storage.get_audit_errors(id).unwrap_or_default();
+            let live_summary = storage.get_audit_summary(id).ok();
+            let stored_summary = r.summary_json.as_deref().and_then(|s| {
+                serde_json::from_str::<ghostping::audit_storage::AuditSummary>(s).ok()
+            });
+            if let Some(summary) = live_summary.as_ref().or(stored_summary.as_ref()) {
+                println!();
+                println!(
+                    "  Coverage:    {}/{} planned queries succeeded{}",
+                    summary.successful_queries,
+                    summary.planned_queries,
+                    if summary.failed_queries > 0 {
+                        format!(" ({} failed)", summary.failed_queries)
+                    } else {
+                        String::new()
+                    }
+                );
+                println!(
+                    "  Citations:   {} extracted ({} project-domain) in {} responses",
+                    summary.citation_count,
+                    summary.project_citation_count,
+                    summary.citation_response_count
+                );
+            } else if !errors.is_empty() {
+                println!();
+                println!("  Coverage:    {} recorded querie(s) failed", errors.len());
+            }
+            if !errors.is_empty() {
+                println!();
+                println!("  {} Query failures ({}):", "Failures".bold(), errors.len());
+                for e in errors.iter().take(10) {
+                    println!(
+                        "    {} [{}] sample {}: {}",
+                        "·".dimmed(),
+                        e.provider.cyan(),
+                        e.sample_index + 1,
+                        e.error.dimmed()
+                    );
+                }
+                if errors.len() > 10 {
+                    println!("    {} ... and {} more", "·".dimmed(), errors.len() - 10);
+                }
+            }
             println!();
         }
         None => {
@@ -2974,9 +3097,39 @@ async fn run_compare(storage: &AuditStorage, before: i64, after: i64, format: &s
     if before_run.is_none() || after_run.is_none() {
         bail!("One or both audit runs not found");
     }
+    let before_run = before_run.unwrap();
+    let after_run = after_run.unwrap();
+
+    // Warn when the comparison involves synthetic or partial data so it is
+    // never mistaken for real-world visibility movement.
+    if before_run
+        .provider_models_json
+        .to_lowercase()
+        .contains("mock")
+        || after_run
+            .provider_models_json
+            .to_lowercase()
+            .contains("mock")
+    {
+        println!();
+        println!("  {}  {}", "⚠".yellow().bold(), MOCK_AUDIT_NOTICE.yellow());
+    }
 
     let before_summary = storage.get_audit_summary(before)?;
     let after_summary = storage.get_audit_summary(after)?;
+    if before_summary.failed_queries > 0 || after_summary.failed_queries > 0 {
+        println!();
+        println!(
+            "  {}  Partial data: run {} has {}/{} failed queries; run {} has {}/{} failed queries.",
+            "⚠".yellow().bold(),
+            before,
+            before_summary.failed_queries,
+            before_summary.planned_queries,
+            after,
+            after_summary.failed_queries,
+            after_summary.planned_queries,
+        );
+    }
 
     let mention_delta = (after_summary.mention_rate - before_summary.mention_rate) * 100.0;
     let rec_delta =
@@ -3059,15 +3212,33 @@ fn generate_markdown_report(
     let mut report = String::new();
 
     // Header
+    let mock_notice = if summary.uses_mock_provider() {
+        "\n> ⚠ TEST DATA — this audit used the mock provider. Results are \
+         synthetic and must not be presented as real-world AI visibility.\n"
+    } else {
+        ""
+    };
+    let coverage_note = if summary.failed_queries > 0 {
+        format!(
+            "\n**Coverage**: {}/{} planned queries succeeded ({} failed) — \
+             status `{}`. Metrics cover successful responses only.\n",
+            summary.successful_queries, summary.planned_queries, summary.failed_queries, run.status,
+        )
+    } else {
+        format!(
+            "\n**Coverage**: {}/{} planned queries succeeded.\n",
+            summary.successful_queries, summary.planned_queries
+        )
+    };
     report.push_str(&format!(
         r#"# Ghostping Evidence Report
 
 ## {}
-
+{mock_notice}
 **Audit Run**: {}  
 **Generated**: {}  
 **Status**: {}
-
+{coverage_note}
 ---
 
 "#,
@@ -3075,6 +3246,8 @@ fn generate_markdown_report(
         run.id,
         Utc::now().format("%Y-%m-%d %H:%M UTC"),
         run.status,
+        mock_notice = mock_notice,
+        coverage_note = coverage_note,
     ));
 
     // Executive Summary
@@ -3086,7 +3259,7 @@ fn generate_markdown_report(
 |--------|-------|
 | Visibility Score | {:.1}/100 |
 | Mention Rate | {:.1}% ({}/{}) |
-| Citation Rate | {:.1}% |
+| Citation Rate | {:.1}% ({} of {} responses with a project citation; {} extracted, {} project-domain) |
 | Recommendation Rate | {:.1}% |
 | Total Queries | {} |
 
@@ -3098,6 +3271,10 @@ fn generate_markdown_report(
         summary.mention_count,
         summary.total_queries,
         summary.citation_rate * 100.0,
+        summary.citation_response_count,
+        summary.total_queries,
+        summary.citation_count,
+        summary.project_citation_count,
         summary.recommendation_rate * 100.0,
         summary.total_queries,
         summary.models_used.join(", "),
@@ -3136,10 +3313,24 @@ fn generate_markdown_report(
     report.push('\n');
 
     // Footer
+    let methodology_mock = if summary.uses_mock_provider() {
+        "\n**TEST DATA**: this report was generated from mock-provider output. \
+         Mock responses are synthetic workflow-validation fixtures, not real AI model output.\n"
+    } else {
+        ""
+    };
+    let methodology_partial = if summary.failed_queries > 0 {
+        format!(
+            "\n**Partial results**: {}/{} planned queries failed; metrics cover successful responses only.\n",
+            summary.failed_queries, summary.planned_queries
+        )
+    } else {
+        String::new()
+    };
     report.push_str(&format!(r#"---
 
 **Methodology**: Results are based on {} sample(s) per prompt across configured models. AI model behavior is probabilistic and may vary between runs.
-
+{methodology_mock}{methodology_partial}
 **Report Generated**: {}
 
 ---
@@ -3148,6 +3339,8 @@ _Generated by [Ghostping](https://github.com/commonfields/ghostping) — local-f
 "#,
         run.samples_per_prompt,
         Utc::now().format("%Y-%m-%d %H:%M UTC"),
+        methodology_mock = methodology_mock,
+        methodology_partial = methodology_partial,
     ));
 
     Ok(report)

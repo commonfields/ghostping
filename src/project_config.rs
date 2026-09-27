@@ -111,8 +111,7 @@ impl ProjectConfig {
         let mut current = std::env::current_dir()?;
         loop {
             let config_path = current.join("ghostping.toml");
-            let config_path = if !config_path.exists() && current.join("llmention.toml").exists()
-            {
+            let config_path = if !config_path.exists() && current.join("llmention.toml").exists() {
                 current.join("llmention.toml")
             } else {
                 config_path

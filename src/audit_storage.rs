@@ -63,6 +63,30 @@ pub struct Citation {
     pub created_at: String,
 }
 
+/// A single failed provider query within an audit run.
+/// The `error` text is sanitized (truncated, secrets redacted) at insert time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditError {
+    pub id: i64,
+    pub audit_run_id: i64,
+    pub prompt_id: Option<i64>,
+    pub provider: String,
+    pub model: String,
+    pub sample_index: i64,
+    pub error: String,
+    pub created_at: String,
+}
+
+/// Input for recording a failed provider query.
+pub struct NewAuditError<'a> {
+    pub audit_run_id: i64,
+    pub prompt_id: Option<i64>,
+    pub provider: &'a str,
+    pub model: &'a str,
+    pub sample_index: usize,
+    pub error: &'a str,
+}
+
 /// Competitor mention found in an audit response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompetitorMention {
@@ -196,6 +220,22 @@ impl AuditStorage {
 
             -- Backwards compatibility: migrate old mentions table if it exists
             -- We keep the old table for backwards compatibility
+
+            -- Per-query provider failure diagnostics (added in trust baseline).
+            -- Additive only: old databases gain this table on open.
+            CREATE TABLE IF NOT EXISTS audit_errors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                audit_run_id INTEGER NOT NULL,
+                prompt_id INTEGER,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL DEFAULT '',
+                sample_index INTEGER NOT NULL DEFAULT 0,
+                error TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (audit_run_id) REFERENCES audit_runs(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_audit_errors_run_id ON audit_errors(audit_run_id);
             "#,
         )?;
         Ok(())
@@ -227,14 +267,59 @@ impl AuditStorage {
     }
 
     pub fn complete_audit_run(&self, run_id: i64, summary: &AuditSummary) -> Result<()> {
+        self.complete_audit_run_with_status(run_id, "completed", summary)
+    }
+
+    /// Complete a run with an explicit status. Use "completed_with_errors"
+    /// when some planned queries failed so partial results are never silently
+    /// presented as a complete audit.
+    pub fn complete_audit_run_with_status(
+        &self,
+        run_id: i64,
+        status: &str,
+        summary: &AuditSummary,
+    ) -> Result<()> {
         let summary_json = serde_json::to_string(summary)?;
         self.conn.execute(
-            "UPDATE audit_runs 
-             SET status = 'completed', completed_at = ?1, summary_json = ?2
-             WHERE id = ?3",
-            params![Utc::now().to_rfc3339(), summary_json, run_id],
+            "UPDATE audit_runs
+             SET status = ?1, completed_at = ?2, summary_json = ?3
+             WHERE id = ?4",
+            params![status, Utc::now().to_rfc3339(), summary_json, run_id],
         )?;
         Ok(())
+    }
+
+    /// Record a single failed provider query for an audit run.
+    /// The `error` text must already be sanitized (truncated, secrets
+    /// redacted) by the caller.
+    pub fn insert_audit_error(&self, error: &NewAuditError) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO audit_errors
+             (audit_run_id, prompt_id, provider, model, sample_index, error, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                error.audit_run_id,
+                error.prompt_id,
+                error.provider,
+                error.model,
+                error.sample_index as i64,
+                error.error,
+                Utc::now().to_rfc3339(),
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn get_audit_errors(&self, run_id: i64) -> Result<Vec<AuditError>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, audit_run_id, prompt_id, provider, model, sample_index,
+                    error, created_at
+             FROM audit_errors
+             WHERE audit_run_id = ?1
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(params![run_id], Self::map_audit_error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
     pub fn fail_audit_run(&self, run_id: i64, _error: &str) -> Result<()> {
@@ -481,19 +566,35 @@ impl AuditStorage {
     // ── Summary Statistics ──────────────────────────────────────────────────
 
     pub fn get_audit_summary(&self, run_id: i64) -> Result<AuditSummary> {
+        // Ensure the audit_errors table exists so runs created by older
+        // versions (pre trust-baseline) still summarize correctly.
+        self.init_schema()?;
         let results = self.get_audit_results(run_id)?;
+        let failed = self.get_audit_errors(run_id).map(|e| e.len()).unwrap_or(0);
 
         let total = results.len();
         let mentioned = results.iter().filter(|r| r.mentioned_project).count();
         let recommended = results.iter().filter(|r| r.recommended_project).count();
-        let cited: usize = results
-            .iter()
-            .map(|r| {
-                self.get_citations_for_result(r.id)
-                    .map(|c| c.len())
-                    .unwrap_or(0)
-            })
-            .sum();
+
+        // Citation semantics (trust baseline):
+        // - citation_count: total extracted citations (all URLs), reported
+        //   separately and never used as a rate numerator.
+        // - citation_rate: project-citation *response* rate — the fraction of
+        //   successful responses containing at least one project-domain
+        //   citation. Always within 0.0..=1.0, even when a single response
+        //   contains multiple citations.
+        let mut citation_count: usize = 0;
+        let mut project_citation_count: usize = 0;
+        let mut citation_response_count: usize = 0;
+        for r in &results {
+            let citations = self.get_citations_for_result(r.id).unwrap_or_default();
+            citation_count += citations.len();
+            let project_citations = citations.iter().filter(|c| c.is_project_domain).count();
+            project_citation_count += project_citations;
+            if project_citations > 0 {
+                citation_response_count += 1;
+            }
+        }
 
         // Get unique models
         let mut models: Vec<String> = results
@@ -507,7 +608,7 @@ impl AuditStorage {
             total_queries: total,
             mention_count: mentioned,
             recommendation_count: recommended,
-            citation_count: cited,
+            citation_count,
             mention_rate: if total > 0 {
                 mentioned as f64 / total as f64
             } else {
@@ -519,11 +620,16 @@ impl AuditStorage {
                 0.0
             },
             citation_rate: if total > 0 {
-                cited as f64 / total as f64
+                citation_response_count as f64 / total as f64
             } else {
                 0.0
             },
             models_used: models,
+            planned_queries: total + failed,
+            successful_queries: total,
+            failed_queries: failed,
+            citation_response_count,
+            project_citation_count,
         })
     }
 
@@ -593,6 +699,19 @@ impl AuditStorage {
         })
     }
 
+    fn map_audit_error(row: &Row) -> std::result::Result<AuditError, rusqlite::Error> {
+        Ok(AuditError {
+            id: row.get(0)?,
+            audit_run_id: row.get(1)?,
+            prompt_id: row.get(2)?,
+            provider: row.get(3)?,
+            model: row.get(4)?,
+            sample_index: row.get(5)?,
+            error: row.get(6)?,
+            created_at: row.get(7)?,
+        })
+    }
+
     fn map_competitor_mention(
         row: &Row,
     ) -> std::result::Result<CompetitorMention, rusqlite::Error> {
@@ -658,17 +777,49 @@ pub struct NewGeneratedAsset<'a> {
 /// Summary of an audit run
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditSummary {
+    /// Successful (stored) query responses. Kept as the denominator for all
+    /// rates so percentages stay comparable with pre-baseline reports.
     pub total_queries: usize,
     pub mention_count: usize,
     pub recommendation_count: usize,
+    /// Total extracted citations across all responses (all URLs, including
+    /// unrelated domains). Reported separately; never a rate numerator.
     pub citation_count: usize,
     pub mention_rate: f64,
     pub recommendation_rate: f64,
+    /// Project-citation response rate: fraction of successful responses with
+    /// at least one project-domain citation. Always 0.0..=1.0.
     pub citation_rate: f64,
     pub models_used: Vec<String>,
+    /// Planned = successful + failed. Explicit so partial runs cannot be
+    /// mistaken for complete audits. Defaults keep old summary JSON readable.
+    #[serde(default)]
+    pub planned_queries: usize,
+    #[serde(default)]
+    pub successful_queries: usize,
+    #[serde(default)]
+    pub failed_queries: usize,
+    /// Successful responses containing at least one project-domain citation.
+    #[serde(default)]
+    pub citation_response_count: usize,
+    /// Total project-domain citations extracted.
+    #[serde(default)]
+    pub project_citation_count: usize,
 }
 
 impl AuditSummary {
+    /// True when every planned query produced a stored response.
+    pub fn is_complete(&self) -> bool {
+        self.failed_queries == 0 && self.planned_queries == self.successful_queries
+    }
+
+    /// True when at least one model name indicates mock/test data.
+    pub fn uses_mock_provider(&self) -> bool {
+        self.models_used
+            .iter()
+            .any(|m| m.to_lowercase().contains("mock"))
+    }
+
     /// Calculate visibility score using weighted formula
     pub fn visibility_score(&self) -> f64 {
         let mention_weight = 0.35;
@@ -751,5 +902,206 @@ mod tests {
 
         let remaining = storage.list_prompts("test-project").unwrap();
         assert_eq!(remaining.len(), 1);
+    }
+
+    fn insert_result(
+        storage: &AuditStorage,
+        run_id: i64,
+        mentioned: bool,
+        recommended: bool,
+    ) -> i64 {
+        storage
+            .insert_audit_result(&NewAuditResult {
+                audit_run_id: run_id,
+                prompt_id: None,
+                provider: "mock",
+                model: "mock",
+                sample_index: 0,
+                response_text: "fixture response",
+                raw_response_json: "{}",
+                mentioned_project: mentioned,
+                recommended_project: recommended,
+                mention_position: Position::NotMentioned,
+                sentiment: Sentiment::Unknown,
+            })
+            .unwrap()
+    }
+
+    fn fresh_run(storage: &AuditStorage) -> i64 {
+        storage
+            .create_audit_run("fixture-project", &["mock".to_string()], 1, 0.0)
+            .unwrap()
+    }
+
+    #[test]
+    fn test_citation_rate_bounded_with_multiple_citations_per_response() {
+        let dir = TempDir::new().unwrap();
+        let storage = AuditStorage::open(&dir.path().join("test.db")).unwrap();
+        let run_id = fresh_run(&storage);
+
+        // One response containing three project-domain citations.
+        let result_id = insert_result(&storage, run_id, true, false);
+        for url in [
+            "https://example.com/a",
+            "https://example.com/b",
+            "https://example.com/c",
+        ] {
+            storage.insert_citation(result_id, url, true).unwrap();
+        }
+        // A second response with no citations at all.
+        insert_result(&storage, run_id, false, false);
+
+        let summary = storage.get_audit_summary(run_id).unwrap();
+        assert_eq!(summary.total_queries, 2);
+        // Total citations are reported separately ...
+        assert_eq!(summary.citation_count, 3);
+        assert_eq!(summary.project_citation_count, 3);
+        // ... while the rate counts cited *responses* and can never exceed 1.
+        assert_eq!(summary.citation_response_count, 1);
+        assert!((summary.citation_rate - 0.5).abs() < 1e-9);
+        assert!(summary.citation_rate <= 1.0);
+    }
+
+    #[test]
+    fn test_unrelated_domain_citations_do_not_inflate_project_rate() {
+        let dir = TempDir::new().unwrap();
+        let storage = AuditStorage::open(&dir.path().join("test.db")).unwrap();
+        let run_id = fresh_run(&storage);
+
+        let result_id = insert_result(&storage, run_id, false, false);
+        storage
+            .insert_citation(result_id, "https://competitor.example/docs", false)
+            .unwrap();
+        storage
+            .insert_citation(result_id, "https://other.example/x", false)
+            .unwrap();
+
+        let summary = storage.get_audit_summary(run_id).unwrap();
+        assert_eq!(summary.citation_count, 2);
+        assert_eq!(summary.project_citation_count, 0);
+        assert_eq!(summary.citation_response_count, 0);
+        assert_eq!(summary.citation_rate, 0.0);
+    }
+
+    #[test]
+    fn test_summary_with_zero_successful_queries() {
+        let dir = TempDir::new().unwrap();
+        let storage = AuditStorage::open(&dir.path().join("test.db")).unwrap();
+        let run_id = fresh_run(&storage);
+
+        storage
+            .insert_audit_error(&NewAuditError {
+                audit_run_id: run_id,
+                prompt_id: None,
+                provider: "openai",
+                model: "openai",
+                sample_index: 0,
+                error: "connection refused",
+            })
+            .unwrap();
+
+        let summary = storage.get_audit_summary(run_id).unwrap();
+        assert_eq!(summary.total_queries, 0);
+        assert_eq!(summary.successful_queries, 0);
+        assert_eq!(summary.failed_queries, 1);
+        assert_eq!(summary.planned_queries, 1);
+        assert_eq!(summary.mention_rate, 0.0);
+        assert_eq!(summary.citation_rate, 0.0);
+        assert!(!summary.is_complete());
+    }
+
+    #[test]
+    fn test_partial_failures_are_explicit_in_summary() {
+        let dir = TempDir::new().unwrap();
+        let storage = AuditStorage::open(&dir.path().join("test.db")).unwrap();
+        let run_id = fresh_run(&storage);
+
+        insert_result(&storage, run_id, true, false);
+        insert_result(&storage, run_id, false, false);
+        for sample in 0..2 {
+            storage
+                .insert_audit_error(&NewAuditError {
+                    audit_run_id: run_id,
+                    prompt_id: None,
+                    provider: "openai",
+                    model: "openai",
+                    sample_index: sample,
+                    error: "timeout",
+                })
+                .unwrap();
+        }
+
+        let summary = storage.get_audit_summary(run_id).unwrap();
+        assert_eq!(summary.successful_queries, 2);
+        assert_eq!(summary.failed_queries, 2);
+        assert_eq!(summary.planned_queries, 4);
+        assert!(!summary.is_complete());
+
+        let errors = storage.get_audit_errors(run_id).unwrap();
+        assert_eq!(errors.len(), 2);
+        assert_eq!(errors[0].provider, "openai");
+
+        storage
+            .complete_audit_run_with_status(run_id, "completed_with_errors", &summary)
+            .unwrap();
+        let run = storage.get_audit_run(run_id).unwrap().unwrap();
+        assert_eq!(run.status, "completed_with_errors");
+    }
+
+    #[test]
+    fn test_old_summary_json_without_new_fields_still_deserializes() {
+        // Summaries written before the trust baseline lack the new counters.
+        let old = serde_json::json!({
+            "total_queries": 4,
+            "mention_count": 2,
+            "recommendation_count": 1,
+            "citation_count": 5,
+            "mention_rate": 0.5,
+            "recommendation_rate": 0.25,
+            "citation_rate": 1.25,
+            "models_used": ["mock:mock"],
+        });
+        let summary: AuditSummary = serde_json::from_value(old).unwrap();
+        assert_eq!(summary.total_queries, 4);
+        assert_eq!(summary.planned_queries, 0);
+        assert_eq!(summary.failed_queries, 0);
+        assert_eq!(summary.citation_response_count, 0);
+        assert!(summary.uses_mock_provider());
+    }
+
+    #[test]
+    fn test_audit_errors_table_created_for_legacy_database() {
+        // A database created without the audit_errors table (e.g. by an older
+        // release) must remain readable and gain the new table on open.
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("legacy.db");
+        {
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE audit_runs (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 project_id TEXT NOT NULL, started_at TEXT NOT NULL,
+                 completed_at TEXT, status TEXT NOT NULL DEFAULT 'running',
+                 provider_models_json TEXT NOT NULL,
+                 samples_per_prompt INTEGER NOT NULL DEFAULT 3,
+                 temperature REAL NOT NULL DEFAULT 0.2, summary_json TEXT);",
+            )
+            .unwrap();
+        }
+        let storage = AuditStorage::open(&db_path).unwrap();
+        let run_id = fresh_run(&storage);
+        // Summarizing must not fail even though the table is new.
+        let summary = storage.get_audit_summary(run_id).unwrap();
+        assert_eq!(summary.total_queries, 0);
+        storage
+            .insert_audit_error(&NewAuditError {
+                audit_run_id: run_id,
+                prompt_id: None,
+                provider: "mock",
+                model: "mock",
+                sample_index: 0,
+                error: "boom",
+            })
+            .unwrap();
+        assert_eq!(storage.get_audit_errors(run_id).unwrap().len(), 1);
     }
 }

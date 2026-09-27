@@ -64,30 +64,55 @@ impl ReportGenerator {
         }
 
         // Footer
-        report.push_str(&self.generate_footer(&run));
+        report.push_str(&self.generate_footer(&run, &summary));
 
         Ok(report)
     }
 
-    fn generate_header(&self, run: &AuditRun, _summary: &AuditSummary) -> String {
+    fn generate_header(&self, run: &AuditRun, summary: &AuditSummary) -> String {
+        let mock_notice = if summary.uses_mock_provider() {
+            "\n> ⚠ TEST DATA — this audit used the mock provider. \
+             Results are synthetic and must not be presented as real-world AI visibility.\n"
+        } else {
+            ""
+        };
+        let partial = if summary.failed_queries > 0 {
+            format!(
+                " (partial: {}/{} planned queries failed — see failure diagnostics)",
+                summary.failed_queries, summary.planned_queries
+            )
+        } else {
+            String::new()
+        };
         format!(
             r#"# Ghostping Evidence Report
 
 ## {project_name}
-
+{mock_notice}
 **Audit Run**: {run_id}  
 **Generated**: {timestamp}  
 **Period**: {started}  
-**Status**: {status}
+**Status**: {status}{partial}
+
+**Coverage**: {successful}/{planned} planned queries succeeded{failed_note}
 
 ---
 
 "#,
             project_name = self.project.project.name,
+            mock_notice = mock_notice,
             run_id = run.id,
             timestamp = Utc::now().format("%Y-%m-%d %H:%M UTC"),
             started = run.started_at.split('T').next().unwrap_or("unknown"),
             status = run.status,
+            partial = partial,
+            successful = summary.successful_queries,
+            planned = summary.planned_queries,
+            failed_note = if summary.failed_queries > 0 {
+                format!(" ({} failed)", summary.failed_queries)
+            } else {
+                String::new()
+            },
         )
     }
 
@@ -128,29 +153,43 @@ This report measures how often AI models mention, cite, and recommend **{name}**
         format!(
             r#"## Detailed Metrics
 
-### Mention Rate
-Percentage of responses where **{name}** was explicitly mentioned.
+Planned queries: {planned} — succeeded: {successful}, failed: {failed}.
 
-- **Current**: {rate:.1}%
-- **Count**: {count}/{total} queries
+### Mention Rate
+Percentage of successful responses where **{name}** was explicitly mentioned.
+
+- **Current**: {mention_rate:.1}%
+- **Count**: {mention_count}/{total} successful responses
 
 ### Citation Rate
-Percentage of responses containing a URL citation related to the project.
+Percentage of successful responses containing at least one URL citation
+for the project domain. Multiple citations in a single response count once
+for the rate; every extracted URL is counted in the totals below.
 
-- **Current**: {rate:.1}%
-- **Count**: {count}/{total} queries
+- **Current**: {citation_rate:.1}%
+- **Count**: {cited_responses}/{total} successful responses with a project citation
+- **Total citations extracted**: {citations_total} ({citations_project} project-domain)
 
 ### Recommendation Rate
-Percentage of responses where the project was actively recommended (not merely mentioned).
+Percentage of successful responses where the project was actively recommended (not merely mentioned).
 
-- **Current**: {rate:.1}%
-- **Count**: {count}/{total} queries
+- **Current**: {recommendation_rate:.1}%
+- **Count**: {recommendation_count}/{total} successful responses
 
 "#,
+            planned = summary.planned_queries,
+            successful = summary.successful_queries,
+            failed = summary.failed_queries,
             name = self.project.project.name,
-            rate = summary.mention_rate * 100.0,
-            count = summary.mention_count,
+            mention_rate = summary.mention_rate * 100.0,
+            mention_count = summary.mention_count,
             total = summary.total_queries,
+            citation_rate = summary.citation_rate * 100.0,
+            cited_responses = summary.citation_response_count,
+            citations_total = summary.citation_count,
+            citations_project = summary.project_citation_count,
+            recommendation_rate = summary.recommendation_rate * 100.0,
+            recommendation_count = summary.recommendation_count,
         )
     }
 
@@ -371,7 +410,22 @@ Percentage of responses where the project was actively recommended (not merely m
         output
     }
 
-    fn generate_footer(&self, run: &AuditRun) -> String {
+    fn generate_footer(&self, run: &AuditRun, summary: &AuditSummary) -> String {
+        let mock_caveat = if summary.uses_mock_provider() {
+            "- THIS REPORT IS TEST DATA: the mock provider returns synthetic responses. \
+             Do not present these metrics as real-world AI visibility.\n"
+        } else {
+            ""
+        };
+        let partial_caveat = if summary.failed_queries > 0 {
+            format!(
+                "- PARTIAL RESULTS: {}/{} planned queries failed. \
+                 Metrics cover successful responses only.\n",
+                summary.failed_queries, summary.planned_queries
+            )
+        } else {
+            String::new()
+        };
         format!(
             r#"---
 
@@ -385,6 +439,7 @@ This report was generated by Ghostping, a local-first GEO (Generative Engine Opt
 - These metrics measure visibility across the tested prompt set, not universal AI ranking.
 - Model training data and behavior change over time.
 - Publishing content is necessary but does not guarantee citations.
+{mock_caveat}{partial_caveat}
 
 **Audit Configuration**:
 - Samples per prompt: {samples}
@@ -405,6 +460,8 @@ _Generated by [Ghostping](https://github.com/commonfields/ghostping) — local-f
                 "No"
             },
             timestamp = Utc::now().format("%Y-%m-%d %H:%M UTC"),
+            mock_caveat = mock_caveat,
+            partial_caveat = partial_caveat,
         )
     }
 
@@ -482,5 +539,117 @@ mod tests {
         assert!(filename.contains("my-project"));
         assert!(filename.contains("audit_42"));
         assert!(filename.ends_with(".md"));
+    }
+
+    fn metric_summary() -> AuditSummary {
+        AuditSummary {
+            total_queries: 10,
+            mention_count: 6,
+            recommendation_count: 2,
+            citation_count: 9,
+            mention_rate: 0.6,
+            recommendation_rate: 0.2,
+            citation_rate: 0.4,
+            models_used: vec!["openai:gpt-4o-mini".to_string()],
+            planned_queries: 10,
+            successful_queries: 10,
+            failed_queries: 0,
+            citation_response_count: 4,
+            project_citation_count: 7,
+        }
+    }
+
+    fn metric_generator() -> ReportGenerator {
+        let project = ProjectConfig::default();
+        let storage = AuditStorage::open(&std::path::PathBuf::from(":memory:")).unwrap();
+        ReportGenerator::new(project, storage)
+    }
+
+    #[test]
+    fn test_detailed_metrics_use_each_metric_own_values() {
+        // Regression test: citation and recommendation sections previously
+        // reused the mention-rate variables.
+        let generator = metric_generator();
+        let metrics = generator.generate_metrics(&metric_summary());
+
+        assert!(metrics.contains("- **Current**: 60.0%"), "mention rate");
+        assert!(
+            metrics.contains("- **Count**: 6/10 successful responses"),
+            "mention count"
+        );
+        assert!(metrics.contains("- **Current**: 40.0%"), "citation rate");
+        assert!(
+            metrics.contains("- **Count**: 4/10 successful responses with a project citation"),
+            "citation count, got:\n{metrics}"
+        );
+        assert!(metrics.contains("- **Total citations extracted**: 9 (7 project-domain)"));
+        assert!(
+            metrics.contains("- **Current**: 20.0%"),
+            "recommendation rate"
+        );
+        assert!(
+            metrics.contains("- **Count**: 2/10 successful responses"),
+            "recommendation count"
+        );
+    }
+
+    #[test]
+    fn test_mock_runs_are_labeled_test_data() {
+        let generator = metric_generator();
+        let mut summary = metric_summary();
+        summary.models_used = vec!["mock:mock".to_string()];
+
+        let run = AuditRun {
+            id: 1,
+            project_id: "example.com".to_string(),
+            started_at: "2026-01-01T00:00:00+00:00".to_string(),
+            completed_at: None,
+            status: "completed".to_string(),
+            provider_models_json: "[\"mock\"]".to_string(),
+            samples_per_prompt: 1,
+            temperature: 0.2,
+            summary_json: None,
+        };
+
+        let header = generator.generate_header(&run, &summary);
+        assert!(
+            header.contains("TEST DATA"),
+            "header must flag mock, got:\n{header}"
+        );
+        let footer = generator.generate_footer(&run, &summary);
+        assert!(footer.contains("TEST DATA"), "footer must flag mock");
+
+        // Non-mock runs must not carry the banner.
+        let real_header = generator.generate_header(&run, &metric_summary());
+        assert!(!real_header.contains("TEST DATA"));
+    }
+
+    #[test]
+    fn test_partial_runs_show_failure_coverage() {
+        let generator = metric_generator();
+        let mut summary = metric_summary();
+        summary.failed_queries = 3;
+        summary.planned_queries = 13;
+        summary.successful_queries = 10;
+
+        let run = AuditRun {
+            id: 2,
+            project_id: "example.com".to_string(),
+            started_at: "2026-01-01T00:00:00+00:00".to_string(),
+            completed_at: None,
+            status: "completed_with_errors".to_string(),
+            provider_models_json: "[\"openai\"]".to_string(),
+            samples_per_prompt: 1,
+            temperature: 0.2,
+            summary_json: None,
+        };
+
+        let header = generator.generate_header(&run, &summary);
+        assert!(
+            header.contains("10/13 planned queries succeeded"),
+            "got:\n{header}"
+        );
+        let footer = generator.generate_footer(&run, &summary);
+        assert!(footer.contains("PARTIAL RESULTS"));
     }
 }
