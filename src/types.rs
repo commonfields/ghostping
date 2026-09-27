@@ -116,6 +116,7 @@ mod tests {
             citation_count: 0,
             models_with_mention: vec![],
             results: vec![],
+            source: crate::tracker::AUDIT_SOURCE_LEGACY.to_string(),
         };
         assert_eq!(s.mention_rate(), 0.0);
     }
@@ -129,6 +130,7 @@ mod tests {
             citation_count: 1,
             models_with_mention: vec![],
             results: vec![],
+            source: crate::tracker::AUDIT_SOURCE_LEGACY.to_string(),
         };
         assert!((s.mention_rate() - 75.0).abs() < 0.01);
     }
