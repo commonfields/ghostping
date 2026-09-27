@@ -1,0 +1,52 @@
+# Ghostping pull-request CI.
+#
+# Separate from release publishing (.github/workflows/release.yml): this
+# workflow validates every push and pull request. Every gate relies on the
+# underlying command's exit status — never on grepping command output.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    name: fmt / clippy / test / contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Formatting (cargo fmt --check)
+        run: cargo fmt --all -- --check
+
+      - name: Lints (clippy, warnings denied)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Tests (all targets, locked deps)
+        run: cargo test --all-targets --locked
+
+      - name: Build the primary CLI
+        run: cargo build --locked --bin ghostping
+
+      - name: CLI exit contracts (isolated HOME, mock only, no network)
+        run: GHOSTPING_BIN="${{ github.workspace }}/target/debug/ghostping" bash scripts/check-cli-contracts.sh
+
+      - name: Release-script regression tests (stubbed cargo, no network)
+        run: bash scripts/test-validate-release.sh
+
+      - name: Installer checksum regression tests (offline fixtures)
+        run: bash scripts/test-install.sh
