@@ -16,6 +16,14 @@ pub fn print_summary(summary: &TrackSummary, prev_rate: Option<f64>) {
         "Ghostping Report:".bold(),
         summary.domain.cyan().bold()
     );
+    println!(
+        "  {}",
+        format!(
+            "Legacy workflow ({}) — for evidence audits use `ghostping audit run`.",
+            summary.source
+        )
+        .dimmed()
+    );
     println!("{}", "━".repeat(64).dimmed());
 
     let rate = summary.mention_rate();
