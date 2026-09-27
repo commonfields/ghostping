@@ -366,7 +366,7 @@ impl PromptTemplates {
         let mut prompts = vec![
             format!("What is {}?", brand),
             format!("Best {} tools", niche),
-            format!("{}", brand),
+            brand.to_string(),
             format!("{} vs alternatives", brand),
             format!("How does {} work?", brand),
             format!("Getting started with {}", brand),

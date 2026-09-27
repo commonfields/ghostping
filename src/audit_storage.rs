@@ -121,6 +121,12 @@ impl AuditStorage {
         Self { conn }
     }
 
+    /// Direct connection access for the observation kernel module.
+    /// All observation tables live in the same `evidence.db` file.
+    pub fn connection(&self) -> &Connection {
+        &self.conn
+    }
+
     pub fn open(db_path: &Path) -> Result<Self> {
         let conn = Connection::open(db_path)?;
         let storage = Self::new(conn);
@@ -238,6 +244,8 @@ impl AuditStorage {
             CREATE INDEX IF NOT EXISTS idx_audit_errors_run_id ON audit_errors(audit_run_id);
             "#,
         )?;
+        // Observation Kernel tables (same database, additive migration).
+        crate::observations::init_observation_schema(&self.conn)?;
         Ok(())
     }
 

@@ -1,0 +1,17 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "Based on my training data, Ghostping might be a visibility tool, but I have no browsed sources for this answer."
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "avgLogprobs": -0.87
+    }
+  ],
+  "usageMetadata": { "promptTokenCount": 12, "candidatesTokenCount": 31, "totalTokenCount": 43 }
+}

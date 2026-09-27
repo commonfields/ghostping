@@ -1,0 +1,30 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "Ghostping is a local-first visibility tool. See the official docs for setup instructions."
+          }
+        ],
+        "role": "model"
+      },
+      "groundingMetadata": {
+        "webSearchQueries": ["best rust cli visibility tool"],
+        "groundingChunks": [
+          { "web": { "uri": "https://example.com/docs", "title": "Example Docs" } },
+          { "web": { "uri": "https://example.com/blog/geo-guide", "title": "GEO Guide" } }
+        ],
+        "groundingSupports": [
+          {
+            "segment": { "startIndex": 0, "endIndex": 45, "text": "Ghostping is a local-first visibility tool." },
+            "groundingChunkIndices": [0]
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "avgLogprobs": -0.42
+    }
+  ],
+  "usageMetadata": { "promptTokenCount": 12, "candidatesTokenCount": 24, "totalTokenCount": 36 }
+}

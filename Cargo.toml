@@ -81,6 +81,9 @@ dirs = "5"
 sha2 = "0.10"
 hex = "0.4"
 
+# CSV import (Search Console exports)
+csv = "1"
+
 # TUI (chat mode)
 ratatui = "0.29"
 crossterm = "0.28"
