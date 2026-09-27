@@ -47,16 +47,17 @@ const TAGLINE: &str = "The private, local-first GEO companion for indie builders
 Track, generate, and optimize your visibility in AI answers (ChatGPT, Claude, Perplexity, Grok, Ollama).
 
 Quick start:
-  ghostping config                          # create config
-  ghostping audit myproject.com             # quick scan
+  ghostping init                            # create project
+  ghostping prompts discover                # build prompt set
+  ghostping audit run --models mock         # free end-to-end test
   ghostping optimize myproject.com --niche \"your niche\"  # auto-optimize
   ghostping quickstart                      # guided beginner flow
 
 Key commands:
-  audit    — Quick visibility scan (12 smart prompts)
+  audit    — Evidence audit (prompts × samples × providers)
   optimize — Autonomous 5-step GEO agent
-  generate — Create LLM-citable content
-  report   — View trends over time",
+  generate — Create content for audit gaps
+  report   — Evidence report for an audit run",
     version,
     arg_required_else_help = true
 )]
@@ -432,70 +433,6 @@ enum Commands {
     Diagnose {
         /// URL to diagnose
         url: String,
-    },
-}
-
-#[derive(clap::Subcommand)]
-enum Prompts2Command {
-    /// Discover prompts based on project configuration
-    ///
-    /// Examples:
-    ///   ghostping prompts discover
-    ///   ghostping prompts discover --limit 20
-    Discover {
-        /// Limit number of prompts to generate
-        #[arg(short, long)]
-        limit: Option<usize>,
-    },
-    /// List stored prompts
-    ///
-    /// Examples:
-    ///   ghostping prompts list
-    List,
-}
-
-#[derive(clap::Subcommand)]
-enum Audit2Command {
-    /// Run a new audit with the evidence engine
-    ///
-    /// Examples:
-    ///   ghostping audit run
-    ///   ghostping audit run --provider mock --samples 3
-    ///   ghostping audit run --models ollama:llama3.2 --temperature 0.5
-    Run {
-        /// Number of samples per prompt
-        #[arg(short, long)]
-        samples: Option<usize>,
-        /// Temperature for LLM queries
-        #[arg(short, long)]
-        temperature: Option<f32>,
-        /// Specific provider/models to use (e.g., mock, ollama:llama3.2)
-        #[arg(short, long)]
-        models: Option<String>,
-        /// JSON output
-        #[arg(long)]
-        json: bool,
-        /// Acknowledge cloud-provider data transfer notice for scripts
-        #[arg(long)]
-        yes: bool,
-    },
-    /// List previous audit runs
-    ///
-    /// Examples:
-    ///   ghostping audit list
-    ///   ghostping audit list --limit 10
-    List {
-        /// Limit number of results
-        #[arg(short, long, default_value = "20")]
-        limit: usize,
-    },
-    /// Show details of a specific audit run
-    ///
-    /// Examples:
-    ///   ghostping audit show 42
-    Show {
-        /// Audit run ID
-        id: i64,
     },
 }
 
@@ -1115,7 +1052,7 @@ async fn main() -> Result<()> {
                     if installed.is_empty() {
                         println!(
                             "\n  No plugins installed. Try:\n  {}\n",
-                            "ghostping prompts install rust-crate".cyan()
+                            "ghostping prompts templates install rust-crate".cyan()
                         );
                     } else {
                         use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
@@ -1157,7 +1094,7 @@ async fn main() -> Result<()> {
                             "\n  {}  Plugin {} is not installed. Run:\n  {}\n",
                             "!".yellow(),
                             name.cyan(),
-                            format!("ghostping prompts install {}", name).cyan()
+                            format!("ghostping prompts templates install {}", name).cyan()
                         );
                     }
                 }
@@ -1179,7 +1116,7 @@ async fn main() -> Result<()> {
                     "\n  {}  No data for {}. Run {} first.\n",
                     "!".yellow(),
                     domain.cyan(),
-                    format!("ghostping audit {}", domain).cyan()
+                    format!("ghostping audit-legacy {}", domain).cyan()
                 );
             } else {
                 match format {
@@ -1206,7 +1143,7 @@ async fn main() -> Result<()> {
                 if domains.is_empty() {
                     println!(
                         "\n  No data yet. Run {} to start tracking.\n",
-                        "ghostping audit <domain>".cyan()
+                        "ghostping audit run".cyan()
                     );
                 } else {
                     for d in &domains {
@@ -1359,7 +1296,7 @@ async fn main() -> Result<()> {
                     "\n  {}  No audit data for {}. Run {} first.\n",
                     "!".yellow(),
                     domain.cyan(),
-                    format!("ghostping audit {}", domain).cyan()
+                    format!("ghostping audit-legacy {}", domain).cyan()
                 );
             } else {
                 storage.record_publish_snapshot(
@@ -2069,7 +2006,7 @@ async fn run_doctor(config: &Config, base_dir: &Path) -> Result<()> {
         println!(
             "  {} At least one provider is active. Try: {}",
             "✓".green().bold(),
-            "ghostping audit myproject.com".cyan()
+            "ghostping audit run --models mock --samples 3".cyan()
         );
     } else {
         println!(
@@ -2122,7 +2059,7 @@ fn run_quickstart() -> Result<()> {
     println!("  {}  {}", "4.".bold(), "Run your first audit".bold());
     println!(
         "      {}",
-        "ghostping audit myproject.com --niche \"your niche\"".cyan()
+        "ghostping init --yes && ghostping prompts discover && ghostping audit run".cyan()
     );
     println!();
     println!(
@@ -2218,14 +2155,20 @@ fn generate_docs() -> String {
     out.push_str("---\n\n");
 
     let commands = [
-        ("audit", "Quick visibility scan using smart default prompts.",
-         "ghostping audit myproject.com\nghostping audit myproject.com --niche \"Rust CLI tool\"\nghostping audit myproject.com --models ollama"),
+        ("audit run", "Evidence audit: prompts × samples × providers, stored with citations.",
+         "ghostping audit run --models mock --samples 3\nghostping audit run --models ollama --samples 3\nghostping audit list\nghostping audit show 1\nghostping audit compare --before 1 --after 2"),
+        ("audit-legacy", "Legacy one-shot domain scan (mentions.db, not evidence).",
+         "ghostping audit-legacy myproject.com --niche \"Rust CLI tool\""),
         ("track", "Run custom prompts from a file and record brand mentions.",
          "ghostping track myproject.com --prompts prompts.txt\nghostping track myproject.com --prompts prompts.json --models anthropic"),
-        ("report", "Show mention history and trends from the local database.",
-         "ghostping report myproject.com\nghostping report myproject.com --days 30\nghostping report myproject.com --export csv > results.csv"),
-        ("generate", "Generate GEO-optimized markdown content for a target query.",
-         "ghostping generate \"best rust cli tool\" --about \"myproject.io is a ...\"\nghostping generate \"...\" --plugin rust-crate --about \"...\"\nghostping generate \"...\" --evaluate"),
+        ("report", "Markdown evidence report for an audit run.",
+         "ghostping report\nghostping report --run 1 --output ./reports/"),
+        ("report-legacy", "Mention history and trends from the legacy database.",
+         "ghostping report-legacy myproject.com\nghostping report-legacy myproject.com --days 30"),
+        ("generate", "Draft content assets from evidence audit gaps.",
+         "ghostping generate\nghostping generate --from-audit 1 --output ./generated/"),
+        ("generate-legacy", "Generate GEO-optimized markdown content for a target query.",
+         "ghostping generate-legacy \"best rust cli tool\" --about \"myproject.io is a ...\"\nghostping generate-legacy \"...\" --plugin rust-crate --about \"...\"\nghostping generate-legacy \"...\" --evaluate"),
         ("optimize", "5-step autonomous GEO agent: discover, audit, generate, refine, evaluate.",
          "ghostping optimize myproject.com --niche \"Rust CLI tool\"\nghostping optimize myproject.com --niche \"...\" --steps 5 --auto-apply\nghostping optimize myproject.com --niche \"...\" --max-rounds 3\nghostping optimize myproject.com --niche \"...\" --plugin rust-crate"),
         ("chat", "Structured TUI assistant — state a goal, get a guided GEO plan.",
@@ -2238,8 +2181,8 @@ fn generate_docs() -> String {
          "ghostping stats\nghostping stats myproject.com\nghostping stats myproject.com --days 30"),
         ("share", "Export a shareable visibility report.",
          "ghostping share myproject.com\nghostping share myproject.com --days 30 > report.md\nghostping share myproject.com --format json > report.json"),
-        ("prompts", "Browse and install community prompt templates.",
-         "ghostping prompts list\nghostping prompts search rust\nghostping prompts install rust-crate"),
+        ("prompts", "Discover project prompts; browse/install template packs.",
+         "ghostping prompts discover\nghostping prompts list\nghostping prompts templates list\nghostping prompts templates search rust\nghostping prompts templates install rust-crate"),
         ("plugins", "Manage installed plugins.",
          "ghostping plugins\nghostping plugins enable rust-crate\nghostping plugins disable rust-crate"),
         ("config", "Create ~/.ghostping/config.toml and show setup instructions.", "ghostping config"),
