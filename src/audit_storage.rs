@@ -636,10 +636,12 @@ impl AuditStorage {
     // ── Helper Methods ──────────────────────────────────────────────────────
 
     fn extract_domain(url: &str) -> String {
-        url.split('/')
-            .nth(2)
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "unknown".to_string())
+        let host = canonical_host(url);
+        if host.is_empty() {
+            "unknown".to_string()
+        } else {
+            host
+        }
     }
 
     fn map_audit_run(row: &Row) -> std::result::Result<AuditRun, rusqlite::Error> {
@@ -737,6 +739,57 @@ impl AuditStorage {
             created_at: row.get(7)?,
         })
     }
+}
+
+/// Extract the canonical host from a URL or bare domain: lowercase, no
+/// scheme/userinfo/port/path/query, no trailing dot. Returns "" when no
+/// host can be determined.
+pub fn canonical_host(input: &str) -> String {
+    let s = input.trim().to_lowercase();
+    // Strip scheme.
+    let after_scheme = match s.find("://") {
+        Some(i) => &s[i + 3..],
+        None => &s[..],
+    };
+    // Strip userinfo.
+    let after_userinfo = match after_scheme.rfind('@') {
+        Some(i) => &after_scheme[i + 1..],
+        None => after_scheme,
+    };
+    // Host ends at the first /, ?, #, or whitespace.
+    let host_port = after_userinfo
+        .split(['/', '?', '#', ' ', '\t', '\n', ')', '>', '"', '\''])
+        .next()
+        .unwrap_or("");
+    // Strip port (careful with IPv6 literals, which we leave intact).
+    let host = if host_port.starts_with('[') {
+        match host_port.find(']') {
+            Some(i) => &host_port[..=i],
+            None => host_port,
+        }
+    } else {
+        match host_port.rfind(':') {
+            // Only treat as port when the suffix is all digits.
+            Some(i) if host_port[i + 1..].chars().all(|c| c.is_ascii_digit()) => {
+                &host_port[..i]
+            }
+            _ => host_port,
+        }
+    };
+    host.trim_end_matches('.').to_string()
+}
+
+/// True when `url` points at the project's canonical host or a valid
+/// subdomain of it. Suffix spoofs (`evilexample.com` vs `example.com`)
+/// do NOT match: subdomains require a `.` boundary. The base must contain
+/// a dot so bare TLDs can never match everything.
+pub fn is_project_citation(url: &str, project: &str) -> bool {
+    let base = canonical_host(project);
+    if base.is_empty() || !base.contains('.') {
+        return false;
+    }
+    let host = canonical_host(url);
+    host == base || host.ends_with(&format!(".{}", base))
 }
 
 /// Input for creating a new prompt
@@ -1103,5 +1156,63 @@ mod tests {
             })
             .unwrap();
         assert_eq!(storage.get_audit_errors(run_id).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_canonical_host_normalizes_inputs() {
+        assert_eq!(canonical_host("https://Example.COM/docs?a=1"), "example.com");
+        assert_eq!(canonical_host("example.com"), "example.com");
+        assert_eq!(
+            canonical_host("http://user:pw@Sub.Example.com:8080/x"),
+            "sub.example.com"
+        );
+        assert_eq!(canonical_host("example.com."), "example.com");
+        assert_eq!(canonical_host("not a url at all well"), "");
+    }
+
+    #[test]
+    fn test_project_citation_matching_exact_and_subdomain() {
+        // Exact domain.
+        assert!(is_project_citation(
+            "https://example.com/docs",
+            "example.com"
+        ));
+        // Valid subdomains at any depth.
+        assert!(is_project_citation(
+            "https://docs.example.com/guide",
+            "example.com"
+        ));
+        assert!(is_project_citation(
+            "https://a.b.example.com/x",
+            "example.com"
+        ));
+        // Project given as a full URL; ports, case, and trailing dots ignored.
+        assert!(is_project_citation(
+            "https://DOCS.EXAMPLE.COM.:8443/y",
+            "https://example.com"
+        ));
+    }
+
+    #[test]
+    fn test_project_citation_matching_rejects_spoofs() {
+        // Attacker-controlled suffix domain: shares a string suffix but no
+        // dot boundary — must NOT count as a project citation.
+        assert!(!is_project_citation(
+            "https://evilexample.com/phish",
+            "example.com"
+        ));
+        assert!(!is_project_citation(
+            "https://example.com.evil.com/phish",
+            "example.com"
+        ));
+        // Unrelated domains never match.
+        assert!(!is_project_citation(
+            "https://competitor.example/docs",
+            "example.com"
+        ));
+        assert!(!is_project_citation("https://other.io/x", "example.com"));
+        // Degenerate bases never match everything.
+        assert!(!is_project_citation("https://example.com/", "com"));
+        assert!(!is_project_citation("https://example.com/", ""));
     }
 }
