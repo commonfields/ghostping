@@ -332,11 +332,7 @@ mod tests {
     fn snippet_with_multibyte_text_does_not_panic() {
         // Emoji/CJK around the match: byte slicing would panic or
         // mis-slice here.
-        let response = format!(
-            "{} myproject.com {}",
-            "🦀".repeat(30),
-            "世界".repeat(60)
-        );
+        let response = format!("{} myproject.com {}", "🦀".repeat(30), "世界".repeat(60));
         let snippet = extract_snippet("myproject", &response).unwrap();
         assert!(snippet.contains("myproject"));
         // Long multibyte input is bounded in chars, not bytes.
