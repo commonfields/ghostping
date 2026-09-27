@@ -1241,15 +1241,13 @@ async fn main() -> Result<()> {
             let parsed_interval = match interval.as_str() {
                 "daily" => scheduler::ScheduleInterval::Daily,
                 "weekly" => scheduler::ScheduleInterval::Weekly,
-                h => {
-                    match h.parse::<u32>() {
-                        Ok(n) if n > 0 => scheduler::ScheduleInterval::Custom(n),
-                        _ => {
-                            eprintln!("  {} Unknown interval '{}'. Use daily, weekly, or a number of hours (1-24 for cron).", "Error:".red().bold(), h);
-                            std::process::exit(1);
-                        }
+                h => match h.parse::<u32>() {
+                    Ok(n) if n > 0 => scheduler::ScheduleInterval::Custom(n),
+                    _ => {
+                        eprintln!("  {} Unknown interval '{}'. Use daily, weekly, or a number of hours (1-24 for cron).", "Error:".red().bold(), h);
+                        std::process::exit(1);
                     }
-                }
+                },
             };
 
             let binary_path = std::env::current_exe()
@@ -1309,11 +1307,7 @@ async fn main() -> Result<()> {
                         "→".cyan(),
                         path.display().to_string().dimmed()
                     );
-                    println!(
-                        "  {}  Logs:  {}",
-                        "→".cyan(),
-                        job.log_path().dimmed()
-                    );
+                    println!("  {}  Logs:  {}", "→".cyan(), job.log_path().dimmed());
                     println!();
                     println!(
                         "  {}  The job runs {} from {} (project must contain ghostping.toml).",
@@ -2661,9 +2655,7 @@ async fn run_audit_run(
     // Get prompts
     let prompts = storage.list_prompts(&project.domain())?;
     if prompts.is_empty() {
-        bail!(
-            "No prompts found for this project. Run 'ghostping prompts discover' first."
-        );
+        bail!("No prompts found for this project. Run 'ghostping prompts discover' first.");
     }
 
     let is_mock_run = request.models.as_deref() == Some("mock");
