@@ -72,6 +72,18 @@ impl TrackSummary {
     }
 }
 
+/// Truncate `s` to at most `max_chars` Unicode scalar values, appending `…`
+/// when truncated. Byte-index slicing (`&s[..n]`) panics on multibyte text;
+/// this helper never panics.
+pub fn truncate_chars(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        s.to_string()
+    } else {
+        let kept: String = s.chars().take(max_chars.saturating_sub(1)).collect();
+        format!("{}…", kept)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,5 +128,21 @@ mod tests {
             results: vec![],
         };
         assert!((s.mention_rate() - 75.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn truncate_chars_handles_multibyte_without_panicking() {
+        // Emoji (4 bytes) and CJK (3 bytes): byte slicing would panic.
+        let s = "🦀🦀🦀🦀🦀 hello 世界世界世界";
+        let t = truncate_chars(s, 8);
+        assert!(t.ends_with('…'));
+        assert_eq!(t.chars().count(), 8); // 7 kept + ellipsis
+        assert!(t.starts_with("🦀🦀🦀🦀🦀 h"));
+
+        // Short strings pass through untouched.
+        assert_eq!(truncate_chars("héllo", 10), "héllo");
+        // Zero/max boundaries never panic.
+        assert_eq!(truncate_chars("abc", 0), "…");
+        assert_eq!(truncate_chars("", 5), "");
     }
 }
