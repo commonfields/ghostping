@@ -214,12 +214,19 @@ fn detect_sentiment(domain_base: &str, response_lower: &str) -> Sentiment {
 
 fn extract_snippet(domain_base: &str, response: &str) -> Option<String> {
     let lower = response.to_lowercase();
-    let idx = lower.find(domain_base)?;
-    let start = idx.saturating_sub(80);
-    let end = (idx + domain_base.len() + 120).min(response.len());
-    let raw = response[start..end].trim();
-    Some(if raw.len() > 200 {
-        format!("{}…", &raw[..199])
+    let byte_idx = lower.find(domain_base)?;
+    // Map the match position to character indices. Byte slicing would panic
+    // on multibyte text (and lowercasing can shift byte offsets), so work
+    // purely in chars and clamp defensively.
+    let match_char = lower[..byte_idx].chars().count();
+    let chars: Vec<char> = response.chars().collect();
+    let center = match_char.min(chars.len().saturating_sub(1));
+    let start = center.saturating_sub(80);
+    let end = (center + domain_base.chars().count() + 120).min(chars.len());
+    let raw: String = chars.get(start..end).unwrap_or(&[]).iter().collect();
+    let raw = raw.trim();
+    Some(if raw.chars().count() > 200 {
+        crate::types::truncate_chars(raw, 200)
     } else {
         raw.to_string()
     })
@@ -319,5 +326,25 @@ mod tests {
     fn case_insensitive_detection() {
         let r = parse_response("myproject.com", "MYPROJECT.COM is well known.");
         assert!(r.mentioned);
+    }
+
+    #[test]
+    fn snippet_with_multibyte_text_does_not_panic() {
+        // Emoji/CJK around the match: byte slicing would panic or
+        // mis-slice here.
+        let response = format!(
+            "{} myproject.com {}",
+            "🦀".repeat(30),
+            "世界".repeat(60)
+        );
+        let snippet = extract_snippet("myproject", &response).unwrap();
+        assert!(snippet.contains("myproject"));
+        // Long multibyte input is bounded in chars, not bytes.
+        assert!(snippet.chars().count() <= 201);
+
+        // Match at a non-ASCII boundary with mixed scripts.
+        let r = parse_response("münchen.de", "Besuchen Sie münchen.de 🦀 für mehr Infos!");
+        assert!(r.mentioned);
+        assert!(r.snippet.is_some());
     }
 }
