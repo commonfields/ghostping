@@ -465,7 +465,11 @@ pub fn print_optimization_plan(plan: &OptimizationPlan, dry_run: bool) {
         println!(
             "  {}  Re-audit:        {}",
             "→".cyan(),
-            format!("ghostping audit-legacy {} --niche \"{}\"", plan.domain, plan.niche).dimmed()
+            format!(
+                "ghostping audit-legacy {} --niche \"{}\"",
+                plan.domain, plan.niche
+            )
+            .dimmed()
         );
     }
     println!();
