@@ -465,7 +465,7 @@ pub fn print_optimization_plan(plan: &OptimizationPlan, dry_run: bool) {
         println!(
             "  {}  Re-audit:        {}",
             "→".cyan(),
-            format!("ghostping audit {} --niche \"{}\"", plan.domain, plan.niche).dimmed()
+            format!("ghostping audit-legacy {} --niche \"{}\"", plan.domain, plan.niche).dimmed()
         );
     }
     println!();
@@ -574,7 +574,7 @@ pub fn print_stats(domain: &str, stats: &[DomainDayStat], days: u32) {
     if stats.is_empty() {
         println!(
             "\n  No data found. Run {} first.\n",
-            format!("ghostping audit {}", domain).cyan()
+            format!("ghostping audit-legacy {}", domain).cyan()
         );
         return;
     }
