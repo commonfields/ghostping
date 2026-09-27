@@ -336,7 +336,11 @@ mod tests {
         let record = dir.path().join("seen.txt");
         std::fs::write(
             &stub,
-            format!("#!/bin/sh\npwd > {}\nprintf '%s\\n' \"$@\" >> {}\n", record.display(), record.display()),
+            format!(
+                "#!/bin/sh\npwd > {}\nprintf '%s\\n' \"$@\" >> {}\n",
+                record.display(),
+                record.display()
+            ),
         )
         .unwrap();
         std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -357,10 +361,7 @@ mod tests {
         let seen = std::fs::read_to_string(&record).unwrap();
         let mut lines = seen.lines();
         assert_eq!(lines.next().unwrap(), project.to_str().unwrap());
-        assert_eq!(
-            lines.collect::<Vec<_>>(),
-            vec!["audit", "run", "--yes"]
-        );
+        assert_eq!(lines.collect::<Vec<_>>(), vec!["audit", "run", "--yes"]);
     }
 
     #[test]
@@ -409,7 +410,8 @@ mod tests {
         assert!(cron_line(&job, ScheduleInterval::Custom(168)).is_err());
         let line = cron_line(&job, ScheduleInterval::Custom(6)).unwrap();
         assert!(line.starts_with("0 */6 * * * "));
-        assert!(line.contains("audit run"));
+        // argv elements are individually shell-quoted.
+        assert!(line.contains("'audit'") && line.contains("'run'"));
     }
 
     #[test]
