@@ -1,5 +1,7 @@
 use anyhow::{bail, Result};
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// Interval presets
 #[derive(Debug, Clone, Copy)]
