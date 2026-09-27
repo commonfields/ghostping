@@ -1516,6 +1516,8 @@ async fn main() -> Result<()> {
                             models,
                             json,
                             yes,
+                            quiet: cli.quiet,
+                            verbose: cli.verbose,
                         },
                     )
                     .await?;
@@ -2646,6 +2648,8 @@ struct AuditRunRequest {
     models: Option<String>,
     json: bool,
     yes: bool,
+    quiet: bool,
+    verbose: bool,
 }
 
 async fn run_audit_run(
@@ -2697,8 +2701,8 @@ async fn run_audit_run(
         samples_per_prompt: request.samples.unwrap_or(project.audit.samples_per_prompt),
         temperature: request.temperature.unwrap_or(project.audit.temperature),
         store_raw_responses: project.audit.store_raw_responses,
-        verbose: false,
-        quiet: false,
+        verbose: request.verbose,
+        quiet: request.quiet,
         concurrency: global_config.defaults.concurrency,
     };
 
@@ -2955,7 +2959,7 @@ fn run_audit_show(storage: &AuditStorage, id: i64) -> Result<()> {
             println!();
         }
         None => {
-            println!("\n  {} Audit run {} not found\n", "✗".red(), id);
+            bail!("Audit run {} not found.", id);
         }
     }
 
@@ -2966,11 +2970,17 @@ async fn run_report2(
     project: &ProjectConfig,
     storage: &AuditStorage,
     run: Option<i64>,
-    _format: &str,
+    format: &str,
     output: PathBuf,
     full: bool,
     force: bool,
 ) -> Result<()> {
+    if format != "markdown" {
+        bail!(
+            "Unsupported report format '{}': only 'markdown' is supported.",
+            format
+        );
+    }
     // Get audit run ID
     let run_id = match run {
         Some(id) => id,
@@ -3093,6 +3103,12 @@ fn run_generate2(
 }
 
 async fn run_compare(storage: &AuditStorage, before: i64, after: i64, format: &str) -> Result<()> {
+    if format != "markdown" && format != "json" {
+        bail!(
+            "Unsupported compare format '{}': use 'markdown' or 'json'.",
+            format
+        );
+    }
     let before_run = storage.get_audit_run(before)?;
     let after_run = storage.get_audit_run(after)?;
 
