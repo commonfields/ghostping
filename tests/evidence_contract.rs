@@ -12,8 +12,13 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn ghostping_bin() -> PathBuf {
+    // Cargo provides the freshly built binary path to integration tests.
+    // Fall back to a prebuilt target binary for ad-hoc runs.
+    let from_cargo = option_env!("CARGO_BIN_EXE_ghostping").map(PathBuf::from);
+    if let Some(p) = from_cargo {
+        return p;
+    }
     let dir = env!("CARGO_MANIFEST_DIR");
-    // Prefer the debug binary (CI builds it); fall back to release.
     let debug = PathBuf::from(dir).join("target/debug/ghostping");
     if debug.exists() {
         return debug;
@@ -125,13 +130,15 @@ fn legacy_history_cannot_appear_as_current_evidence() {
         .unwrap();
         for i in 0..5 {
             conn.execute(
-                "INSERT INTO mentions (domain, prompt, model, timestamp, mentioned,
-                 cited, position, sentiment, snippet, raw_response)
-                 VALUES ('legacy.example', 'q', 'openai', '2026-01-01T00:00:00Z',
-                 1, 1, 'Top', 'Positive', 's', 'LEGACY ROW')",
-                rusqlite::params![i64::from(i)],
+                &format!(
+                    "INSERT INTO mentions (domain, prompt, model, timestamp, mentioned,
+                     cited, position, sentiment, snippet, raw_response)
+                     VALUES ('legacy.example', 'legacy q{i}', 'openai',
+                     '2026-01-01T00:00:00Z', 1, 1, 'Top', 'Positive', 's', 'LEGACY ROW')"
+                ),
+                [],
             )
-            .unwrap_or_default();
+            .unwrap();
         }
     }
 
