@@ -939,7 +939,7 @@ mod tests {
             let t = truncate(&"🦀".repeat(10), max);
             assert!(t.chars().all(|c| c == '🦀' || c == '…'));
         }
-        let t = truncate(&"日本語テストです。Hello world, this is long.", 10);
+        let t = truncate("日本語テストです。Hello world, this is long.", 10);
         assert!(t.ends_with('…'));
         assert_eq!(t.chars().count(), 10);
     }
