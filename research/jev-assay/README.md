@@ -59,8 +59,14 @@ export TYPESAFE_API_KEY=...            # never commit, never log
 export GHOSTPING_LIVE_JEV=1
 cargo run --release --bin jev-assay -- eval --task a \
   --dataset research/jev-assay/datasets/task_a_synthetic.jsonl \
-  --transport live --max-requests 120 --out research/jev-assay/reports/holdout-a
+  --transport live --split holdout --max-requests 220 --out research/jev-assay/reports/holdout-a
 ```
+
+The canonical held-out command always carries `--split holdout`.
+`--max-requests` must cover every selected case (one request each) or the
+run is refused up front (`INSUFFICIENT_REQUEST_BUDGET`). A run manifest is
+written before request #1; per-question calibration, drift check, and
+completion record follow automatically.
 
 Budget is enforced before every request; `--max-requests 0` is rejected.
 Secrets are never persisted; errors redact credentials.
