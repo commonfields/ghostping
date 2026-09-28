@@ -3552,15 +3552,28 @@ fn run_observations_import_grounded(
                 Some(src) => serde_json::json!({"uri": src.uri, "title": src.title}),
                 None => serde_json::Value::Null,
             }).collect::<Vec<_>>(),
+            "parts": content.parts.iter().map(|pt| serde_json::json!({
+                "part_index": pt.part_index, "text": pt.text,
+            })).collect::<Vec<_>>(),
             "spans": content.spans.iter().map(|sp| serde_json::json!({
-                "text": sp.text, "start_index": sp.start_index,
+                "part_index": sp.part_index, "text": sp.text,
+                "start_index": sp.start_index,
                 "end_index": sp.end_index, "chunk_indices": sp.chunk_indices,
             })).collect::<Vec<_>>(),
             "resolved": resolved.iter().map(|r| serde_json::json!({
-                "text": r.text, "uris": r.uris,
-                "fully_attributed": r.fully_attributed, "problems": r.problems,
+                "text": r.text,
+                "sources": r.sources.iter().map(|rs| serde_json::json!({
+                    "index": rs.index,
+                    "status": format!("{:?}", rs.status),
+                    "uri": rs.uri,
+                })).collect::<Vec<_>>(),
+                "span_status": format!("{:?}", r.span_status),
+                "attribution": format!("{:?}", r.attribution),
+                "fully_attributed": r.fully_attributed(),
+                "problems": r.problems,
             })).collect::<Vec<_>>(),
             "response_model": content.response_model,
+            "interpretation_version": content.interpretation_version,
         },
         "integrity_flags": content.integrity_flags,
     });
@@ -3627,11 +3640,20 @@ fn run_observations_import_grounded(
     Ok(())
 }
 
+fn render_int_value(value: Option<i64>, sem: ghostping::gsc::ValueSemantics) -> String {
+    use ghostping::gsc::ValueSemantics;
+    match (value, sem) {
+        (None, _) => "unknown".to_string(),
+        (Some(0), ValueSemantics::Reported) => "0 (reported by source)".to_string(),
+        (Some(v), _) => v.to_string(),
+    }
+}
+
 fn run_observations_report(project: &ProjectConfig, storage: &AuditStorage) -> Result<()> {
     use ghostping::observation_views::{
         summarize_first_party, summarize_provenance, summarize_retrieval, summarize_sampled,
     };
-    use ghostping::observations::{effective_identity, ObservationType, ReportIdentity};
+    use ghostping::observations::{ObservationType, ReportIdentity};
 
     let domain = project.domain();
     let all_gsc =
@@ -3698,56 +3720,69 @@ fn run_observations_report(project: &ProjectConfig, storage: &AuditStorage) -> R
                 "⚠".yellow()
             );
         }
-        for b in &section.breakdowns {
-            // Per-breakdown counts only: breakdowns are different cuts of the
-            // same exposure and are never added together.
-            let clicks = b
-                .clicks
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "n/a (no clicks in AI exports)".to_string());
+        for slice in &section.slices {
+            // One slice = one exact dimension signature. Slices are reported
+            // side by side and never added: no cross-breakdown totals exist.
             println!(
-                "    [{}] {} row(s) — {} impressions, {} clicks, {} w/o position",
-                b.kind.dimmed(),
-                b.rows,
-                b.impressions,
-                clicks.dimmed(),
-                b.rows_without_position
+                "    breakdown: {} ({} row(s))",
+                slice.dims.join(" × ").dimmed(),
+                slice.rows.len()
             );
-        }
-        // Inspectable top rows with unknowns shown as unknown.
-        let mut top: Vec<&ghostping::observations::ObservationEnvelope> = all_gsc
-            .iter()
-            .filter(|e| effective_identity(e) == section.identity)
-            .collect();
-        top.sort_by(|a, b| {
-            let ai = a
-                .payload
-                .get("impressions")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
-            let bi = b
-                .payload
-                .get("impressions")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
-            bi.cmp(&ai)
-        });
-        for env in top.iter().take(5) {
-            let value = env
-                .payload
-                .get("dimension_value")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let impressions = env
-                .payload
-                .get("impressions")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
-            println!(
-                "      {} — {} impressions",
-                ghostping::types::truncate_chars(value, 56).cyan(),
-                impressions
-            );
+            let mut top = slice.rows.clone();
+            top.sort_by(|a, b| {
+                b.impressions
+                    .value
+                    .unwrap_or(0)
+                    .cmp(&a.impressions.value.unwrap_or(0))
+            });
+            for row in top.iter().take(5) {
+                let dims = row
+                    .dims
+                    .iter()
+                    .map(|(k, v)| {
+                        format!(
+                            "{}={}",
+                            k.dimmed(),
+                            ghostping::types::truncate_chars(v, 48).cyan()
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let clicks = match &row.clicks {
+                    Some(c) => format!("{} clicks", render_int_value(c.value, c.semantics)),
+                    None => "clicks n/a (no clicks column)".to_string(),
+                };
+                let ctr = match &row.ctr {
+                    Some(c) => format!(
+                        "CTR {}",
+                        if c.value.is_none() {
+                            "unknown".to_string()
+                        } else {
+                            format!("{:.2}%", c.value.unwrap_or(0.0) * 100.0)
+                        }
+                    ),
+                    None => "CTR n/a".to_string(),
+                };
+                let pos = match &row.position {
+                    Some(p) => format!(
+                        "position {}",
+                        if p.value.is_none() {
+                            "unknown".to_string()
+                        } else {
+                            format!("{:.1}", p.value.unwrap_or(0.0))
+                        }
+                    ),
+                    None => "position n/a".to_string(),
+                };
+                println!(
+                    "      {} — {} impressions, {}, {}, {}",
+                    dims,
+                    render_int_value(row.impressions.value, row.impressions.semantics).cyan(),
+                    clicks.dimmed(),
+                    ctr.dimmed(),
+                    pos.dimmed()
+                );
+            }
         }
     }
     println!();
@@ -3789,30 +3824,51 @@ fn run_observations_report(project: &ProjectConfig, storage: &AuditStorage) -> R
         {
             for r in resolved.iter().take(5) {
                 let text = r.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                let attribution = r
+                    .get("attribution")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown");
                 let uris = r
-                    .get("uris")
+                    .get("sources")
                     .and_then(|v| v.as_array())
                     .map(|a| {
                         a.iter()
-                            .filter_map(|u| u.as_str())
+                            .filter_map(|s| {
+                                (s.get("status").and_then(|v| v.as_str()) == Some("Valid"))
+                                    .then(|| s.get("uri"))
+                                    .flatten()
+                                    .and_then(|u| u.as_str())
+                            })
                             .collect::<Vec<_>>()
                             .join(", ")
                     })
                     .unwrap_or_default();
-                let ok = r
-                    .get("fully_attributed")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
+                // Attribution states stay explicit: verified / partial /
+                // unknown. Uncertainty is never upgraded to a checkmark.
+                let (icon, state) = match attribution {
+                    "Verified" => ("✓".green(), "verified citation".to_string()),
+                    "Partial" => (
+                        "◐".yellow(),
+                        format!(
+                            "partial citation ({})",
+                            if uris.is_empty() {
+                                "no valid source".to_string()
+                            } else {
+                                uris.clone()
+                            }
+                        ),
+                    ),
+                    _ => ("⚠".yellow(), "unknown attribution".to_string()),
+                };
                 println!(
                     "        {} {} → {}",
-                    if ok { "✓".green() } else { "⚠".yellow() },
+                    icon,
                     ghostping::types::truncate_chars(text, 48).dimmed(),
-                    if uris.is_empty() {
-                        "attribution unknown".to_string()
+                    if attribution == "Verified" {
+                        uris.cyan().to_string()
                     } else {
-                        uris
+                        state.dimmed().to_string()
                     }
-                    .cyan()
                 );
             }
         }
