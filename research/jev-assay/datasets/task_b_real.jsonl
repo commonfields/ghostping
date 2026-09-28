@@ -1,0 +1,2 @@
+# One JSON object per line. human_label MUST be filled by a human adjudicator.
+# Never auto-populate human_label. Never use an LLM to create human labels.
