@@ -116,7 +116,32 @@ def fill(template, i, wrong=False):
     )
 
 
+# Frozen per-question binary truth (mirrors question-set-v1; see PROTOCOL.md).
+# Derived deterministically from the multiclass label — labels unchanged,
+# so case IDs and the frozen split stay equivalent. No dataset v2 needed.
+TRUTH_A = {
+    "SUPPORTED": {"fully_supported": True, "contains_contradiction": False,
+                  "partially_supported": False, "enough_evidence": True},
+    "CONTRADICTED": {"fully_supported": False, "contains_contradiction": True,
+                     "partially_supported": False, "enough_evidence": True},
+    "PARTIAL": {"fully_supported": False, "contains_contradiction": False,
+                "partially_supported": True, "enough_evidence": True},
+    "INSUFFICIENT_EVIDENCE": {"fully_supported": False, "contains_contradiction": False,
+                              "partially_supported": False, "enough_evidence": False},
+}
+TRUTH_B = {
+    "SUPPORTS": {"source_entails_claim": True, "source_conflicts_with_claim": False,
+                 "source_has_enough_information": True},
+    "CONTRADICTS": {"source_entails_claim": False, "source_conflicts_with_claim": True,
+                    "source_has_enough_information": True},
+    "AMBIGUOUS": None,  # excluded from per-question calibration, counted separately
+    "INSUFFICIENT": {"source_entails_claim": False, "source_conflicts_with_claim": False,
+                     "source_has_enough_information": False},
+}
+
+
 def build(seeds, task, per_label):
+    truth = TRUTH_A if task == "fact_relationship" else TRUTH_B
     cases, idx = [], 0
     for label, items in seeds.items():
         made = 0
@@ -133,6 +158,7 @@ def build(seeds, task, per_label):
                     "label": label,
                     "label_origin": "synthetic_constructed",
                     "category": category,
+                    "noul_truth": truth[label],
                 })
                 idx += 1
                 made += 1
