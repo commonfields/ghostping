@@ -36,6 +36,7 @@
 //! 0 — exports are authoritative here, not the UI rendering.)
 
 use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
 
 use crate::audit_storage::AuditStorage;
 use crate::observations::{
@@ -86,21 +87,155 @@ impl ImportPeriod {
     }
 }
 
-/// One parsed export row with aggregation and dimensions preserved.
+/// Explicit source dimension tuple: every dimension actually present in
+/// the imported row, preserved with no invented hierarchy ("page is
+/// primary" is NOT assumed). Two rows with different tuples are different
+/// observations even when they share a page.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DimensionTuple {
+    pub page: Option<String>,
+    pub country: Option<String>,
+    pub device: Option<String>,
+    pub date: Option<String>,
+    /// Any other dimension column, kept verbatim (sorted by name).
+    pub other: std::collections::BTreeMap<String, String>,
+}
+
+impl DimensionTuple {
+    /// Present dimensions in canonical order: page, country, device, date,
+    /// then others alphabetically. Used for keys and grouping.
+    pub fn present(&self) -> Vec<(String, &str)> {
+        let mut out = Vec::new();
+        if let Some(v) = &self.page {
+            out.push(("page".to_string(), v.as_str()));
+        }
+        if let Some(v) = &self.country {
+            out.push(("country".to_string(), v.as_str()));
+        }
+        if let Some(v) = &self.device {
+            out.push(("device".to_string(), v.as_str()));
+        }
+        if let Some(v) = &self.date {
+            out.push(("date".to_string(), v.as_str()));
+        }
+        for (k, v) in &self.other {
+            out.push((k.clone(), v.as_str()));
+        }
+        out
+    }
+
+    /// Breakdown signature: names of present dimensions, canonical order.
+    /// Rows share a slice only when signatures match exactly.
+    pub fn signature(&self) -> Vec<String> {
+        self.present().into_iter().map(|(k, _)| k).collect()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.page.is_none()
+            && self.country.is_none()
+            && self.device.is_none()
+            && self.date.is_none()
+            && self.other.is_empty()
+    }
+}
+
+/// What a reported number actually guarantees.
+///
+/// The export format cannot tell us whether a printed `0` was independently
+/// observed or rendered from an unavailable value, so `Reported` is ALL we
+/// claim for any carried number — including zero. Missing/empty is
+/// `Unavailable`, never zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ValueSemantics {
+    Reported,
+    Unavailable,
+}
+
+/// An integer cell with its two layers: the raw token and the parsed value.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourcedInt {
+    pub raw: String,
+    pub value: Option<i64>,
+    pub semantics: ValueSemantics,
+}
+
+/// A float cell with its two layers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourcedFloat {
+    pub raw: String,
+    pub value: Option<f64>,
+    pub semantics: ValueSemantics,
+}
+
+fn sourced_int_cell(raw: &str, line_no: usize, col: &str) -> Result<SourcedInt> {
+    let token = raw.trim().to_string();
+    if token.is_empty() {
+        return Ok(SourcedInt {
+            raw: token,
+            value: None,
+            semantics: ValueSemantics::Unavailable,
+        });
+    }
+    let cleaned: String = token.chars().filter(|c| *c != ',').collect();
+    let value = cleaned
+        .parse::<i64>()
+        .with_context(|| format!("Line {}: bad integer in '{}': '{}'", line_no, col, raw))?;
+    Ok(SourcedInt {
+        raw: token,
+        value: Some(value),
+        semantics: ValueSemantics::Reported,
+    })
+}
+
+fn sourced_float_cell(raw: &str, line_no: usize, col: &str) -> Result<SourcedFloat> {
+    let token = raw.trim().to_string();
+    if token.is_empty() {
+        return Ok(SourcedFloat {
+            raw: token,
+            value: None,
+            semantics: ValueSemantics::Unavailable,
+        });
+    }
+    let value = token
+        .parse::<f64>()
+        .with_context(|| format!("Line {}: bad number in '{}': '{}'", line_no, col, raw))?;
+    Ok(SourcedFloat {
+        raw: token,
+        value: Some(value),
+        semantics: ValueSemantics::Reported,
+    })
+}
+
+fn sourced_ctr_cell(raw: &str, line_no: usize) -> Result<SourcedFloat> {
+    let token = raw.trim().to_string();
+    let t = token.trim_end_matches('%').trim();
+    if t.is_empty() {
+        return Ok(SourcedFloat {
+            raw: token,
+            value: None,
+            semantics: ValueSemantics::Unavailable,
+        });
+    }
+    let value = t
+        .parse::<f64>()
+        .with_context(|| format!("Line {}: bad CTR value: '{}'", line_no, raw))?;
+    Ok(SourcedFloat {
+        raw: token,
+        value: Some(value / 100.0),
+        semantics: ValueSemantics::Reported,
+    })
+}
+
+/// One parsed export row: identity + full dimension tuple + two-layer values.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GscRow {
     pub identity: ReportIdentity,
-    /// Reporting dimension kind: query, page, country, device, or dimension.
-    pub dimension_kind: String,
-    pub dimension_value: String,
-    pub country: Option<String>,
-    pub device: Option<String>,
-    pub clicks: Option<i64>,
-    pub impressions: i64,
-    /// CTR as a fraction (0.042 for "4.2%"); `None` when unavailable/absent.
-    pub ctr: Option<f64>,
-    /// Average position; `None` when unavailable/absent.
-    pub position: Option<f64>,
+    pub dimensions: DimensionTuple,
+    pub clicks: Option<SourcedInt>,
+    pub impressions: SourcedInt,
+    pub ctr: Option<SourcedFloat>,
+    pub position: Option<SourcedFloat>,
     /// Original record exactly as read (keys lowercased).
     pub raw: serde_json::Value,
 }
@@ -121,34 +256,6 @@ pub struct GscImportOutcome {
     pub period: String,
 }
 
-fn parse_int_cell(raw: &str, line_no: usize, col: &str) -> Result<i64> {
-    let cleaned: String = raw.chars().filter(|c| *c != ',').collect();
-    cleaned
-        .trim()
-        .parse::<i64>()
-        .with_context(|| format!("Line {}: bad integer in '{}': '{}'", line_no, col, raw))
-}
-
-fn parse_opt_float_cell(raw: &str, line_no: usize, col: &str) -> Result<Option<f64>> {
-    let t = raw.trim();
-    if t.is_empty() {
-        return Ok(None);
-    }
-    t.parse::<f64>()
-        .with_context(|| format!("Line {}: bad number in '{}': '{}'", line_no, col, raw))
-        .map(Some)
-}
-
-fn parse_ctr_cell(raw: &str, line_no: usize) -> Result<Option<f64>> {
-    let t = raw.trim().trim_end_matches('%').trim();
-    if t.is_empty() {
-        return Ok(None);
-    }
-    t.parse::<f64>()
-        .with_context(|| format!("Line {}: bad CTR value: '{}'", line_no, raw))
-        .map(|v| Some(v / 100.0))
-}
-
 fn dimension_kind_for(header: &str) -> &str {
     match header.trim().to_lowercase().as_str() {
         "query" | "queries" | "top queries" => "query",
@@ -157,6 +264,84 @@ fn dimension_kind_for(header: &str) -> &str {
         "device" | "devices" | "top devices" => "device",
         "date" | "dates" => "date",
         _ => "dimension",
+    }
+}
+
+fn sourced_int_json(v: &SourcedInt) -> serde_json::Value {
+    serde_json::json!({
+        "raw": v.raw,
+        "value": v.value,
+        "semantics": match v.semantics {
+            ValueSemantics::Reported => "reported",
+            ValueSemantics::Unavailable => "unavailable",
+        },
+    })
+}
+
+fn sourced_float_json(v: &SourcedFloat) -> serde_json::Value {
+    serde_json::json!({
+        "raw": v.raw,
+        "value": v.value,
+        "semantics": match v.semantics {
+            ValueSemantics::Reported => "reported",
+            ValueSemantics::Unavailable => "unavailable",
+        },
+    })
+}
+
+fn opt_sourced_int_json(v: Option<&SourcedInt>) -> serde_json::Value {
+    v.map(sourced_int_json).unwrap_or(serde_json::Value::Null)
+}
+
+fn opt_sourced_float_json(v: Option<&SourcedFloat>) -> serde_json::Value {
+    v.map(sourced_float_json).unwrap_or(serde_json::Value::Null)
+}
+
+fn dimensions_json(d: &DimensionTuple) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for (k, v) in d.present() {
+        map.insert(k, serde_json::Value::String(v.to_string()));
+    }
+    serde_json::Value::Object(map)
+}
+
+/// Read a two-layer number from a payload, tolerating pre-semantics rows
+/// that stored a plain number. Returns (value, semantics); missing or null
+/// is (None, Unavailable) — never zero.
+pub fn payload_sourced_int(
+    payload: &serde_json::Value,
+    key: &str,
+) -> (Option<i64>, ValueSemantics) {
+    match payload.get(key) {
+        Some(serde_json::Value::Object(o)) => {
+            let value = o.get("value").and_then(|v| v.as_i64());
+            let sem = match o.get("semantics").and_then(|v| v.as_str()) {
+                Some("reported") => ValueSemantics::Reported,
+                _ => ValueSemantics::Unavailable,
+            };
+            (value, sem)
+        }
+        Some(serde_json::Value::Number(n)) => (n.as_i64(), ValueSemantics::Reported),
+        _ => (None, ValueSemantics::Unavailable),
+    }
+}
+
+/// Same tolerance for floats (CTR is stored as a fraction).
+pub fn payload_sourced_float(
+    payload: &serde_json::Value,
+    key: &str,
+) -> (Option<f64>, ValueSemantics) {
+    match payload.get(key) {
+        Some(serde_json::Value::Object(o)) => {
+            let value = o.get("value").and_then(|v| v.as_f64());
+            let sem = match o.get("semantics").and_then(|v| v.as_str()) {
+                Some("reported") => ValueSemantics::Reported,
+                _ => ValueSemantics::Unavailable,
+            };
+            (value, sem)
+        }
+        Some(serde_json::Value::Number(n)) => (n.as_f64(), ValueSemantics::Reported),
+        _ => (None, ValueSemantics::Unavailable),
     }
 }
 
@@ -198,123 +383,128 @@ fn read_table(bytes: &[u8]) -> Result<ParsedTable> {
     })
 }
 
-/// Parse an ordinary Search export (clicks required). Identity: generic.
+/// Parse an ordinary Search export. Clicks column required; every other
+/// dimension column present in the row joins the dimension tuple.
+/// Identity: generic.
 pub fn parse_generic_csv(bytes: &[u8]) -> Result<Vec<GscRow>> {
+    parse_csv(bytes, ReportIdentity::GenericSearch, true)
+}
+
+/// Build one row's dimension tuple from named columns plus the first
+/// column's kind. Metric columns never become dimensions.
+fn build_tuple(
+    headers: &[String],
+    record: &[String],
+    first_kind: &str,
+    first_value: &str,
+) -> DimensionTuple {
+    let mut tuple = DimensionTuple::default();
+    let mut assign = |kind: &str, value: &str| {
+        if value.is_empty() {
+            return;
+        }
+        match kind {
+            "page" => tuple.page = Some(value.to_string()),
+            "country" => tuple.country = Some(value.to_string()),
+            "device" => tuple.device = Some(value.to_string()),
+            "date" => tuple.date = Some(value.to_string()),
+            other => {
+                tuple.other.insert(other.to_string(), value.to_string());
+            }
+        }
+    };
+    if !first_value.is_empty() {
+        assign(first_kind, first_value);
+    }
+    for (h, v) in headers.iter().zip(record.iter()) {
+        let name = h.to_lowercase();
+        let v = v.trim();
+        match name.as_str() {
+            "page" | "pages" | "url" | "urls" => assign("page", v),
+            "country" | "countries" => assign("country", v),
+            "device" | "devices" => assign("device", v),
+            "date" | "dates" => assign("date", v),
+            "query" | "queries" => assign("query", v),
+            "clicks" | "impressions" | "ctr" | "position" => {}
+            _ => assign(&name, v),
+        }
+    }
+    tuple
+}
+
+fn cell(record: &[String], idx: Option<usize>) -> &str {
+    idx.and_then(|i| record.get(i))
+        .map(|s| s.trim())
+        .unwrap_or("")
+}
+
+fn parse_csv(bytes: &[u8], identity: ReportIdentity, generic: bool) -> Result<Vec<GscRow>> {
     let table = read_table(bytes)?;
     let names: Vec<String> = table.headers.iter().map(|h| h.to_lowercase()).collect();
     let line_base = usize::from(table.title_skipped);
-    for required in ["clicks", "impressions"] {
-        if !names.iter().any(|h| h == required) {
+
+    if generic {
+        for required in ["clicks", "impressions"] {
+            if !names.iter().any(|h| h == required) {
+                bail!(
+                    "CSV header must contain '{}' for generic Search exports",
+                    required
+                );
+            }
+        }
+    } else {
+        if names.iter().any(|h| h == "clicks" || h == "ctr") {
             bail!(
-                "CSV header must contain '{}' for generic Search exports",
-                required
+                "AI report export must not contain clicks/CTR columns: ordinary Search data \
+                 MUST NOT enter generative-AI metrics. Import this file as generic_search instead."
+            );
+        }
+        if !names.iter().any(|h| h == "impressions") {
+            bail!("AI report header must contain an 'impressions' column");
+        }
+        if table
+            .headers
+            .first()
+            .is_some_and(|h| dimension_kind_for(h) == "query")
+        {
+            bail!("'query' is not a documented generative-AI report dimension; refusing AI import");
+        }
+        if identity == ReportIdentity::GenerativeAiDiscover && names.iter().any(|h| h == "device") {
+            bail!(
+                "'device' is documented as Search-only; refusing Discover AI import with device data"
             );
         }
     }
-    let clicks_idx = names.iter().position(|h| h == "clicks").unwrap();
-    let impressions_idx = names.iter().position(|h| h == "impressions").unwrap();
-    let ctr_idx = names.iter().position(|h| h == "ctr");
-    let position_idx = names.iter().position(|h| h == "position");
-    let kind = dimension_kind_for(&table.headers[0]).to_string();
+
+    let col = |name: &str| names.iter().position(|h| h == name);
+    let first_kind = table
+        .headers
+        .first()
+        .map(|h| dimension_kind_for(h))
+        .unwrap_or("dimension");
 
     let mut rows = Vec::new();
     for (i, record) in table.records.iter().enumerate() {
         let line_no = i + 2 + line_base;
         let get = |idx: usize| record.get(idx).map(|s| s.trim()).unwrap_or("");
-        let value = get(0);
-        if value.is_empty() {
-            continue;
+        let tuple = build_tuple(&table.headers, record, first_kind, get(0));
+        if tuple.is_empty() {
+            continue; // blank line: skip, never error
         }
-        let mut raw_map = serde_json::Map::new();
-        for (h, v) in table.headers.iter().zip(record.iter()) {
-            raw_map.insert(h.to_lowercase(), serde_json::Value::String(v.clone()));
-        }
-        rows.push(GscRow {
-            identity: ReportIdentity::GenericSearch,
-            dimension_kind: kind.clone(),
-            dimension_value: value.to_string(),
-            country: column_value(&table.headers, record, "country"),
-            device: column_value(&table.headers, record, "device"),
-            clicks: Some(parse_int_cell(get(clicks_idx), line_no, "clicks")?),
-            impressions: parse_int_cell(get(impressions_idx), line_no, "impressions")?,
-            ctr: match ctr_idx {
-                Some(idx) => parse_ctr_cell(get(idx), line_no)?,
-                None => None,
-            },
-            position: match position_idx {
-                Some(idx) => parse_opt_float_cell(get(idx), line_no, "position")?,
-                None => None,
-            },
-            raw: serde_json::Value::Object(raw_map),
-        });
-    }
-    if rows.is_empty() {
-        bail!("CSV contains no data rows");
-    }
-    Ok(rows)
-}
-
-fn column_value(headers: &[String], record: &[String], name: &str) -> Option<String> {
-    headers
-        .iter()
-        .position(|h| h.to_lowercase() == name)
-        .and_then(|i| record.get(i))
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
-/// Parse a declared generative-AI report export.
-///
-/// UNVERIFIED against a genuine authorized sample: accepts the documented
-/// dimension set (page/impressions with optional country/device/date) and
-/// rejects everything that would mix ordinary Search data into AI metrics:
-/// clicks/CTR columns, `query` dimensions, and `device` for Discover
-/// (Search-only per Google's documentation).
-pub fn parse_ai_csv(bytes: &[u8], identity: ReportIdentity) -> Result<Vec<GscRow>> {
-    if !identity.is_confirmed_ai() {
-        bail!("AI parsing requires a generative_ai_search or generative_ai_discover identity");
-    }
-    let table = read_table(bytes)?;
-    let names: Vec<String> = table.headers.iter().map(|h| h.to_lowercase()).collect();
-    let line_base = usize::from(table.title_skipped);
-
-    if names.iter().any(|h| h == "clicks" || h == "ctr") {
-        bail!(
-            "AI report export must not contain clicks/CTR columns: ordinary Search data \
-             MUST NOT enter generative-AI metrics. Import this file as generic_search instead."
-        );
-    }
-    if !names.iter().any(|h| h == "impressions") {
-        bail!("AI report header must contain an 'impressions' column");
-    }
-    let impressions_idx = names.iter().position(|h| h == "impressions").unwrap();
-    let kind = dimension_kind_for(&table.headers[0]).to_string();
-    if kind == "query" {
-        bail!("'query' is not a documented generative-AI report dimension; refusing AI import");
-    }
-    if identity == ReportIdentity::GenerativeAiDiscover && names.iter().any(|h| h == "device") {
-        bail!(
-            "'device' is documented as Search-only; refusing Discover AI import with device data"
-        );
-    }
-    let page_idx = names
-        .iter()
-        .position(|h| h == "page" || h == "url" || h == "pages" || h == "urls");
-    if page_idx.is_none() && kind != "page" {
-        bail!("AI report must identify pages (documented core dimension)");
-    }
-
-    let mut rows = Vec::new();
-    for (i, record) in table.records.iter().enumerate() {
-        let line_no = i + 2 + line_base;
-        let get = |idx: usize| record.get(idx).map(|s| s.trim()).unwrap_or("");
-        // Page value: dedicated column wins, else first column when it is page-shaped.
-        let page = match page_idx {
-            Some(idx) => get(idx),
-            None => get(0),
-        };
-        if page.is_empty() {
-            continue;
+        // AI imports must establish dimensional meaning: at least one
+        // recognized dimension (page/country/device/date) is required.
+        // Anything else is preserved as an unknown/unverified breakdown only
+        // when meaning exists; otherwise the file is refused, not guessed.
+        if !generic
+            && tuple.page.is_none()
+            && tuple.country.is_none()
+            && tuple.device.is_none()
+            && tuple.date.is_none()
+        {
+            bail!(
+                "Line {}: cannot establish dimensional meaning (need page/country/device/date); refusing AI import rather than guessing",
+                line_no
+            );
         }
         let mut raw_map = serde_json::Map::new();
         for (h, v) in table.headers.iter().zip(record.iter()) {
@@ -322,14 +512,32 @@ pub fn parse_ai_csv(bytes: &[u8], identity: ReportIdentity) -> Result<Vec<GscRow
         }
         rows.push(GscRow {
             identity,
-            dimension_kind: "page".to_string(),
-            dimension_value: page.to_string(),
-            country: column_value(&table.headers, record, "country"),
-            device: column_value(&table.headers, record, "device"),
-            clicks: None, // AI reports carry no clicks; None, never zero.
-            impressions: parse_int_cell(get(impressions_idx), line_no, "impressions")?,
-            ctr: None,
-            position: position_from(&table.headers, record, line_no)?,
+            dimensions: tuple,
+            clicks: match col("clicks") {
+                Some(idx) => Some(sourced_int_cell(
+                    cell(record, Some(idx)),
+                    line_no,
+                    "clicks",
+                )?),
+                None => None,
+            },
+            impressions: sourced_int_cell(
+                cell(record, col("impressions")),
+                line_no,
+                "impressions",
+            )?,
+            ctr: match col("ctr") {
+                Some(idx) => Some(sourced_ctr_cell(cell(record, Some(idx)), line_no)?),
+                None => None,
+            },
+            position: match col("position") {
+                Some(idx) => Some(sourced_float_cell(
+                    cell(record, Some(idx)),
+                    line_no,
+                    "position",
+                )?),
+                None => None,
+            },
             raw: serde_json::Value::Object(raw_map),
         });
     }
@@ -339,15 +547,16 @@ pub fn parse_ai_csv(bytes: &[u8], identity: ReportIdentity) -> Result<Vec<GscRow
     Ok(rows)
 }
 
-fn position_from(headers: &[String], record: &[String], line_no: usize) -> Result<Option<f64>> {
-    match headers.iter().position(|h| h.to_lowercase() == "position") {
-        Some(idx) => parse_opt_float_cell(
-            record.get(idx).map(|s| s.as_str()).unwrap_or(""),
-            line_no,
-            "position",
-        ),
-        None => Ok(None),
+/// Parse a declared generative-AI report export.
+///
+/// UNVERIFIED against a genuine authorized sample: accepts the documented
+/// dimension set and rejects everything that would mix ordinary Search data
+/// into AI metrics (see `parse_csv` guards).
+pub fn parse_ai_csv(bytes: &[u8], identity: ReportIdentity) -> Result<Vec<GscRow>> {
+    if !identity.is_confirmed_ai() {
+        bail!("AI parsing requires a generative_ai_search or generative_ai_discover identity");
     }
+    parse_csv(bytes, identity, false)
 }
 
 /// Import one authorized export file for `period`. The whole file is
@@ -406,34 +615,36 @@ pub fn import_gsc_csv(
         for row in &rows {
             let payload = serde_json::json!({
                 "report_identity": row.identity.as_str(),
-                "dimension_kind": row.dimension_kind,
-                "dimension_value": row.dimension_value,
-                "country": row.country,
-                "device": row.device,
+                "dimensions": dimensions_json(&row.dimensions),
                 "period": period_key,
                 "period_start": period.start,
                 "period_end": period.end,
-                "clicks": row.clicks,
-                "impressions": row.impressions,
-                "ctr": row.ctr,
-                "position": row.position,
+                "clicks": opt_sourced_int_json(row.clicks.as_ref()),
+                "impressions": sourced_int_json(&row.impressions),
+                "ctr": opt_sourced_float_json(row.ctr.as_ref()),
+                "position": opt_sourced_float_json(row.position.as_ref()),
                 "raw": row.raw,
             });
-            let region = row.country.clone();
-            let url_digest = if row.dimension_kind == "page" {
-                Some(sha256_hex(row.dimension_value.as_bytes()))
-            } else {
-                None
-            };
-            // Natural key scopes project, report identity, surface, period.
-            let dedupe_key = format!(
-                "{}|{}|{}|{}|{}",
-                row.identity.as_str(),
-                GSC_SURFACE,
-                period_key,
-                row.dimension_kind,
-                row.dimension_value,
-            );
+            let region = row.dimensions.country.clone();
+            // url_digest whenever a page URL exists, regardless of which
+            // other dimensions the export carries.
+            let url_digest = row
+                .dimensions
+                .page
+                .as_ref()
+                .map(|p| sha256_hex(p.as_bytes()));
+            // Natural key: project, report identity, surface, reporting
+            // period, and EVERY present source dimension. Measurement values
+            // never participate in identity.
+            let mut key_parts = vec![
+                row.identity.as_str().to_string(),
+                GSC_SURFACE.to_string(),
+                period_key.clone(),
+            ];
+            for (k, v) in row.dimensions.present() {
+                key_parts.push(format!("{}={}", k, v));
+            }
+            let dedupe_key = key_parts.join("|");
             // Preserve the ORIGINAL FILE BYTES content-addressed — never a
             // synthetic reconstruction of the row.
             let stored = storage.insert_observation(&NewObservation {
@@ -465,8 +676,9 @@ pub fn import_gsc_csv(
                 imported += 1;
                 continue;
             }
-            // Same key exists: identical data is a quiet duplicate,
+            // Same key exists: identical measurements are a quiet duplicate,
             // differing measurements are a surfaced conflict (first wins).
+            // Comparison is on parsed values AND two-layer semantics.
             match storage.find_observation(
                 project_id,
                 ObservationType::SearchConsoleAggregate,
@@ -477,7 +689,8 @@ pub fn import_gsc_csv(
                     if existing.payload.get("clicks") == payload.get("clicks")
                         && existing.payload.get("impressions") == payload.get("impressions")
                         && existing.payload.get("ctr") == payload.get("ctr")
-                        && existing.payload.get("position") == payload.get("position") =>
+                        && existing.payload.get("position") == payload.get("position")
+                        && existing.payload.get("dimensions") == payload.get("dimensions") =>
                 {
                     skipped += 1;
                 }
@@ -535,45 +748,112 @@ mod tests {
         let rows = parse_generic_csv(QUERIES_FIXTURE.as_bytes()).unwrap();
         assert_eq!(rows.len(), 4);
         assert_eq!(rows[0].identity, ReportIdentity::GenericSearch);
-        assert_eq!(rows[0].dimension_kind, "query");
-        assert_eq!(rows[0].dimension_value, "best rust cli tool");
-        assert_eq!(rows[0].clicks, Some(120));
-        assert_eq!(rows[0].impressions, 3000);
-        assert!((rows[0].ctr.unwrap() - 0.04).abs() < 1e-9);
-        assert!((rows[0].position.unwrap() - 2.1).abs() < 1e-9);
-        // Unavailable CTR/position stay None, not zero.
-        assert_eq!(rows[3].ctr, None);
-        assert_eq!(rows[3].position, None);
-        assert_eq!(rows[3].clicks, Some(0)); // explicit zero is observed zero
+        assert_eq!(rows[0].dimensions.page, None);
+        assert_eq!(
+            rows[0].dimensions.other.get("query").map(|s| s.as_str()),
+            Some("best rust cli tool")
+        );
+        assert_eq!(
+            rows[0].clicks.as_ref().unwrap(),
+            &SourcedInt {
+                raw: "120".to_string(),
+                value: Some(120),
+                semantics: ValueSemantics::Reported,
+            }
+        );
+        assert_eq!(rows[0].impressions.value, Some(3000));
+        assert!((rows[0].ctr.as_ref().unwrap().value.unwrap() - 0.04).abs() < 1e-9);
+        assert_eq!(rows[0].position.as_ref().unwrap().value, Some(2.1));
+        // Unavailable CTR/position stay unavailable, not zero.
+        assert_eq!(
+            rows[3].ctr.as_ref().unwrap().semantics,
+            ValueSemantics::Unavailable
+        );
+        assert_eq!(rows[3].ctr.as_ref().unwrap().value, None);
+        assert_eq!(rows[3].position.as_ref().unwrap().value, None);
+        // Explicit zero is Reported, not a stronger claim.
+        assert_eq!(rows[3].clicks.as_ref().unwrap().value, Some(0));
+        assert_eq!(
+            rows[3].clicks.as_ref().unwrap().semantics,
+            ValueSemantics::Reported
+        );
     }
 
     #[test]
-    fn test_parse_pages_fixture_preserves_dimensions() {
+    fn test_parse_pages_fixture_preserves_page_dimension() {
         let rows = parse_generic_csv(PAGES_FIXTURE.as_bytes()).unwrap();
         assert_eq!(rows.len(), 3);
-        assert!(rows.iter().all(|r| r.dimension_kind == "page"));
-        assert!(rows[0].dimension_value.starts_with("https://"));
+        assert!(rows.iter().all(|r| r
+            .dimensions
+            .page
+            .as_deref()
+            .unwrap()
+            .starts_with("https://")));
     }
 
     #[test]
-    fn test_malformed_files_are_explicit_errors() {
-        // No header at all.
-        assert!(parse_generic_csv(b"just some text\nno columns here\n").is_err());
-        // Missing required columns.
-        assert!(parse_generic_csv(b"Query,Clicks\nfoo,3\n").is_err());
-        // Bad numbers name the line (title line shifts numbering).
-        let err = parse_generic_csv(b"Query,Clicks,Impressions,CTR,Position\nfoo,abc,10,1%,2\n")
-            .unwrap_err();
+    fn test_multidimensional_rows_keep_full_tuples() {
+        let csv = "Page,Country,Device,Clicks,Impressions,CTR,Position\n\
+            https://a.example/,United States,desktop,10,100,10%,1.0\n\
+            https://a.example/,United Kingdom,desktop,5,80,6.25%,2.0\n\
+            https://a.example/,United States,mobile,3,60,5%,3.0\n";
+        let rows = parse_generic_csv(csv.as_bytes()).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            rows[0].dimensions,
+            DimensionTuple {
+                page: Some("https://a.example/".to_string()),
+                country: Some("United States".to_string()),
+                device: Some("desktop".to_string()),
+                ..Default::default()
+            }
+        );
+        // Tuples differ across rows: no silent collision of identity.
+        assert_ne!(rows[0].dimensions, rows[1].dimensions);
+        assert_ne!(rows[0].dimensions, rows[2].dimensions);
+        assert_eq!(
+            rows[0].dimensions.signature(),
+            vec![
+                "page".to_string(),
+                "country".to_string(),
+                "device".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_source_value_layers_missing_empty_zero_positive_malformed() {
+        // Missing column entirely (no CTR column): None-equivalent is
+        // represented as absent SourcedFloat.
+        let rows = parse_generic_csv(b"Query,Clicks,Impressions\nfoo,1,2\n").unwrap();
+        assert_eq!(rows[0].ctr, None);
+        // Empty cell: unavailable, never zero.
+        let rows =
+            parse_generic_csv(b"Query,Clicks,Impressions,CTR,Position\nfoo,1,2,,\n").unwrap();
+        assert_eq!(rows[0].ctr.as_ref().unwrap().value, None);
+        assert_eq!(
+            rows[0].position.as_ref().unwrap().semantics,
+            ValueSemantics::Unavailable
+        );
+        // Zero: reported with raw token preserved.
+        let rows =
+            parse_generic_csv(b"Query,Clicks,Impressions,CTR,Position\nfoo,0,0,0%,0\n").unwrap();
+        assert_eq!(rows[0].clicks.as_ref().unwrap().value, Some(0));
+        assert_eq!(rows[0].clicks.as_ref().unwrap().raw, "0");
+        assert_eq!(rows[0].ctr.as_ref().unwrap().value, Some(0.0));
+        // Malformed number: explicit error naming the line.
+        let err = parse_generic_csv(b"Query,Clicks,Impressions\nfoo,abc,10\n").unwrap_err();
         assert!(err.to_string().contains("Line 2"), "got: {}", err);
-        // No data rows.
-        assert!(parse_generic_csv(b"Query,Clicks,Impressions\n").is_err());
         // Invalid UTF-8.
         assert!(parse_generic_csv(b"\xff\xfe bad").is_err());
+        // No header / no rows.
+        assert!(parse_generic_csv(b"just some text\nno columns here\n").is_err());
+        assert!(parse_generic_csv(b"Query,Clicks\nfoo,3\n").is_err());
+        assert!(parse_generic_csv(b"Query,Clicks,Impressions\n").is_err());
     }
 
     #[test]
     fn test_ai_parser_rejects_ordinary_search_data() {
-        // Clicks/CTR present: MUST NOT enter AI metrics.
         assert!(parse_ai_csv(
             QUERIES_FIXTURE.as_bytes(),
             ReportIdentity::GenerativeAiSearch
@@ -584,19 +864,18 @@ mod tests {
             ReportIdentity::GenerativeAiDiscover
         )
         .is_err());
-        // Query dimension is undocumented for AI reports.
         let q = b"Top queries\nQuery,Impressions\nfoo,10\n";
         assert!(parse_ai_csv(q, ReportIdentity::GenerativeAiSearch).is_err());
-        // Device is Search-only: Discover refuses it.
         let d = b"Top devices\nPage,Device,Impressions\nhttps://x.example/,mobile,10\n";
         assert!(parse_ai_csv(d, ReportIdentity::GenerativeAiDiscover).is_err());
         assert!(parse_ai_csv(d, ReportIdentity::GenerativeAiSearch).is_ok());
+        // Unknown layout (no recognizable dimension): refused, not guessed.
+        let u = b"Foo,Bar,Impressions\n1,2,3\n";
+        assert!(parse_ai_csv(u, ReportIdentity::GenerativeAiSearch).is_err());
     }
 
     #[test]
     fn test_ai_parser_accepts_documented_shape_unverified() {
-        // SYNTHETIC shape (not an authorized export): documents the accepted
-        // dimension set. The importer path stays UNVERIFIED.
         let rows = parse_ai_csv(
             AI_SEARCH_FIXTURE.as_bytes(),
             ReportIdentity::GenerativeAiSearch,
@@ -606,9 +885,12 @@ mod tests {
         assert!(rows
             .iter()
             .all(|r| r.identity == ReportIdentity::GenerativeAiSearch));
-        assert!(rows.iter().all(|r| r.clicks.is_none())); // no clicks, never zero
-        assert_eq!(rows[0].dimension_value, "https://example.com/docs");
-        assert_eq!(rows[0].country.as_deref(), Some("United States"));
+        assert!(rows.iter().all(|r| r.clicks.is_none()));
+        assert_eq!(
+            rows[0].dimensions.page.as_deref(),
+            Some("https://example.com/docs")
+        );
+        assert_eq!(rows[0].dimensions.country.as_deref(), Some("United States"));
     }
 
     #[test]
@@ -635,7 +917,6 @@ mod tests {
         assert_eq!(first.conflicts, 0);
         assert!(!first.skipped_file);
 
-        // Same file + period: skipped whole, zero new rows.
         let second = import_gsc_csv(
             &storage,
             "example.com",
@@ -655,8 +936,6 @@ mod tests {
             4
         );
 
-        // Identical bytes asserted for ANOTHER period: separate batch, but
-        // same logical rows land on distinct period-scoped keys.
         let other_period = ImportPeriod::single("2026-09-02").unwrap();
         let third = import_gsc_csv(
             &storage,
@@ -672,7 +951,6 @@ mod tests {
         );
         assert_eq!(third.imported, 4);
 
-        // Failed import leaves nothing: malformed file rolls back fully.
         let bad_path = dir.path().join("Bad.csv");
         std::fs::write(&bad_path, b"Query,Clicks\nfoo,3\n").unwrap();
         assert!(import_gsc_csv(
@@ -683,7 +961,6 @@ mod tests {
             &period,
         )
         .is_err());
-        // No batch record, no rows from the failed file.
         assert_eq!(
             storage
                 .count_observations(
@@ -693,7 +970,6 @@ mod tests {
                 .unwrap(),
             8
         );
-        // Safe retry with fixed content works.
         std::fs::write(&bad_path, QUERIES_FIXTURE).unwrap();
         let retry = import_gsc_csv(
             &storage,
@@ -707,13 +983,47 @@ mod tests {
     }
 
     #[test]
+    fn test_same_dimensions_two_periods_do_not_collide() {
+        use crate::audit_storage::AuditStorage;
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let csv_path = dir.path().join("C.csv");
+        std::fs::write(
+            &csv_path,
+            "Page,Country,Clicks,Impressions\nhttps://a.example/,US,10,100\n",
+        )
+        .unwrap();
+        let storage = AuditStorage::open(&dir.path().join("test.db")).unwrap();
+        for date in ["2026-09-01", "2026-09-02"] {
+            let out = import_gsc_csv(
+                &storage,
+                "example.com",
+                &csv_path,
+                ReportIdentity::GenericSearch,
+                &ImportPeriod::single(date).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(out.imported, 1);
+        }
+        assert_eq!(
+            storage
+                .count_observations(
+                    "example.com",
+                    Some(crate::observations::ObservationType::SearchConsoleAggregate)
+                )
+                .unwrap(),
+            2
+        );
+    }
+
+    #[test]
     fn test_conflicting_measurements_are_surfaced_not_overwritten() {
         use crate::audit_storage::AuditStorage;
         use tempfile::TempDir;
 
         let dir = TempDir::new().unwrap();
         let storage = AuditStorage::open(&dir.path().join("test.db")).unwrap();
-        // Two different files, same natural key, different numbers.
         let a = dir.path().join("A.csv");
         let b = dir.path().join("B.csv");
         std::fs::write(&a, "Query,Clicks,Impressions\nfoo,10,100\n").unwrap();
@@ -738,7 +1048,6 @@ mod tests {
         .unwrap();
         assert_eq!(second.imported, 0);
         assert_eq!(second.conflicts, 1);
-        // First measurement kept; integrity row recorded.
         let rows = storage
             .list_observations(
                 "example.com",
@@ -746,7 +1055,9 @@ mod tests {
             )
             .unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].payload["clicks"], 10);
+        // Structured comparison: first measurement kept.
+        let (v, _) = payload_sourced_int(&rows[0].payload, "clicks");
+        assert_eq!(v, Some(10));
         let integrity = storage
             .list_observations(
                 "example.com",
@@ -755,5 +1066,21 @@ mod tests {
             .unwrap();
         assert_eq!(integrity.len(), 1);
         assert_eq!(integrity[0].payload["kind"], "measurement_conflict");
+    }
+
+    #[test]
+    fn test_country_or_device_only_shapes_import() {
+        // GSC supports country-only and device-only breakdowns; they carry
+        // no page and must still import as distinct observations.
+        let rows = parse_generic_csv(
+            b"Country,Clicks,Impressions\nUnited States,50,500\nGermany,10,200\n",
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].dimensions.country.as_deref(), Some("United States"));
+        assert_eq!(rows[0].dimensions.page, None);
+        assert_ne!(rows[0].dimensions, rows[1].dimensions);
+        let rows = parse_generic_csv(b"Device,Clicks,Impressions\nmobile,7,70\n").unwrap();
+        assert_eq!(rows[0].dimensions.device.as_deref(), Some("mobile"));
     }
 }

@@ -27,9 +27,11 @@ clicks). A `--report` declaration stays a user declaration. See
 `parse_ai_csv` against it and drop the UNVERIFIED marking with evidence.
 
 **Export behavior note:** Search Console renders unavailable CTR/position
-cells empty in CSV exports. Empty stays NULL (unknown); explicit `0`/`0%`
-is an observed zero. Some UI views render unavailable as 0 — exports are
-authoritative, not the UI.
+cells empty in CSV exports. Empty stays NULL (unknown). An explicit
+`0`/`0%` is preserved as *reported by source* — the format cannot establish
+whether it was independently observed, so no view claims a confirmed zero.
+See `docs/engineering/evidence-semantics.md` §2. Some UI views render
+unavailable as 0 — exports are authoritative, not the UI.
 
 ## 2. Aggregation and import atomicity
 
