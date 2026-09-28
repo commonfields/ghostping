@@ -227,12 +227,124 @@ impl JevTransport for MockTransport {
 pub struct LiveTransport {
     api_key: String,
     endpoint: String,
+    /// Exact model string sent on every request of the run (pinned).
+    model: String,
     remaining: AtomicUsize,
     client: reqwest::Client,
 }
 
+/// One entry from the official model-discovery endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscoveredModel {
+    pub name: String,
+    pub description: Option<String>,
+    pub release_date: Option<String>,
+}
+
+/// Pure alias-resolution rule (offline-testable): prefer a concrete
+/// `jev-X.Y.Z` entry whose description ties it to the requested alias
+/// lineage; otherwise no pinning.
+pub fn select_pinned_model(models: &[DiscoveredModel], requested_alias: &str) -> Option<String> {
+    models
+        .iter()
+        .find(|m| {
+            m.name != requested_alias
+                && m.name.starts_with("jev-")
+                && m.description.as_deref().is_some_and(|d| {
+                    let d = d.to_lowercase();
+                    d.contains("latest") || d.contains("stable") || d.contains("current")
+                })
+        })
+        .map(|m| m.name.clone())
+}
+
+/// Model resolution outcome for a benchmark run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelResolution {
+    pub requested_alias: String,
+    /// Exact string frozen for the whole run.
+    pub resolved_model: String,
+    /// True when the provider supports explicit version pinning and the
+    /// resolved string is a concrete version (not the alias).
+    pub pinned: bool,
+    pub discovery_models: Vec<DiscoveredModel>,
+}
+
+/// Query the official discovery endpoint (`GET /v1/models`) and resolve
+/// `requested_alias` to one frozen string for the whole benchmark.
+/// TypeSafe accepts versioned IDs whether or not they are listed; when no
+/// concrete version can be established, the alias itself is frozen and
+/// `pinned=false` (`MODEL_PINNING = UNSUPPORTED_BY_PROVIDER` semantics —
+/// per-response identities plus the drift check then carry the weight).
+pub fn resolve_model(
+    client: &reqwest::Client,
+    api_key: &str,
+    models_endpoint: &str,
+    requested_alias: &str,
+) -> Result<ModelResolution> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| anyhow::anyhow!("runtime: {}", redact_secrets(&e.to_string())))?;
+    let resp = rt
+        .block_on(client.get(models_endpoint).bearer_auth(api_key).send())
+        .map_err(|e| {
+            anyhow::anyhow!("model discovery failed: {}", redact_secrets(&e.to_string()))
+        })?;
+    if !resp.status().is_success() {
+        bail!("model discovery HTTP {}", resp.status());
+    }
+    let json: serde_json::Value = rt.block_on(resp.json()).map_err(|e| {
+        anyhow::anyhow!(
+            "model discovery bad JSON: {}",
+            redact_secrets(&e.to_string())
+        )
+    })?;
+    let mut models = Vec::new();
+    if let Some(arr) = json.get("models").and_then(|v| v.as_array()) {
+        for m in arr {
+            models.push(DiscoveredModel {
+                name: m
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                description: m
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                release_date: m
+                    .get("release_date")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+            });
+        }
+    }
+    // A concrete version mentions the alias lineage (e.g. "latest", "stable",
+    // "current") in its description, or is a bare jev-X.Y.Z id.
+    let pinned = select_pinned_model(&models, requested_alias);
+    match pinned {
+        Some(v) => Ok(ModelResolution {
+            requested_alias: requested_alias.to_string(),
+            resolved_model: v,
+            pinned: true,
+            discovery_models: models,
+        }),
+        None => Ok(ModelResolution {
+            requested_alias: requested_alias.to_string(),
+            resolved_model: requested_alias.to_string(),
+            pinned: false,
+            discovery_models: models,
+        }),
+    }
+}
+
 impl LiveTransport {
     pub fn gated(max_requests: usize) -> Result<Self> {
+        Self::gated_with_model(max_requests, JEV_MODEL_REQUESTED)
+    }
+
+    pub fn gated_with_model(max_requests: usize, model: &str) -> Result<Self> {
         if std::env::var("GHOSTPING_LIVE_JEV").unwrap_or_default() != "1" {
             bail!("Live Jev requires GHOSTPING_LIVE_JEV=1 (explicit opt-in; spends budget)");
         }
@@ -247,9 +359,24 @@ impl LiveTransport {
         Ok(Self {
             api_key: key,
             endpoint: "https://api.typesafe.ai/v1/systemone".to_string(),
+            model: model.to_string(),
             remaining: AtomicUsize::new(max_requests),
             client: reqwest::Client::new(),
         })
+    }
+
+    /// Exact model string this transport sends on every request.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Research hooks for model discovery (same process, no extra auth).
+    pub fn client_ref(&self) -> &reqwest::Client {
+        &self.client
+    }
+
+    pub fn key_ref(&self) -> &str {
+        &self.api_key
     }
 
     pub fn remaining(&self) -> usize {
@@ -299,7 +426,7 @@ impl JevTransport for LiveTransport {
         }
         let body = LiveRequest {
             state,
-            model: JEV_MODEL_REQUESTED,
+            model: &self.model,
             questions: qs,
         };
         let started = Instant::now();
@@ -531,6 +658,9 @@ pub struct AssayCase {
     pub label: String,
     pub label_origin: String,
     pub category: String,
+    /// Frozen per-question binary truth (null for AMBIGUOUS rows).
+    #[serde(default)]
+    pub noul_truth: Option<HashMap<String, bool>>,
 }
 
 pub fn load_jsonl(path: &std::path::Path) -> Result<Vec<AssayCase>> {
@@ -711,6 +841,123 @@ pub fn percentile(mut xs: Vec<u64>, pct: f64) -> Option<u64> {
     xs.sort_unstable();
     let rank = (pct / 100.0 * xs.len() as f64).ceil() as usize;
     Some(xs[rank.saturating_sub(1).min(xs.len() - 1)])
+}
+
+// ── Per-question binary truth (frozen with question-set-v1) ─────────────────
+// Maps a constructed multiclass label to the expected truth value of each
+// Noul question. Used ONLY for raw-Noul calibration measurement, never to
+// relabel cases. AMBIGUOUS has no mapping (excluded from per-question
+// calibration and counted separately): a contradictory state has no single
+// honest binary target per question.
+
+/// Expected truth per Task-A question, in TASK_A_QUESTIONS order.
+/// None for AMBIGUOUS (excluded, documented).
+pub fn noul_truth_a(label: &LabelA) -> Option<[(&'static str, bool); 4]> {
+    match label {
+        LabelA::Supported => Some([
+            ("fully_supported", true),
+            ("contains_contradiction", false),
+            ("partially_supported", false),
+            ("enough_evidence", true),
+        ]),
+        LabelA::Contradicted => Some([
+            ("fully_supported", false),
+            ("contains_contradiction", true),
+            ("partially_supported", false),
+            ("enough_evidence", true),
+        ]),
+        LabelA::Partial => Some([
+            ("fully_supported", false),
+            ("contains_contradiction", false),
+            ("partially_supported", true),
+            ("enough_evidence", true),
+        ]),
+        LabelA::InsufficientEvidence => Some([
+            ("fully_supported", false),
+            ("contains_contradiction", false),
+            ("partially_supported", false),
+            ("enough_evidence", false),
+        ]),
+        LabelA::Ambiguous => None,
+    }
+}
+
+/// Expected truth per Task-B question, in TASK_B_QUESTIONS order.
+pub fn noul_truth_b(label: &LabelB) -> Option<[(&'static str, bool); 3]> {
+    match label {
+        LabelB::Supports => Some([
+            ("source_entails_claim", true),
+            ("source_conflicts_with_claim", false),
+            ("source_has_enough_information", true),
+        ]),
+        LabelB::Contradicts => Some([
+            ("source_entails_claim", false),
+            ("source_conflicts_with_claim", true),
+            ("source_has_enough_information", true),
+        ]),
+        LabelB::Ambiguous => None,
+        LabelB::Insufficient => Some([
+            ("source_entails_claim", false),
+            ("source_conflicts_with_claim", false),
+            ("source_has_enough_information", false),
+        ]),
+    }
+}
+
+pub fn parse_label_a(s: &str) -> Option<LabelA> {
+    match s {
+        "SUPPORTED" => Some(LabelA::Supported),
+        "CONTRADICTED" => Some(LabelA::Contradicted),
+        "PARTIAL" => Some(LabelA::Partial),
+        "INSUFFICIENT_EVIDENCE" => Some(LabelA::InsufficientEvidence),
+        "AMBIGUOUS" => Some(LabelA::Ambiguous),
+        _ => None,
+    }
+}
+
+pub fn parse_label_b(s: &str) -> Option<LabelB> {
+    match s {
+        "SUPPORTS" => Some(LabelB::Supports),
+        "CONTRADICTS" => Some(LabelB::Contradicts),
+        "AMBIGUOUS" => Some(LabelB::Ambiguous),
+        "INSUFFICIENT" => Some(LabelB::Insufficient),
+        _ => None,
+    }
+}
+
+/// Raw-Noul calibration for one question: Brier over (p, binary truth),
+/// mean predicted probability, empirical positive rate, sample count, bins.
+/// This is the actual calibration test. Kept separate from final-label
+/// quality and from selective-decision confidence by construction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuestionCalibration {
+    pub question: String,
+    pub n: usize,
+    pub brier: Option<f64>,
+    pub mean_predicted: Option<f64>,
+    pub empirical_positive_rate: Option<f64>,
+    pub bins: Vec<(f64, f64, usize)>,
+}
+
+pub fn calibrate_question(name: &str, truths: &[bool], probs: &[f64]) -> QuestionCalibration {
+    let n = truths.len().min(probs.len());
+    let (t, p) = (&truths[..n], &probs[..n]);
+    QuestionCalibration {
+        question: name.to_string(),
+        n,
+        brier: brier_score(p, t),
+        mean_predicted: if n == 0 {
+            None
+        } else {
+            Some(p.iter().sum::<f64>() / n as f64)
+        },
+        empirical_positive_rate: if n == 0 {
+            None
+        } else {
+            Some(t.iter().filter(|c| **c).count() as f64 / n as f64)
+        },
+        bins: calibration_bins(p, t, 5),
+    }
 }
 
 // ── Deterministic baseline ──────────────────────────────────────────────────
@@ -1210,5 +1457,166 @@ mod tests {
             BaselineVerdict::Supported
         );
         assert_eq!(deterministic_baseline("", "x"), BaselineVerdict::Abstain);
+    }
+}
+
+#[cfg(test)]
+mod readiness_tests {
+    use super::*;
+
+    #[test]
+    fn test_noul_truth_maps_frozen() {
+        assert_eq!(
+            noul_truth_a(&LabelA::Supported).unwrap(),
+            [
+                ("fully_supported", true),
+                ("contains_contradiction", false),
+                ("partially_supported", false),
+                ("enough_evidence", true)
+            ]
+        );
+        assert_eq!(
+            noul_truth_a(&LabelA::Contradicted).unwrap()[1],
+            ("contains_contradiction", true)
+        );
+        assert_eq!(
+            noul_truth_a(&LabelA::Partial).unwrap()[2],
+            ("partially_supported", true)
+        );
+        assert_eq!(
+            noul_truth_a(&LabelA::InsufficientEvidence)
+                .unwrap()
+                .map(|(_, v)| v),
+            [false, false, false, false]
+        );
+        // AMBIGUOUS is excluded: no honest binary target.
+        assert_eq!(noul_truth_a(&LabelA::Ambiguous), None);
+        assert_eq!(
+            noul_truth_b(&LabelB::Supports).unwrap(),
+            [
+                ("source_entails_claim", true),
+                ("source_conflicts_with_claim", false),
+                ("source_has_enough_information", true)
+            ]
+        );
+        assert_eq!(noul_truth_b(&LabelB::Ambiguous), None);
+        assert_eq!(parse_label_a("SUPPORTED"), Some(LabelA::Supported));
+        assert_eq!(parse_label_a("NOPE"), None);
+        assert_eq!(parse_label_b("SUPPORTS"), Some(LabelB::Supports));
+        assert_eq!(parse_label_b("NOPE"), None);
+    }
+
+    #[test]
+    fn test_dataset_truth_fields_match_frozen_maps() {
+        // Every synthetic row carries noul_truth consistent with its label.
+        let base =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("research/jev-assay/datasets");
+        for (name, task) in [
+            ("task_a_synthetic.jsonl", "A"),
+            ("task_b_synthetic.jsonl", "B"),
+        ] {
+            let text = std::fs::read_to_string(base.join(name)).unwrap();
+            let cases: Vec<AssayCase> = load_jsonl(&base.join(name)).unwrap();
+            let raws: Vec<serde_json::Value> = text
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(serde_json::from_str)
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert!(!cases.is_empty());
+            for (c, raw) in cases.iter().zip(raws.iter()) {
+                let truth =
+                    raw.get("noul_truth")
+                        .and_then(|v| if v.is_null() { None } else { Some(v) });
+                if task == "A" {
+                    let label = parse_label_a(&c.label).unwrap();
+                    match noul_truth_a(&label) {
+                        Some(map) => {
+                            let t = truth.expect("noul_truth missing");
+                            for (q, v) in map {
+                                assert_eq!(
+                                    t.get(q).and_then(|x| x.as_bool()),
+                                    Some(v),
+                                    "{} {}",
+                                    c.case_id,
+                                    q
+                                );
+                            }
+                        }
+                        None => unreachable!("no AMBIGUOUS synthetic A cases"),
+                    }
+                } else {
+                    let label = parse_label_b(&c.label).unwrap();
+                    match noul_truth_b(&label) {
+                        Some(map) => {
+                            let t = truth.expect("noul_truth missing");
+                            for (q, v) in map {
+                                assert_eq!(
+                                    t.get(q).and_then(|x| x.as_bool()),
+                                    Some(v),
+                                    "{} {}",
+                                    c.case_id,
+                                    q
+                                );
+                            }
+                        }
+                        None => assert!(
+                            truth.is_none_or(|v| v.is_null()),
+                            "{} AMBIGUOUS must carry null truth",
+                            c.case_id
+                        ),
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_calibrate_question_reports_all_fields() {
+        let cal = calibrate_question("q", &[true, true, false, false], &[0.9, 0.8, 0.2, 0.1]);
+        assert_eq!(cal.question, "q");
+        assert_eq!(cal.n, 4);
+        assert!((cal.brier.unwrap() - 0.025).abs() < 1e-9);
+        assert!((cal.mean_predicted.unwrap() - 0.5).abs() < 1e-9);
+        assert!((cal.empirical_positive_rate.unwrap() - 0.5).abs() < 1e-9);
+        assert_eq!(cal.bins.len(), 5);
+        let empty = calibrate_question("q", &[], &[]);
+        assert_eq!(empty.n, 0);
+        assert_eq!(empty.brier, None);
+    }
+
+    #[test]
+    fn test_select_pinned_model_rules() {
+        let models = vec![
+            DiscoveredModel {
+                name: "jev-latest".to_string(),
+                description: Some("alias".to_string()),
+                release_date: None,
+            },
+            DiscoveredModel {
+                name: "jev-1.13.0".to_string(),
+                description: Some("The most recent stable release".to_string()),
+                release_date: Some("2026-09-15".to_string()),
+            },
+        ];
+        assert_eq!(
+            select_pinned_model(&models, "jev-latest"),
+            Some("jev-1.13.0".to_string())
+        );
+        // No lineage wording: no pinning, alias frozen instead.
+        let bare = vec![DiscoveredModel {
+            name: "jev-9.9.9".to_string(),
+            description: Some("An old build".to_string()),
+            release_date: None,
+        }];
+        assert_eq!(select_pinned_model(&bare, "jev-latest"), None);
+        assert_eq!(select_pinned_model(&[], "jev-latest"), None);
+    }
+
+    #[test]
+    fn test_live_gating_still_closed() {
+        // No credentials here: every live constructor path fails before I/O.
+        assert!(LiveTransport::gated(10).is_err());
+        assert!(LiveTransport::gated_with_model(10, "jev-1.13.0").is_err());
     }
 }
