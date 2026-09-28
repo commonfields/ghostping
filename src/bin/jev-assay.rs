@@ -44,8 +44,14 @@ enum Commands {
         transport: TransportKind,
         #[arg(long, default_value = "0")]
         max_requests: usize,
-        #[arg(long, default_value = "all")]
-        split: String,
+        /// Case population: dev | holdout | all (default all for offline).
+        /// Live transport REQUIRES an explicit value; live + all is refused
+        /// unless --allow-all-split is passed.
+        #[arg(long)]
+        split: Option<String>,
+        /// Explicit research override permitting a live full-split run.
+        #[arg(long, default_value = "false")]
+        allow_all_split: bool,
         #[arg(long)]
         out: std::path::PathBuf,
     },
@@ -143,8 +149,22 @@ fn main() -> Result<()> {
             transport,
             max_requests,
             split,
+            allow_all_split,
             out,
         } => {
+            let is_live = matches!(transport, TransportKind::Live);
+            // Phase 1: live execution requires an EXPLICIT split. The frozen
+            // benchmark population is holdout; `all` needs an override.
+            let split_name: String = match (is_live, split.as_deref()) {
+                (true, None) => bail!(
+                    "live transport requires an explicit --split (dev|holdout); refusing implicit all"
+                ),
+                (true, Some("all")) if !allow_all_split => bail!(
+                    "live transport with --split all requires --allow-all-split"
+                ),
+                (_, Some(v)) => v.to_string(),
+                (_, None) => "all".to_string(),
+            };
             let task_name = match task {
                 Task::A => "fact_relationship",
                 Task::B => "citation_support",
@@ -161,8 +181,8 @@ fn main() -> Result<()> {
             let mut cases = load_jsonl(&dataset)?;
             validate_dataset(&cases, task_name, valid)?;
 
-            // Optional frozen-split filter.
-            if split != "all" {
+            // Frozen-split filter (dev | holdout | all).
+            if split_name != "all" {
                 let split_path = dataset
                     .parent()
                     .unwrap_or(std::path::Path::new("."))
@@ -170,7 +190,7 @@ fn main() -> Result<()> {
                 let split_json: serde_json::Value =
                     serde_json::from_str(&std::fs::read_to_string(&split_path)?)?;
                 let ids: HashSet<String> = split_json
-                    .get(&split)
+                    .get(split_name.as_str())
                     .and_then(|v| v.as_array())
                     .map(|a| {
                         a.iter()
@@ -181,7 +201,7 @@ fn main() -> Result<()> {
                 if ids.is_empty() {
                     bail!(
                         "split '{}' missing or empty in {}",
-                        split,
+                        split_name,
                         split_path.display()
                     );
                 }
@@ -192,20 +212,106 @@ fn main() -> Result<()> {
                 Task::A => TASK_A_QUESTIONS,
                 Task::B => TASK_B_QUESTIONS,
             };
+            // Budget sanity BEFORE any request or manifest: one request
+            // per case (all questions batched in a single call).
+            let planned_requests = cases.len();
+            if is_live && max_requests < planned_requests {
+                bail!(
+                    "INSUFFICIENT_REQUEST_BUDGET: {} cases need {} requests, --max-requests {}.                      Refusing partial benchmark.",
+                    cases.len(),
+                    planned_requests,
+                    max_requests
+                );
+            }
+            // Model discovery + pinning (live only): resolve once, freeze for
+            // the whole run; every request sends the resolved string.
+            let mut manifest_extra = serde_json::json!({});
             let live = match transport {
-                TransportKind::Live => Some(LiveTransport::gated(max_requests)?),
-                _ => {
-                    if max_requests == 0 && !matches!(transport, TransportKind::Live) {
-                        // Offline transports need no budget.
-                    }
-                    None
+                TransportKind::Live => {
+                    let probe = LiveTransport::gated_with_model(usize::MAX, JEV_MODEL_REQUESTED)?;
+                    let resolution = resolve_model(
+                        probe.client_ref(),
+                        probe.key_ref(),
+                        "https://api.typesafe.ai/v1/models",
+                        JEV_MODEL_REQUESTED,
+                    )?;
+                    manifest_extra = serde_json::json!({
+                        "requested_alias": resolution.requested_alias,
+                        "resolved_model": resolution.resolved_model,
+                        "model_pinning": if resolution.pinned {
+                            "pinned"
+                        } else {
+                            "MODEL_PINNING = UNSUPPORTED_BY_PROVIDER"
+                        },
+                        "discovery_models": resolution.discovery_models,
+                    });
+                    // The probe spent no request budget (discovery is not a
+                    // judgment request); the run transport owns the budget.
+                    Some(LiveTransport::gated_with_model(
+                        max_requests,
+                        &resolution.resolved_model,
+                    )?)
                 }
+                _ => None,
             };
+            // Run manifest BEFORE request #1 (live runs only).
+            let run_id = format!(
+                "jev-{}-{}-{}",
+                match task {
+                    Task::A => "a",
+                    Task::B => "b",
+                },
+                split_name,
+                chrono::Utc::now().format("%Y%m%dT%H%M%SZ")
+            );
+            if is_live {
+                std::fs::create_dir_all(&out)?;
+                let split_json: serde_json::Value = serde_json::from_str(
+                    &std::fs::read_to_string(
+                        dataset
+                            .parent()
+                            .unwrap_or(std::path::Path::new("."))
+                            .join("split-v1.json"),
+                    )
+                    .unwrap_or_else(|_| "{}".to_string()),
+                )
+                .unwrap_or(serde_json::json!({}));
+                let manifest = serde_json::json!({
+                    "run_id": run_id,
+                    "protocol": "jev-assay-v1",
+                    "question_set": QUESTION_SET_V1,
+                    "threshold_policy": THRESHOLD_POLICY_V1,
+                    "receipt_schema": RECEIPT_SCHEMA_V1,
+                    "dataset": dataset.display().to_string(),
+                    "split": split_name,
+                    "holdout_digest": split_json.get("holdout_digest"),
+                    "selected_cases": cases.len(),
+                    "planned_requests": planned_requests,
+                    "max_requests": max_requests,
+                    "started_at": chrono::Utc::now().to_rfc3339(),
+                    "budget_note": "one request per case; all questions batched per call",
+                });
+                let mut manifest = manifest.as_object().unwrap().clone();
+                manifest.extend(manifest_extra.as_object().unwrap().clone());
+                std::fs::write(
+                    out.join("run-manifest.json"),
+                    serde_json::to_string_pretty(&manifest)?,
+                )?;
+            }
 
             let mut expected = Vec::new();
             let mut predicted_auto: Vec<Option<String>> = Vec::new();
             let mut brier_p = Vec::new();
             let mut brier_c = Vec::new();
+            // Raw-Noul calibration pairs per question: (truth, prob).
+            let mut per_question: HashMap<String, (Vec<bool>, Vec<f64>)> = HashMap::new();
+            for q in questions {
+                per_question.insert(q.name.to_string(), (Vec::new(), Vec::new()));
+            }
+            // Provider-reported model identities observed this run.
+            let mut observed_models: HashMap<String, usize> = HashMap::new();
+            let mut actual_requests = 0usize;
+            let mut succeeded = 0usize;
             let mut latencies = Vec::new();
             let mut failures = 0usize;
             let mut auto_n = 0usize;
@@ -344,6 +450,24 @@ fn main() -> Result<()> {
                                 predicted_auto.push(None);
                             }
                         }
+                        actual_requests += 1;
+                        succeeded += 1;
+                        if let Some(pmv) = pmv.clone() {
+                            *observed_models.entry(pmv).or_insert(0) += 1;
+                        }
+                        for a in &answers {
+                            if let Some(t) = case
+                                .noul_truth
+                                .as_ref()
+                                .and_then(|t| t.get(&a.name))
+                                .copied()
+                            {
+                                if let Some((ts, ps)) = per_question.get_mut(&a.name) {
+                                    ts.push(t);
+                                    ps.push(a.noul);
+                                }
+                            }
+                        }
                         let receipt = JudgmentReceipt {
                             receipt_version: RECEIPT_SCHEMA_V1.to_string(),
                             case_id: case.case_id.clone(),
@@ -419,6 +543,30 @@ fn main() -> Result<()> {
                 let (e, p): (Vec<String>, Vec<Option<String>>) = auto_pairs.into_iter().unzip();
                 accuracy(&e, &p)
             };
+            // Raw-Noul calibration per question (Phase 3A): frozen binary
+            // targets from each case's noul_truth. AMBIGUOUS rows carry null
+            // truth and are excluded here, counted in the label tables.
+            let mut raw_noul_calibration = serde_json::Map::new();
+            for q in questions {
+                if let Some((ts, ps)) = per_question.get(q.name) {
+                    let cal = calibrate_question(q.name, ts, ps);
+                    raw_noul_calibration.insert(
+                        q.name.to_string(),
+                        serde_json::json!({
+                            "n": cal.n,
+                            "brier": cal.brier,
+                            "mean_predicted": cal.mean_predicted,
+                            "empirical_positive_rate": cal.empirical_positive_rate,
+                            "bins": cal.bins,
+                        }),
+                    );
+                }
+            }
+            // Model drift check (live): every receipt must report the same
+            // provider identity, else RUN_INVALIDATED_MODEL_DRIFT.
+            let mut observed: Vec<(String, usize)> = observed_models.into_iter().collect();
+            observed.sort_by(|a, b| b.1.cmp(&a.1));
+            let drift = is_live && observed.len() > 1;
             let metrics = serde_json::json!({
                 "task": task_name,
                 "transport": match transport {
@@ -427,6 +575,7 @@ fn main() -> Result<()> {
                     TransportKind::Live => "live",
                     TransportKind::Deterministic => "deterministic",
                 },
+                "split": split_name,
                 "cases": cases.len(),
                 "auto_classify": auto_n,
                 "human_review": human_n,
@@ -434,6 +583,7 @@ fn main() -> Result<()> {
                 "coverage": auto_n as f64 / cases.len().max(1) as f64,
                 "auto_accuracy": auto_acc,
                 "macro_f1": macro_f1(&conf),
+                "raw_noul_calibration": raw_noul_calibration,
                 "per_class": classes.iter().map(|c| {
                     let s = &conf[*c];
                     (c, serde_json::json!({
@@ -441,10 +591,16 @@ fn main() -> Result<()> {
                         "tp": s.tp, "fp": s.fp, "fn": s.fn_,
                     }))
                 }).collect::<HashMap<_,_>>(),
-                "brier": brier_score(&brier_p, &brier_c),
-                "calibration_bins": calibration_bins(&brier_p, &brier_c, 5),
+                // Selective-decision confidence: decisiveness of AUTO rulings,
+                // NOT per-question calibration (see raw_noul_calibration).
+                "selective_confidence_brier": brier_score(&brier_p, &brier_c),
+                "selective_confidence_bins": calibration_bins(&brier_p, &brier_c, 5),
                 "latency_p50_ms": percentile(latencies.clone(), 50.0),
                 "latency_p95_ms": percentile(latencies.clone(), 95.0),
+                "observed_models": observed.iter().map(|(m, n)| serde_json::json!({
+                    "model": m, "receipts": n,
+                })).collect::<Vec<_>>(),
+                "model_drift": if drift { "RUN_INVALIDATED_MODEL_DRIFT" } else { "none" },
                 "question_set": QUESTION_SET_V1,
                 "threshold_policy": THRESHOLD_POLICY_V1,
                 "receipt_schema": RECEIPT_SCHEMA_V1,
@@ -457,6 +613,25 @@ fn main() -> Result<()> {
                 out.join("auto_errors.json"),
                 serde_json::to_string_pretty(&errors)?,
             )?;
+            if is_live {
+                // Completion record: preregistered manifest fields are never
+                // mutated; outcomes land here.
+                let completion = serde_json::json!({
+                    "run_id": run_id,
+                    "completed_at": chrono::Utc::now().to_rfc3339(),
+                    "actual_requests": actual_requests,
+                    "succeeded": succeeded,
+                    "failed": failures,
+                    "observed_models": observed.iter().map(|(m, n)| serde_json::json!({
+                        "model": m, "receipts": n,
+                    })).collect::<Vec<_>>(),
+                    "model_drift": if drift { "RUN_INVALIDATED_MODEL_DRIFT" } else { "none" },
+                });
+                std::fs::write(
+                    out.join("completion.json"),
+                    serde_json::to_string_pretty(&completion)?,
+                )?;
+            }
             println!("{}", serde_json::to_string_pretty(&metrics)?);
             Ok(())
         }
