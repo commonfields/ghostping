@@ -445,6 +445,34 @@ enum Commands {
     ///   ghostping observations report
     #[command(subcommand)]
     Observations(ObservationsCommand),
+    /// Business-approved facts (versioned registry, human-authored)
+    ///
+    /// Examples:
+    ///   ghostping facts add --subject pricing --predicate monthly_price --value '$39' --type currency --source manual
+    ///   ghostping facts list
+    #[command(subcommand)]
+    Facts(Box<FactsCommand>),
+    /// Candidate claims manually selected from existing observations
+    ///
+    /// Examples:
+    ///   ghostping claims add --observation obs_... --text 'Ghostping costs $29 per month'
+    ///   ghostping claims list
+    #[command(subcommand)]
+    Claims(Box<ClaimsCommand>),
+    /// Human judgments relating claims to facts (append-only)
+    ///
+    /// Examples:
+    ///   ghostping judgments add --claim CLM-0001 --fact FACT-0002 --verdict contradicted --reviewer human
+    ///   ghostping judgments list --claim CLM-0001
+    #[command(subcommand)]
+    Judgments(Box<JudgmentsCommand>),
+    /// Derived integrity findings (claim + latest judgment + facts)
+    ///
+    /// Examples:
+    ///   ghostping integrity report
+    ///   ghostping integrity report --claim CLM-0001
+    #[command(subcommand)]
+    Integrity(Box<IntegrityCommand>),
 }
 
 #[derive(clap::Subcommand)]
@@ -504,6 +532,110 @@ enum ObservationsCommand {
     /// Examples:
     ///   ghostping observations report
     Report,
+}
+
+/// Add-command fields boxed: the Add variant dwarfs List/Show/Retire and
+/// trips `large_enum_variant` otherwise. No behavior change.
+#[derive(clap::Args, Debug)]
+struct FactsAdd {
+    #[arg(long)]
+    subject: String,
+    #[arg(long)]
+    predicate: String,
+    #[arg(long)]
+    value: String,
+    #[arg(long, value_name = "TYPE")]
+    r#type: String,
+    #[arg(long, default_value = "manual")]
+    source: String,
+    #[arg(long)]
+    source_ref: Option<String>,
+    #[arg(long)]
+    valid_from: Option<String>,
+    #[arg(long)]
+    valid_until: Option<String>,
+    #[arg(long)]
+    notes: Option<String>,
+    #[arg(long)]
+    supersedes: Option<String>,
+    #[arg(long, default_value = "human")]
+    created_by: String,
+}
+
+#[derive(clap::Subcommand)]
+enum FactsCommand {
+    /// Add a business-approved fact (validated, never normalized)
+    Add(Box<FactsAdd>),
+    /// List facts for this project (including superseded/retired history)
+    List,
+    /// Show one fact with full provenance
+    Show { fact_id: String },
+    /// Retire a fact (row stays readable)
+    Retire { fact_id: String },
+}
+
+#[derive(clap::Subcommand)]
+enum ClaimsCommand {
+    /// Add a manually selected claim from an existing observation
+    Add {
+        #[arg(long)]
+        observation: String,
+        #[arg(long)]
+        text: String,
+        #[arg(long)]
+        span_text: Option<String>,
+        #[arg(long)]
+        part: Option<i64>,
+        #[arg(long)]
+        start: Option<i64>,
+        #[arg(long)]
+        end: Option<i64>,
+        #[arg(long)]
+        subject: Option<String>,
+        #[arg(long, value_name = "TYPE")]
+        claim_type: Option<String>,
+        #[arg(long, default_value = "human")]
+        created_by: String,
+    },
+    /// List claims for this project
+    List,
+    /// Show one claim with its observation provenance
+    Show { claim_id: String },
+}
+
+#[derive(clap::Subcommand)]
+enum JudgmentsCommand {
+    /// Add a human judgment (idempotent for identical repeats)
+    Add {
+        #[arg(long)]
+        claim: String,
+        #[arg(long, value_name = "FACT-ID")]
+        fact: Vec<String>,
+        #[arg(long)]
+        verdict: String,
+        #[arg(long)]
+        rationale: Option<String>,
+        #[arg(long, default_value = "human")]
+        reviewer: String,
+        #[arg(long)]
+        supersedes: Option<String>,
+    },
+    /// List judgments, optionally for one claim
+    List {
+        #[arg(long)]
+        claim: Option<String>,
+    },
+    /// Show one judgment
+    Show { judgment_id: String },
+}
+
+#[derive(clap::Subcommand)]
+enum IntegrityCommand {
+    /// Derived integrity report (claim + latest judgment + facts, no scores)
+    Report {
+        #[arg(long)]
+        claim: Option<String>,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -1602,6 +1734,112 @@ async fn main() -> Result<()> {
 
         Commands::Diagnose { url } => {
             run_diagnose2(&url).await?;
+        }
+
+        Commands::Facts(facts_cmd) => {
+            let cmd_inner = *facts_cmd;
+            let (project, storage) = load_project_storage(&base_dir)?;
+            match cmd_inner {
+                FactsCommand::Add(add) => run_facts_add(
+                    &project,
+                    &storage,
+                    ghostping::integrity::NewFact {
+                        project_id: &project.domain(),
+                        subject: &add.subject,
+                        predicate: &add.predicate,
+                        value: &add.value,
+                        value_type: ghostping::integrity::FactValueType::parse(&add.r#type)?,
+                        valid_from: add.valid_from.as_deref(),
+                        valid_until: add.valid_until.as_deref(),
+                        source_kind: ghostping::integrity::FactSourceKind::parse(&add.source)?,
+                        source_ref: add.source_ref.as_deref(),
+                        source_digest: None,
+                        notes: add.notes.as_deref(),
+                        created_by: &add.created_by,
+                        supersedes_fact_id: add.supersedes.as_deref(),
+                    },
+                ),
+                FactsCommand::List => run_facts_list(&project, &storage),
+                FactsCommand::Show { fact_id } => run_facts_show(&storage, &fact_id),
+                FactsCommand::Retire { fact_id } => run_facts_retire(&storage, &fact_id),
+            }?;
+        }
+
+        Commands::Claims(claims_cmd) => {
+            let cmd_inner = *claims_cmd;
+            let (project, storage) = load_project_storage(&base_dir)?;
+            match cmd_inner {
+                ClaimsCommand::Add {
+                    observation,
+                    text,
+                    span_text,
+                    part,
+                    start,
+                    end,
+                    subject,
+                    claim_type,
+                    created_by,
+                } => run_claims_add(
+                    &project,
+                    &storage,
+                    ghostping::integrity::NewClaim {
+                        project_id: &project.domain(),
+                        observation_id: &observation,
+                        claim_text: &text,
+                        source_span_text: span_text.as_deref(),
+                        source_part: part,
+                        start_offset: start,
+                        end_offset: end,
+                        claim_subject: subject.as_deref(),
+                        claim_type: claim_type.as_deref(),
+                        created_by: &created_by,
+                    },
+                ),
+                ClaimsCommand::List => run_claims_list(&project, &storage),
+                ClaimsCommand::Show { claim_id } => run_claims_show(&storage, &claim_id),
+            }?;
+        }
+
+        Commands::Judgments(judgments_cmd) => {
+            let cmd_inner = *judgments_cmd;
+            let (project, storage) = load_project_storage(&base_dir)?;
+            match cmd_inner {
+                JudgmentsCommand::Add {
+                    claim,
+                    fact,
+                    verdict,
+                    rationale,
+                    reviewer,
+                    supersedes,
+                } => run_judgments_add(
+                    &project,
+                    &storage,
+                    ghostping::integrity::NewJudgment {
+                        claim_id: &claim,
+                        fact_ids: &fact,
+                        verdict: ghostping::integrity::JudgmentVerdict::parse(&verdict)?,
+                        rationale: rationale.as_deref(),
+                        reviewer: &reviewer,
+                        supersedes_judgment_id: supersedes.as_deref(),
+                    },
+                ),
+                JudgmentsCommand::List { claim } => {
+                    run_judgments_list(&project, &storage, claim.as_deref())
+                }
+                JudgmentsCommand::Show { judgment_id } => {
+                    run_judgments_show(&storage, &judgment_id)
+                }
+            }?;
+        }
+
+        Commands::Integrity(integrity_cmd) => {
+            let cmd_inner = *integrity_cmd;
+            let (project, storage) = load_project_storage(&base_dir)?;
+            match cmd_inner {
+                IntegrityCommand::Report { claim } => {
+                    run_integrity_report(&project, &storage, claim.as_deref())
+                }
+            }?;
         }
 
         Commands::Observations(obs_cmd) => {
@@ -3452,6 +3690,464 @@ fn parse_import_period(
         (Some(_), _, _) => bail!("--date is exclusive with --start-date/--end-date."),
         _ => bail!("Provide --date or both --start-date and --end-date."),
     }
+}
+
+/// Load ghostping.toml + evidence.db for project-scoped commands.
+/// Exits non-zero when no project is configured.
+fn load_project_storage(base_dir: &std::path::Path) -> Result<(ProjectConfig, AuditStorage)> {
+    let (project, _dir) = match ProjectConfig::find_and_load() {
+        Ok(Some((p, d))) => (p, d),
+        Ok(None) => {
+            println!(
+                "\n  {} No ghostping.toml found. Run {} first.\n",
+                "!".yellow(),
+                "ghostping init".cyan()
+            );
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("  {} Failed to load project config: {}", "✗".red(), e);
+            std::process::exit(1);
+        }
+    };
+    let storage = AuditStorage::open(&base_dir.join("evidence.db"))?;
+    Ok((project, storage))
+}
+
+fn run_facts_add(
+    project: &ProjectConfig,
+    storage: &AuditStorage,
+    fact: ghostping::integrity::NewFact,
+) -> Result<()> {
+    let id = storage.insert_fact(&fact)?;
+    let saved = storage.get_fact(&id)?.unwrap();
+    println!();
+    println!(
+        "  {} Recorded {} ({} status)",
+        "✓".green().bold(),
+        id.cyan(),
+        saved.status.as_str()
+    );
+    println!(
+        "    {} = {} ({})",
+        saved.subject.cyan(),
+        saved.value.cyan(),
+        saved.value_type.as_str().dimmed()
+    );
+    if let (Some(from), Some(until)) = (&saved.valid_from, &saved.valid_until) {
+        println!("    effective {} → {}", from.dimmed(), until.dimmed());
+    } else if let Some(from) = &saved.valid_from {
+        println!("    effective {} → {}", from.dimmed(), "present".dimmed());
+    }
+    if let Some(prev) = &saved.supersedes_fact_id {
+        println!("    supersedes {} (kept, marked superseded)", prev.dimmed());
+    }
+    println!();
+    let _ = project;
+    Ok(())
+}
+
+fn run_facts_list(project: &ProjectConfig, storage: &AuditStorage) -> Result<()> {
+    let facts = storage.list_facts(&project.domain())?;
+    if facts.is_empty() {
+        println!(
+            "\n  No facts recorded. Add one with {}.\n",
+            "ghostping facts add".cyan()
+        );
+        return Ok(());
+    }
+    println!();
+    for f in &facts {
+        let status = match f.status {
+            ghostping::integrity::FactStatus::Active => "active".green().to_string(),
+            ghostping::integrity::FactStatus::Superseded => "superseded".yellow().to_string(),
+            ghostping::integrity::FactStatus::Retired => "retired".dimmed().to_string(),
+        };
+        println!(
+            "  {} {} = {}  [{}] ({})",
+            f.fact_id.cyan(),
+            f.predicate.dimmed(),
+            f.value,
+            status,
+            f.value_type.as_str().dimmed()
+        );
+    }
+    println!();
+    Ok(())
+}
+
+fn run_facts_show(storage: &AuditStorage, fact_id: &str) -> Result<()> {
+    let f = storage
+        .get_fact(fact_id)?
+        .ok_or_else(|| anyhow::anyhow!("Fact '{}' not found.", fact_id))?;
+    println!();
+    println!("  {} {}", "Fact".bold(), f.fact_id.cyan().bold());
+    println!("    subject:    {}", f.subject.cyan());
+    println!("    predicate:  {}", f.predicate.cyan());
+    println!(
+        "    value:      {} ({})",
+        f.value.cyan(),
+        f.value_type.as_str().dimmed()
+    );
+    println!("    status:     {}", f.status.as_str());
+    println!(
+        "    valid:      {} → {}",
+        f.valid_from.as_deref().unwrap_or("unbounded").dimmed(),
+        f.valid_until.as_deref().unwrap_or("present").dimmed()
+    );
+    println!(
+        "    source:     {} {}",
+        f.source_kind.as_str().dimmed(),
+        f.source_ref.as_deref().unwrap_or("").dimmed()
+    );
+    if let Some(n) = &f.notes {
+        println!("    notes:      {}", n.dimmed());
+    }
+    if let Some(prev) = &f.supersedes_fact_id {
+        println!("    supersedes: {}", prev.dimmed());
+    }
+    println!(
+        "    created:    {} by {}",
+        f.created_at.dimmed(),
+        f.created_by.dimmed()
+    );
+    println!();
+    Ok(())
+}
+
+fn run_facts_retire(storage: &AuditStorage, fact_id: &str) -> Result<()> {
+    let f = storage.retire_fact(fact_id)?;
+    println!(
+        "\n  {} {} retired (row kept, history intact).\n",
+        "✓".green().bold(),
+        f.fact_id.cyan()
+    );
+    Ok(())
+}
+
+fn run_claims_add(
+    project: &ProjectConfig,
+    storage: &AuditStorage,
+    claim: ghostping::integrity::NewClaim,
+) -> Result<()> {
+    let id = storage.insert_claim(&claim)?;
+    let saved = storage.get_claim(&id)?.unwrap();
+    println!();
+    println!(
+        "  {} Recorded {} from observation {}",
+        "✓".green().bold(),
+        id.cyan(),
+        saved.observation_id.dimmed()
+    );
+    println!("    \"{}\"", saved.claim_text.cyan());
+    println!(
+        "    origin: {} (extraction: {})",
+        saved.claim_origin.as_str().dimmed(),
+        saved.extraction_method.dimmed()
+    );
+    println!();
+    let _ = project;
+    Ok(())
+}
+
+fn run_claims_list(project: &ProjectConfig, storage: &AuditStorage) -> Result<()> {
+    let claims = storage.list_claims(&project.domain())?;
+    if claims.is_empty() {
+        println!(
+            "\n  No claims recorded. Add one with {}.\n",
+            "ghostping claims add".cyan()
+        );
+        return Ok(());
+    }
+    println!();
+    for c in &claims {
+        let judged = storage
+            .latest_judgment(&c.claim_id)?
+            .map(|j| j.verdict.finding_state())
+            .unwrap_or("UNJUDGED");
+        println!(
+            "  {} \"{}\"  [{}] ({})",
+            c.claim_id.cyan(),
+            ghostping::types::truncate_chars(&c.claim_text, 56).dimmed(),
+            judged,
+            c.claim_origin.as_str().dimmed()
+        );
+    }
+    println!();
+    Ok(())
+}
+
+fn run_claims_show(storage: &AuditStorage, claim_id: &str) -> Result<()> {
+    let c = storage
+        .get_claim(claim_id)?
+        .ok_or_else(|| anyhow::anyhow!("Claim '{}' not found.", claim_id))?;
+    println!();
+    println!("  {} {}", "Claim".bold(), c.claim_id.cyan().bold());
+    println!("    \"{}\"", c.claim_text.cyan());
+    println!(
+        "    origin: {} (extraction: {})",
+        c.claim_origin.as_str().dimmed(),
+        c.extraction_method.dimmed()
+    );
+    if let Some(span) = &c.source_span_text {
+        println!(
+            "    span: \"{}\"",
+            ghostping::types::truncate_chars(span, 80).dimmed()
+        );
+        if let (Some(part), Some(s), Some(e)) = (c.source_part, c.start_offset, c.end_offset) {
+            println!("    offsets: part {} bytes [{}..{}]", part, s, e);
+        } else {
+            println!("    offsets: unknown (not invented)");
+        }
+    }
+    // Observation linkage: walk claim → observation → raw evidence.
+    match storage
+        .list_observations(&c.project_id, None)?
+        .into_iter()
+        .find(|o| o.observation_id == c.observation_id)
+    {
+        Some(o) => {
+            println!();
+            println!("    observation: {}", o.observation_id.dimmed());
+            println!(
+                "    source:      {} / {} / {}",
+                o.surface.cyan(),
+                o.provider.as_deref().unwrap_or("unknown").dimmed(),
+                o.model.as_deref().unwrap_or("unknown").dimmed()
+            );
+            println!("    collected:   {}", o.collected_at.dimmed());
+            println!(
+                "    type:        {} ({})",
+                format!("{:?}", o.observation_type).dimmed(),
+                o.retrieval_mode.as_str().dimmed()
+            );
+            println!("    raw digest:  {}", o.raw_digest.dimmed());
+        }
+        None => {
+            println!();
+            println!(
+                "    {} observation {} no longer present",
+                "!".yellow(),
+                c.observation_id.dimmed()
+            );
+        }
+    }
+    println!();
+    Ok(())
+}
+
+fn run_judgments_add(
+    _project: &ProjectConfig,
+    storage: &AuditStorage,
+    judgment: ghostping::integrity::NewJudgment,
+) -> Result<()> {
+    let before = storage.list_judgments(judgment.claim_id)?.len();
+    let id = storage.insert_judgment(&judgment)?;
+    let after = storage.list_judgments(judgment.claim_id)?.len();
+    let saved = storage.get_judgment(&id)?.unwrap();
+    println!();
+    if after == before {
+        println!(
+            "  {} Identical judgment already recorded as {} (idempotent, no duplicate).",
+            "→".cyan(),
+            id.cyan()
+        );
+    } else {
+        println!(
+            "  {} Recorded {} on {} (v{}).",
+            "✓".green().bold(),
+            id.cyan(),
+            saved.claim_id.dimmed(),
+            saved.judgment_version
+        );
+    }
+    println!(
+        "    verdict: {} by {} ({})",
+        saved.verdict.as_str().cyan(),
+        saved.reviewer.dimmed(),
+        saved.reviewed_at.dimmed()
+    );
+    if let Some(prev) = &saved.supersedes_judgment_id {
+        println!("    supersedes: {}", prev.dimmed());
+    }
+    println!();
+    Ok(())
+}
+
+fn run_judgments_list(
+    project: &ProjectConfig,
+    storage: &AuditStorage,
+    claim: Option<&str>,
+) -> Result<()> {
+    let claims = match claim {
+        Some(id) => vec![storage
+            .get_claim(id)?
+            .ok_or_else(|| anyhow::anyhow!("Claim '{}' not found.", id))?],
+        None => storage.list_claims(&project.domain())?,
+    };
+    if claims.is_empty() {
+        println!("\n  No claims recorded.\n");
+        return Ok(());
+    }
+    println!();
+    for c in &claims {
+        let judgments = storage.list_judgments(&c.claim_id)?;
+        if judgments.is_empty() {
+            println!("  {} — no judgments (UNJUDGED)", c.claim_id.cyan());
+            continue;
+        }
+        for j in &judgments {
+            let latest = storage
+                .latest_judgment(&c.claim_id)?
+                .is_some_and(|l| l.judgment_id == j.judgment_id);
+            println!(
+                "  {} {} on {} by {} {}",
+                j.judgment_id.cyan(),
+                j.verdict.as_str(),
+                c.claim_id.dimmed(),
+                j.reviewer.dimmed(),
+                if latest {
+                    "[latest]".green().to_string()
+                } else {
+                    "".to_string()
+                }
+            );
+        }
+    }
+    println!();
+    Ok(())
+}
+
+fn run_judgments_show(storage: &AuditStorage, judgment_id: &str) -> Result<()> {
+    let j = storage
+        .get_judgment(judgment_id)?
+        .ok_or_else(|| anyhow::anyhow!("Judgment '{}' not found.", judgment_id))?;
+    println!();
+    println!("  {} {}", "Judgment".bold(), j.judgment_id.cyan().bold());
+    println!("    claim:   {}", j.claim_id.cyan());
+    println!("    facts:   {}", j.fact_ids.join(", ").dimmed());
+    println!("    verdict: {}", j.verdict.as_str().cyan());
+    if let Some(r) = &j.rationale {
+        println!("    rationale: {}", r.dimmed());
+    }
+    println!(
+        "    reviewer: {} ({})",
+        j.reviewer.dimmed(),
+        j.reviewed_at.dimmed()
+    );
+    println!("    version:  v{}", j.judgment_version);
+    if let Some(prev) = &j.supersedes_judgment_id {
+        println!("    supersedes: {}", prev.dimmed());
+    }
+    println!();
+    Ok(())
+}
+
+fn run_integrity_report(
+    project: &ProjectConfig,
+    storage: &AuditStorage,
+    claim_filter: Option<&str>,
+) -> Result<()> {
+    let claims = match claim_filter {
+        Some(id) => vec![storage
+            .get_claim(id)?
+            .ok_or_else(|| anyhow::anyhow!("Claim '{}' not found.", id))?],
+        None => storage.list_claims(&project.domain())?,
+    };
+    if claims.is_empty() {
+        println!(
+            "\n  No claims recorded. Start with {}.\n",
+            "ghostping claims add".cyan()
+        );
+        return Ok(());
+    }
+    println!();
+    println!(
+        "  {} Integrity Report — {}",
+        "→".cyan(),
+        project.project.name.cyan().bold()
+    );
+    println!();
+    for c in &claims {
+        let finding = storage.integrity_finding(&c.claim_id)?.unwrap();
+        match finding.state {
+            Some(state) => println!("  {} {}", state.bold(), c.claim_id.dimmed()),
+            None => println!("  {} {}", "UNJUDGED".yellow().bold(), c.claim_id.dimmed()),
+        }
+        println!();
+        println!("  Observed claim");
+        println!("    \"{}\"", c.claim_text.cyan());
+        // Observation provenance: what/when/where, never a score.
+        if let Some(o) = storage
+            .list_observations(&c.project_id, None)?
+            .into_iter()
+            .find(|o| o.observation_id == c.observation_id)
+        {
+            println!("  Observed in");
+            println!("    surface:   {}", o.surface.dimmed());
+            println!(
+                "    provider:   {}",
+                o.provider.as_deref().unwrap_or("unknown").dimmed()
+            );
+            println!(
+                "    model:      {}",
+                o.model.as_deref().unwrap_or("unknown").dimmed()
+            );
+            println!("    collected:  {}", o.collected_at.dimmed());
+            println!("    observation {}", o.observation_id.dimmed());
+            println!("    raw digest: {}", o.raw_digest.dimmed());
+        }
+        if finding.facts.is_empty() {
+            println!("  Business-approved fact");
+            println!("    {} none referenced", "·".dimmed());
+        } else {
+            for f in &finding.facts {
+                println!("  Business-approved fact");
+                println!(
+                    "    {} = {} ({})",
+                    f.predicate.cyan(),
+                    f.value.cyan(),
+                    f.fact_id.dimmed()
+                );
+                println!(
+                    "    effective {} → {} [{}]",
+                    f.valid_from.as_deref().unwrap_or("unbounded").dimmed(),
+                    f.valid_until.as_deref().unwrap_or("present").dimmed(),
+                    f.status.as_str().dimmed()
+                );
+            }
+        }
+        match &finding.judgment {
+            Some(j) => {
+                println!("  Human judgment");
+                println!(
+                    "    {} by {} ({})",
+                    j.verdict.as_str().cyan(),
+                    j.reviewer.dimmed(),
+                    j.reviewed_at.dimmed()
+                );
+                if let Some(r) = &j.rationale {
+                    println!("    rationale: {}", r.dimmed());
+                }
+                if j.verdict == ghostping::integrity::JudgmentVerdict::Supported {
+                    println!("    {} describes this observation only — not a promise about future answers.",
+                        "note:".dimmed());
+                }
+            }
+            None => {
+                println!("  Human judgment");
+                println!("    {} awaiting reviewer", "·".dimmed());
+            }
+        }
+        println!();
+    }
+    println!(
+        "  {}",
+        "Findings are derived from claims + latest judgments + facts. No scores, no causal claims."
+            .dimmed()
+    );
+    println!();
+    Ok(())
 }
 
 fn run_observations_import_gsc(
