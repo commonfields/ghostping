@@ -565,7 +565,7 @@ fn main() -> Result<()> {
             // Model drift check (live): every receipt must report the same
             // provider identity, else RUN_INVALIDATED_MODEL_DRIFT.
             let mut observed: Vec<(String, usize)> = observed_models.into_iter().collect();
-            observed.sort_by(|a, b| b.1.cmp(&a.1));
+            observed.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
             let drift = is_live && observed.len() > 1;
             let metrics = serde_json::json!({
                 "task": task_name,

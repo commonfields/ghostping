@@ -1525,9 +1525,7 @@ mod readiness_tests {
                 .unwrap();
             assert!(!cases.is_empty());
             for (c, raw) in cases.iter().zip(raws.iter()) {
-                let truth =
-                    raw.get("noul_truth")
-                        .and_then(|v| if v.is_null() { None } else { Some(v) });
+                let truth = raw.get("noul_truth").filter(|v| !v.is_null());
                 if task == "A" {
                     let label = parse_label_a(&c.label).unwrap();
                     match noul_truth_a(&label) {
