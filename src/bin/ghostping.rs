@@ -572,6 +572,9 @@ enum FactsCommand {
     Show { fact_id: String },
     /// Retire a fact (row stays readable)
     Retire { fact_id: String },
+    /// List derived authority conflicts (overlapping ACTIVE facts).
+    /// Conflicts are product data, never a process failure: exit 0.
+    Conflicts,
 }
 
 #[derive(clap::Subcommand)]
@@ -635,6 +638,20 @@ enum IntegrityCommand {
     Report {
         #[arg(long)]
         claim: Option<String>,
+    },
+    /// Export human judgments as deterministic Task-A assay cases (JSONL).
+    /// Labels come only from HumanJudgment records; only current
+    /// (unsuperseded) judgments export. Empty store exits 0.
+    ExportAssay {
+        /// Output JSONL path
+        #[arg(long)]
+        out: PathBuf,
+        /// Only this claim
+        #[arg(long)]
+        claim: Option<String>,
+        /// Only this verdict (supported|contradicted|partial|insufficient_evidence)
+        #[arg(long)]
+        verdict: Option<String>,
     },
 }
 
@@ -1762,6 +1779,7 @@ async fn main() -> Result<()> {
                 FactsCommand::List => run_facts_list(&project, &storage),
                 FactsCommand::Show { fact_id } => run_facts_show(&storage, &fact_id),
                 FactsCommand::Retire { fact_id } => run_facts_retire(&storage, &fact_id),
+                FactsCommand::Conflicts => run_facts_conflicts(&project, &storage),
             }?;
         }
 
@@ -1839,6 +1857,17 @@ async fn main() -> Result<()> {
                 IntegrityCommand::Report { claim } => {
                     run_integrity_report(&project, &storage, claim.as_deref())
                 }
+                IntegrityCommand::ExportAssay {
+                    out,
+                    claim,
+                    verdict,
+                } => run_integrity_export_assay(
+                    &project,
+                    &storage,
+                    &out,
+                    claim.as_deref(),
+                    verdict.as_deref(),
+                ),
             }?;
         }
 
@@ -3742,8 +3771,20 @@ fn run_facts_add(
     if let Some(prev) = &saved.supersedes_fact_id {
         println!("    supersedes {} (kept, marked superseded)", prev.dimmed());
     }
+    // Surface authority conflicts loudly; the write already succeeded and
+    // stays. Ghostping never chooses between conflicting facts.
+    let conflicts = storage.authority_conflicts(&project.domain())?;
+    if conflicts
+        .iter()
+        .any(|c| c.fact_ids.contains(&saved.fact_id))
+    {
+        println!(
+            "    {} this fact participates in a FACT_AUTHORITY_CONFLICT — see {}.",
+            "⚠".yellow().bold(),
+            "ghostping facts conflicts".cyan()
+        );
+    }
     println!();
-    let _ = project;
     Ok(())
 }
 
@@ -3773,6 +3814,55 @@ fn run_facts_list(project: &ProjectConfig, storage: &AuditStorage) -> Result<()>
         );
     }
     println!();
+    Ok(())
+}
+
+fn run_facts_conflicts(project: &ProjectConfig, storage: &AuditStorage) -> Result<()> {
+    use ghostping::integrity::AuthorityConflictKind;
+    let conflicts = storage.authority_conflicts(&project.domain())?;
+    if conflicts.is_empty() {
+        println!(
+            "\n  No authority conflicts: no overlapping ACTIVE facts share (subject, predicate).\n"
+        );
+        return Ok(());
+    }
+    println!();
+    for c in &conflicts {
+        let title = match c.kind {
+            AuthorityConflictKind::ConflictingActiveFacts => "FACT_AUTHORITY_CONFLICT",
+            AuthorityConflictKind::RedundantActiveFacts => "REDUNDANT_ACTIVE_FACTS",
+        };
+        println!(
+            "  {} {}{}",
+            title.bold(),
+            c.subject.dimmed(),
+            format!(".{}", c.predicate).dimmed()
+        );
+        println!();
+        for fid in &c.fact_ids {
+            if let Some(f) = storage.get_fact(fid)? {
+                println!("  {}  value: {}", f.fact_id.cyan(), f.value,);
+                println!(
+                    "      valid: {} → {} [{}]",
+                    f.valid_from.as_deref().unwrap_or("open").dimmed(),
+                    f.valid_until.as_deref().unwrap_or("open").dimmed(),
+                    f.status.as_str().dimmed()
+                );
+            }
+        }
+        println!();
+        println!(
+            "  overlap: {} → {}",
+            c.overlap_start.as_deref().unwrap_or("open").dimmed(),
+            c.overlap_end.as_deref().unwrap_or("open").dimmed()
+        );
+        println!();
+        println!(
+            "  {} resolution required — Ghostping never chooses automatically",
+            "→".cyan()
+        );
+        println!();
+    }
     Ok(())
 }
 
@@ -4043,6 +4133,143 @@ fn run_judgments_show(storage: &AuditStorage, judgment_id: &str) -> Result<()> {
     Ok(())
 }
 
+fn run_integrity_export_assay(
+    project: &ProjectConfig,
+    storage: &AuditStorage,
+    out: &std::path::Path,
+    claim_filter: Option<&str>,
+    verdict_filter: Option<&str>,
+) -> Result<()> {
+    use ghostping::integrity::JudgmentVerdict;
+
+    // Labels originate ONLY from HumanJudgment records. Findings alone,
+    // parsers, mocks, or classifiers can never produce human_adjudicated.
+    let wanted_verdict = verdict_filter
+        .map(JudgmentVerdict::parse)
+        .transpose()?
+        .map(|v| match v {
+            JudgmentVerdict::Supported => "SUPPORTED",
+            JudgmentVerdict::Contradicted => "CONTRADICTED",
+            JudgmentVerdict::Partial => "PARTIAL",
+            JudgmentVerdict::InsufficientEvidence => "INSUFFICIENT_EVIDENCE",
+        });
+    let mut claims = match claim_filter {
+        Some(id) => vec![storage
+            .get_claim(id)?
+            .ok_or_else(|| anyhow::anyhow!("Claim '{}' not found.", id))?],
+        None => storage.list_claims(&project.domain())?,
+    };
+    claims.sort_by(|a, b| a.claim_id.cmp(&b.claim_id));
+
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    for claim in &claims {
+        // Current unsuperseded judgment only; history never exports as
+        // independent current ground truth.
+        let judgment = match storage.latest_judgment(&claim.claim_id)? {
+            Some(j) => j,
+            None => continue,
+        };
+        let label = match judgment.verdict {
+            JudgmentVerdict::Supported => "SUPPORTED",
+            JudgmentVerdict::Contradicted => "CONTRADICTED",
+            JudgmentVerdict::Partial => "PARTIAL",
+            JudgmentVerdict::InsufficientEvidence => "INSUFFICIENT_EVIDENCE",
+        };
+        if let Some(want) = wanted_verdict {
+            if label != want {
+                continue;
+            }
+        }
+        let mut facts_json = Vec::new();
+        for fid in &judgment.fact_ids {
+            if let Some(f) = storage.get_fact(fid)? {
+                facts_json.push(serde_json::json!({
+                    "fact_id": f.fact_id,
+                    "subject": f.subject,
+                    "predicate": f.predicate,
+                    "value": f.value,
+                    "value_type": f.value_type.as_str(),
+                    "valid_from": f.valid_from,
+                    "valid_until": f.valid_until,
+                    "source_kind": f.source_kind.as_str(),
+                }));
+            }
+        }
+        // Observation provenance where genuinely available; explicit nulls
+        // otherwise — never a hash of rendered text.
+        let obs = storage
+            .list_observations(&claim.project_id, None)?
+            .into_iter()
+            .find(|o| o.observation_id == claim.observation_id);
+        let (provider, model, surface, collected_at, raw_digest) = match &obs {
+            Some(o) => (
+                o.provider
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+                o.model
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+                serde_json::Value::String(o.surface.clone()),
+                serde_json::Value::String(o.collected_at.clone()),
+                serde_json::Value::String(o.raw_digest.clone()),
+            ),
+            None => (
+                serde_json::Value::Null,
+                serde_json::Value::Null,
+                serde_json::Value::Null,
+                serde_json::Value::Null,
+                serde_json::Value::Null,
+            ),
+        };
+        rows.push(serde_json::json!({
+            "case_id": format!("human-{}-{}", claim.claim_id, judgment.judgment_id),
+            "task": "fact_relationship",
+            "claim": claim.claim_text,
+            "evidence": facts_json,
+            "human_label": label,
+            "human_notes": judgment.rationale,
+            "source_observation_id": claim.observation_id,
+            "provider": provider,
+            "model": model,
+            "surface": surface,
+            "collected_at": collected_at,
+            "raw_digest": raw_digest,
+            "judgment_id": judgment.judgment_id,
+            "reviewed_at": judgment.reviewed_at,
+            "label_origin": "human_adjudicated",
+        }));
+    }
+
+    if let Some(parent) = out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let mut text = String::new();
+    for row in &rows {
+        text.push_str(&serde_json::to_string(row)?);
+        text.push('\n');
+    }
+    std::fs::write(out, text)?;
+    println!();
+    println!(
+        "  {} Exported {} human-adjudicated case(s) to {}",
+        "✓".green().bold(),
+        rows.len(),
+        out.display().to_string().cyan()
+    );
+    if rows.is_empty() {
+        println!(
+            "  {} no judged claims matched (exit 0, empty output written)",
+            "·".dimmed()
+        );
+    }
+    println!();
+    Ok(())
+}
+
 fn run_integrity_report(
     project: &ProjectConfig,
     storage: &AuditStorage,
@@ -4126,6 +4353,15 @@ fn run_integrity_report(
                     j.reviewer.dimmed(),
                     j.reviewed_at.dimmed()
                 );
+                // Conflicting authority stays visible; the judgment itself is
+                // never invalidated automatically.
+                if storage.facts_in_conflict(&c.project_id, &j.fact_ids)? {
+                    println!(
+                        "    {} referenced fact(s) participate in an unresolved FACT_AUTHORITY_CONFLICT — see {}.",
+                        "⚠".yellow().bold(),
+                        "ghostping facts conflicts".cyan()
+                    );
+                }
                 if let Some(r) = &j.rationale {
                     println!("    rationale: {}", r.dimmed());
                 }
