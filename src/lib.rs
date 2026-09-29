@@ -6,6 +6,7 @@ pub mod config;
 pub mod content_generator;
 pub mod geo;
 pub mod gsc;
+pub mod jev_assay;
 pub mod marketplace;
 pub mod observation_views;
 pub mod observations;
