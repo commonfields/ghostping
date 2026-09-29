@@ -110,6 +110,35 @@ EOF
 expect_exit nonzero "audit run with unreachable provider" "${BIN}" audit run --models ollama:llama3.2 --samples 1
 drop_sandbox
 
+# ── Representation integrity: facts → claims → judgments → report ──
+new_sandbox
+"${BIN}" init --name C --website "https://example.com" --yes >/dev/null 2>&1
+FIXDIR2="${REPO_ROOT}/tests/fixtures"
+"${BIN}" observations import-gsc --file "${FIXDIR2}/gsc_queries.csv" --report generic-search --date 2026-09-01 >/dev/null 2>&1
+OBS_ID="$(python3 -c "import sqlite3,os; print(sqlite3.connect(os.path.join(os.environ['HOME'], '.ghostping/evidence.db')).execute('SELECT observation_id FROM observations LIMIT 1').fetchone()[0])")"
+expect_exit zero "facts add" "${BIN}" facts add --subject pricing --predicate monthly_price --value '$39' --type currency --source manual
+expect_exit nonzero "facts add bad type" "${BIN}" facts add --subject x --predicate y --value nope --type number --source manual
+expect_exit zero "facts list" "${BIN}" facts list
+expect_exit zero "facts show" "${BIN}" facts show FACT-0001
+expect_exit nonzero "facts show missing" "${BIN}" facts show FACT-9999
+expect_exit zero "facts supersede" "${BIN}" facts add --subject pricing --predicate monthly_price --value '$49' --type currency --source manual --supersedes FACT-0001 --valid-from 2026-10-01
+expect_exit zero "facts retire" "${BIN}" facts retire FACT-0002
+expect_exit nonzero "claims add unknown observation" "${BIN}" claims add --observation obs_nope --text 'Ghostping costs $29 per month'
+expect_exit zero "claims add" "${BIN}" claims add --observation "${OBS_ID}" --text 'Ghostping costs $29 per month'
+expect_exit zero "claims list" "${BIN}" claims list
+expect_exit zero "claims show" "${BIN}" claims show CLM-0001
+expect_exit nonzero "claims show missing" "${BIN}" claims show CLM-9999
+expect_exit nonzero "judgments add unknown claim" "${BIN}" judgments add --claim CLM-9999 --fact FACT-0001 --verdict contradicted --reviewer human
+expect_exit nonzero "judgments add unknown fact" "${BIN}" judgments add --claim CLM-0001 --fact FACT-9999 --verdict contradicted --reviewer human
+expect_exit zero "judgments add" "${BIN}" judgments add --claim CLM-0001 --fact FACT-0001 --verdict contradicted --reviewer human --rationale 'Fact says $39.'
+expect_exit zero "judgments add identical idempotent" "${BIN}" judgments add --claim CLM-0001 --fact FACT-0001 --verdict contradicted --reviewer human --rationale 'Fact says $39.'
+expect_exit zero "judgments list" "${BIN}" judgments list --claim CLM-0001
+expect_exit zero "judgments show" "${BIN}" judgments show JDG-0001
+expect_exit zero "integrity report" "${BIN}" integrity report
+expect_exit zero "integrity report claim" "${BIN}" integrity report --claim CLM-0001
+expect_exit nonzero "integrity report missing claim" "${BIN}" integrity report --claim CLM-9999
+drop_sandbox
+
 # ── Observation Kernel: imports and reports ────────────────────────────────
 new_sandbox
 "${BIN}" init --name C --website "https://example.com" --yes >/dev/null 2>&1
