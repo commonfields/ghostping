@@ -149,6 +149,9 @@ importers:
         specifier: 3.22.2
         version: 3.22.2
     devDependencies:
+      '@types/node':
+        specifier: 20.17.0
+        version: 20.17.0
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -165,6 +168,9 @@ importers:
         specifier: 3.22.2
         version: 3.22.2
     devDependencies:
+      '@types/node':
+        specifier: 20.17.0
+        version: 20.17.0
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -212,6 +218,9 @@ importers:
         specifier: 3.22.2
         version: 3.22.2
     devDependencies:
+      '@types/node':
+        specifier: 20.17.0
+        version: 20.17.0
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -225,6 +234,9 @@ importers:
         specifier: 3.22.2
         version: 3.22.2
     devDependencies:
+      '@types/node':
+        specifier: 20.17.0
+        version: 20.17.0
       typescript:
         specifier: 5.9.3
         version: 5.9.3
