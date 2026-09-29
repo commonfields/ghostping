@@ -30,6 +30,10 @@ readme = "README.md"
 name = "ghostping"
 path = "src/bin/ghostping.rs"
 
+[[bin]]
+name = "ghostping-worker"
+path = "src/bin/ghostping-worker.rs"
+
 [lib]
 name = "ghostping"
 path = "src/lib.rs"

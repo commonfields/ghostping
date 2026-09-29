@@ -1,0 +1,13 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ghostping
+      POSTGRES_PASSWORD: ghostping
+      POSTGRES_DB: ghostping
+    ports:
+      - "5432:5432"
+    volumes:
+      - ghostping-pg:/var/lib/postgresql/data
+volumes:
+  ghostping-pg:

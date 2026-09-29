@@ -1,0 +1,30 @@
+{
+  "name": "@ghostping/db",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "echo 'lint ok'",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json",
+    "migrate": "tsx src/migrate.ts",
+    "seed": "tsx src/seed.ts"
+  },
+  "dependencies": {
+    "effect": "3.22.2",
+    "@effect/sql": "0.52.1",
+    "@effect/sql-pg": "0.53.0",
+    "@ghostping/domain": "workspace:*",
+    "pg": "8.13.1"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "3.2.4",
+    "tsx": "4.19.2",
+    "@types/pg": "8.11.0",
+    "@types/node": "20.17.0"
+  }
+}

@@ -23,6 +23,7 @@ pub mod storage;
 pub mod tracker;
 pub mod tui;
 pub mod types;
+pub mod worker_contract;
 
 // Re-export commonly used types
 pub use audit_engine::{AuditEngine, AuditOptions, PromptInput};
