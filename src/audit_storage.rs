@@ -246,6 +246,8 @@ impl AuditStorage {
         )?;
         // Observation Kernel tables (same database, additive migration).
         crate::observations::init_observation_schema(&self.conn)?;
+        // Representation integrity tables (same database, additive).
+        crate::integrity::init_integrity_schema(&self.conn)?;
         Ok(())
     }
 
