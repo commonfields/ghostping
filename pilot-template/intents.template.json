@@ -1,0 +1,29 @@
+[
+  {
+    "intent_id": "EXAMPLE-cost-01",
+    "intent": "EXAMPLE — How much does <product> cost?",
+    "origin": "operator constructed (template)",
+    "variants": [
+      {"prompt_variant_id": "EXAMPLE-cost-01-a", "prompt": "EXAMPLE — How much does <product> cost per month?"},
+      {"prompt_variant_id": "EXAMPLE-cost-01-b", "prompt": "EXAMPLE — What is the monthly price of <product>?"}
+    ]
+  },
+  {
+    "intent_id": "EXAMPLE-area-02",
+    "intent": "EXAMPLE — Does <business> serve <area>?",
+    "origin": "operator constructed (template)",
+    "variants": [
+      {"prompt_variant_id": "EXAMPLE-area-02-a", "prompt": "EXAMPLE — Does <business> serve <area>?"},
+      {"prompt_variant_id": "EXAMPLE-area-02-b", "prompt": "EXAMPLE — Is <area> inside <business> service coverage?"}
+    ]
+  },
+  {
+    "intent_id": "EXAMPLE-cancel-03",
+    "intent": "EXAMPLE — What is the cancellation policy?",
+    "origin": "operator constructed (template)",
+    "variants": [
+      {"prompt_variant_id": "EXAMPLE-cancel-03-a", "prompt": "EXAMPLE — What is <business> cancellation policy?"},
+      {"prompt_variant_id": "EXAMPLE-cancel-03-b", "prompt": "EXAMPLE — Can I cancel <business> for free?"}
+    ]
+  }
+]

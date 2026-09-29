@@ -1,0 +1,26 @@
+subject,predicate,value,value_type,source,valid_from,valid_until,notes
+pricing,monthly_price,$39,currency,manual,2026-09-01,,EXAMPLE - replace with real price
+pricing,annual_price,$390,currency,manual,2026-09-01,,EXAMPLE - replace with real price
+location,headquarters_city,EXAMPLE City,text,manual,,,EXAMPLE - replace with real city
+location,service_area,EXAMPLE region,text,manual,,,EXAMPLE - replace
+hours,opening_time,09:00,text,manual,,,EXAMPLE - use HH:MM or date type if real
+policy,cancellation,EXAMPLE - free until 24h before,text,manual,,,EXAMPLE - replace with real policy
+policy,shipping_region,EXAMPLE region,text,manual,,,EXAMPLE - replace
+availability,product_X_in_stock,true,boolean,manual,,,EXAMPLE - replace
+catalog,product_X_price,$49,currency,manual,2026-09-01,,EXAMPLE - replace
+support,chat_hours,EXAMPLE,text,manual,,,EXAMPLE - replace
+integration,salesforce_support,true,boolean,manual,,,EXAMPLE - replace
+offer,current_promotion,EXAMPLE - none,text,manual,,,EXAMPLE - replace or retire when real
+booking,lead_time_days,2,number,manual,,,EXAMPLE - replace
+eligibility,residency_required,true,boolean,manual,,,EXAMPLE - replace
+docs,pricing_page,https://example.com/pricing,url,manual,,,EXAMPLE - replace with real URL
+brand,legal_name,EXAMPLE Business Inc,text,manual,,,EXAMPLE - replace
+contact,support_email,support@example.com,text,manual,,,EXAMPLE - replace
+category,business_type,EXAMPLE,text,manual,,,EXAMPLE - replace
+audience,serves_tourists,true,boolean,manual,,,EXAMPLE - replace
+feature,offline_mode,false,boolean,manual,,,EXAMPLE - replace
+plan,tier_names,EXAMPLE - starter/pro/team,text,manual,,,EXAMPLE - replace
+sla,uptime_percent,99.9,number,manual,,,EXAMPLE - replace
+trial,trial_days,14,number,manual,,,EXAMPLE - replace
+language,support_languages,EXAMPLE - en/id,text,manual,,,EXAMPLE - replace
+payment,accepted_methods,EXAMPLE - card/bank,text,manual,,,EXAMPLE - replace

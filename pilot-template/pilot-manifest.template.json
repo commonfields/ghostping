@@ -1,0 +1,18 @@
+{
+  "pilot_version": "real-business-validation-v1",
+  "business_id": "EXAMPLE — replace with the real business identifier",
+  "business_authority": "EXAMPLE — name/role of the person approving facts",
+  "facts_count": 0,
+  "intent_groups": 0,
+  "surfaces": ["EXAMPLE — e.g. openai:gpt-4o-mini", "EXAMPLE — e.g. ollama:llama3.2"],
+  "language": "en",
+  "geography": "EXAMPLE",
+  "sample_plan": {
+    "variants_per_intent": 2,
+    "repeats_per_variant": 2
+  },
+  "materiality_rubric_version": "v1",
+  "reviewer": "EXAMPLE — human reviewer identity",
+  "maximum_paid_requests": 0,
+  "started_at": "EXAMPLE — fill before first collection, then freeze"
+}
