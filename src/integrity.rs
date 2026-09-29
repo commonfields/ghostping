@@ -399,6 +399,138 @@ pub fn init_integrity_schema(conn: &rusqlite::Connection) -> Result<()> {
     Ok(())
 }
 
+// ── Temporal semantics ────────────────────────────────────────────────────────
+// V1 rule (documented, UTC by engineering convention — NOT business-local
+// time): date-only `valid_from` means 00:00:00 UTC that day; date-only
+// `valid_until` means *exclusive* 00:00:00 UTC of the following day, so the
+// whole calendar date is included. RFC3339 bounds normalize to absolute
+// instants (offsets honored). Every interval is `[start, end)` internally,
+// so adjacent bounds never double-include. Open (absent) bounds are
+// unbounded. Original input strings are preserved verbatim; only the
+// normalized instants participate in comparison.
+
+/// A normalized validity bound: whole-day flag remembers date-only origin
+/// so `valid_until = 2026-08-31` covers that entire date.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BoundKind {
+    Day,
+    Instant,
+}
+
+fn parse_bound(raw: &str) -> Result<(i64, BoundKind)> {
+    let t = raw.trim();
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(t, "%Y-%m-%d") {
+        let start = d
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| anyhow::anyhow!("Invalid date '{}'.", raw))?
+            .and_utc()
+            .timestamp();
+        return Ok((start, BoundKind::Day));
+    }
+    let dt = chrono::DateTime::parse_from_rfc3339(t).map_err(|_| {
+        anyhow::anyhow!(
+            "Invalid temporal bound '{}': use YYYY-MM-DD or RFC3339.",
+            raw
+        )
+    })?;
+    Ok((dt.timestamp(), BoundKind::Instant))
+}
+
+/// Normalize one fact's window to `[start, end)` unix seconds.
+/// `None` bounds are open. Errors on malformed input or empty windows.
+fn normalize_window(
+    valid_from: Option<&str>,
+    valid_until: Option<&str>,
+) -> Result<(Option<i64>, Option<i64>)> {
+    let start = valid_from.map(parse_bound).transpose()?.map(|(t, _)| t);
+    let end = match valid_until.map(parse_bound).transpose()? {
+        Some((t, BoundKind::Day)) => Some(t + 86_400), // whole calendar date included
+        Some((t, BoundKind::Instant)) => Some(t),
+        None => None,
+    };
+    if let (Some(s), Some(e)) = (start, end) {
+        if e <= s {
+            bail!(
+                "Empty validity window: end must be after start (got {:?} → {:?}).",
+                valid_from,
+                valid_until
+            );
+        }
+    }
+    Ok((start, end))
+}
+
+fn instant_in_window(ts: i64, start: Option<i64>, end: Option<i64>) -> bool {
+    start.is_none_or(|s| s <= ts) && end.is_none_or(|e| ts < e)
+}
+
+fn parse_observation_instant(at: &str) -> Result<i64> {
+    chrono::DateTime::parse_from_rfc3339(at.trim())
+        .map(|dt| dt.timestamp())
+        .map_err(|_| anyhow::anyhow!("Invalid observation timestamp '{}': expected RFC3339.", at))
+}
+
+/// Authority conflict between co-active facts. Derived, never stored:
+/// Ghostping surfaces it and never chooses a winner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FactAuthorityConflict {
+    pub project_id: String,
+    pub subject: String,
+    pub predicate: String,
+    pub fact_ids: Vec<String>,
+    /// Overlap interval, ISO date/datetime or open-ended.
+    pub overlap_start: Option<String>,
+    pub overlap_end: Option<String>,
+    pub kind: AuthorityConflictKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AuthorityConflictKind {
+    /// Same values, overlapping authority: redundant, still surfaced.
+    RedundantActiveFacts,
+    /// Different values, overlapping authority: genuine conflict.
+    ConflictingActiveFacts,
+}
+
+impl AuthorityConflictKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RedundantActiveFacts => "REDUNDANT_ACTIVE_FACTS",
+            Self::ConflictingActiveFacts => "FACT_AUTHORITY_CONFLICT",
+        }
+    }
+}
+
+fn overlap_interval(windows: &[(Option<i64>, Option<i64>)]) -> Option<(Option<i64>, Option<i64>)> {
+    let mut start: Option<i64> = None;
+    let mut end: Option<i64> = None;
+    for (s, e) in windows {
+        start = match (start, s) {
+            (Some(a), Some(b)) => Some(a.max(*b)),
+            (None, b) => *b,
+            (a, None) => a,
+        };
+        end = match (end, e) {
+            (Some(a), Some(b)) => Some(a.min(*b)),
+            (None, b) => *b,
+            (a, None) => a,
+        };
+    }
+    match (start, end) {
+        (Some(s), Some(e)) if e <= s => None,
+        _ => Some((start, end)),
+    }
+}
+
+fn format_bound(ts: Option<i64>) -> Option<String> {
+    ts.map(|t| {
+        chrono::DateTime::<chrono::Utc>::from_timestamp(t, 0)
+            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+            .unwrap_or_else(|| t.to_string())
+    })
+}
+
 // ── Storage ─────────────────────────────────────────────────────────────────
 
 fn next_prefixed_id(conn: &rusqlite::Connection, table: &str, prefix: &str) -> Result<String> {
@@ -482,11 +614,9 @@ impl AuditStorage {
     /// type) triple is validated; values are never normalized.
     pub fn insert_fact(&self, fact: &NewFact) -> Result<String> {
         fact.value_type.validate_value(fact.value)?;
-        if let (Some(from), Some(until)) = (fact.valid_from, fact.valid_until) {
-            if until < from {
-                bail!("valid_until '{}' is before valid_from '{}'.", until, from);
-            }
-        }
+        // Parsed temporal validation: malformed bounds and empty windows are
+        // rejected here. Original strings are stored verbatim.
+        normalize_window(fact.valid_from, fact.valid_until)?;
         if let Some(prev) = fact.supersedes_fact_id {
             let old = self
                 .get_fact(prev)?
@@ -551,17 +681,119 @@ impl AuditStorage {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
-    /// Facts whose validity window covers `at` (ISO datetime compare).
+    /// Facts whose normalized validity window covers `at` (RFC3339).
     /// History stays comparable against the fact valid at observation time.
+    /// Malformed stored windows fail loudly rather than silently matching.
     pub fn facts_valid_at(&self, project_id: &str, at: &str) -> Result<Vec<AuthoritativeFact>> {
-        Ok(self
-            .list_facts(project_id)?
-            .into_iter()
-            .filter(|f| {
-                f.valid_from.as_deref().is_none_or(|from| from <= at)
-                    && f.valid_until.as_deref().is_none_or(|until| at <= until)
-            })
-            .collect())
+        let ts = parse_observation_instant(at)?;
+        let mut out = Vec::new();
+        for f in self.list_facts(project_id)? {
+            let (start, end) = normalize_window(f.valid_from.as_deref(), f.valid_until.as_deref())
+                .map_err(|e| {
+                    anyhow::anyhow!("Stored fact '{}' has an invalid window: {}", f.fact_id, e)
+                })?;
+            if instant_in_window(ts, start, end) {
+                out.push(f);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Derived authority conflicts: groups of 2+ ACTIVE facts sharing
+    /// (project, subject, predicate) whose normalized windows overlap.
+    /// SUPERSEDED/RETIRED rows are history, never conflicts. No winner is
+    /// chosen; identical values surface as REDUNDANT, differing values as
+    /// FACT_AUTHORITY_CONFLICT.
+    pub fn authority_conflicts(&self, project_id: &str) -> Result<Vec<FactAuthorityConflict>> {
+        use std::collections::BTreeMap;
+        let mut groups: BTreeMap<(String, String), Vec<AuthoritativeFact>> = BTreeMap::new();
+        for f in self.list_facts(project_id)? {
+            if f.status != FactStatus::Active {
+                continue;
+            }
+            // Skip rows whose stored window cannot normalize: surfaced
+            // through facts_valid_at errors, not hidden inside conflicts.
+            if normalize_window(f.valid_from.as_deref(), f.valid_until.as_deref()).is_err() {
+                continue;
+            }
+            groups
+                .entry((f.subject.clone(), f.predicate.clone()))
+                .or_default()
+                .push(f);
+        }
+        let mut out = Vec::new();
+        for ((subject, predicate), facts) in groups {
+            if facts.len() < 2 {
+                continue;
+            }
+            // Pairwise overlap via the joint interval: all windows must share
+            // a common instant for a group conflict. Report maximal
+            // overlapping subsets (simple O(n^2) pairwise scan is enough).
+            let mut windows = Vec::new();
+            for f in &facts {
+                let (s, e) = normalize_window(f.valid_from.as_deref(), f.valid_until.as_deref())?;
+                windows.push((s, e));
+            }
+            // Find connected overlapping components.
+            let n = facts.len();
+            let mut parent: Vec<usize> = (0..n).collect();
+            fn find(p: &mut [usize], mut x: usize) -> usize {
+                while p[x] != x {
+                    p[x] = p[p[x]];
+                    x = p[x];
+                }
+                x
+            }
+            let overlaps = |a: (Option<i64>, Option<i64>), b: (Option<i64>, Option<i64>)| {
+                overlap_interval(&[a, b]).is_some()
+            };
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    if overlaps(windows[i], windows[j]) {
+                        let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                        parent[ri] = rj;
+                    }
+                }
+            }
+            let mut components: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+            for i in 0..n {
+                let r = find(&mut parent, i);
+                components.entry(r).or_default().push(i);
+            }
+            for members in components.values() {
+                if members.len() < 2 {
+                    continue;
+                }
+                let member_windows: Vec<_> = members.iter().map(|&i| windows[i]).collect();
+                let (os, oe) = overlap_interval(&member_windows).unwrap_or((None, None));
+                let values: std::collections::HashSet<&str> =
+                    members.iter().map(|&i| facts[i].value.as_str()).collect();
+                out.push(FactAuthorityConflict {
+                    project_id: project_id.to_string(),
+                    subject: subject.clone(),
+                    predicate: predicate.clone(),
+                    fact_ids: members.iter().map(|&i| facts[i].fact_id.clone()).collect(),
+                    overlap_start: format_bound(os),
+                    overlap_end: format_bound(oe),
+                    kind: if values.len() == 1 {
+                        AuthorityConflictKind::RedundantActiveFacts
+                    } else {
+                        AuthorityConflictKind::ConflictingActiveFacts
+                    },
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// True when any referenced fact participates in an unresolved conflict.
+    pub fn facts_in_conflict(&self, project_id: &str, fact_ids: &[String]) -> Result<bool> {
+        for conflict in self.authority_conflicts(project_id)? {
+            if conflict.fact_ids.iter().any(|id| fact_ids.contains(id)) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub fn retire_fact(&self, fact_id: &str) -> Result<AuthoritativeFact> {
@@ -920,6 +1152,262 @@ mod tests {
             (FactValueType::Enum, "pro"),
         ] {
             assert!(storage.insert_fact(&fact("s", "p", value, vtype)).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_temporal_boundaries_half_open_utc() {
+        let (_dir, storage) = open_test_db();
+        // Required historical scenario: FACT-A [$29, 2026-01-01 → 2026-08-31],
+        // FACT-B [$39, 2026-09-01 → open].
+        let mut fa = fact("pricing", "monthly_price", "$29", FactValueType::Currency);
+        fa.valid_from = Some("2026-01-01");
+        fa.valid_until = Some("2026-08-31");
+        storage.insert_fact(&fa).unwrap();
+        let mut fb = fact("pricing", "monthly_price", "$39", FactValueType::Currency);
+        fb.valid_from = Some("2026-09-01");
+        storage.insert_fact(&fb).unwrap();
+
+        let at = |ts: &str| {
+            storage
+                .facts_valid_at("example.com", ts)
+                .unwrap()
+                .into_iter()
+                .map(|f| f.value)
+                .collect::<Vec<_>>()
+        };
+        // Whole-day rule: 2026-08-31T15:00Z is inside FACT-A's final day.
+        let aug31 = at("2026-08-31T15:00:00Z");
+        assert!(aug31.contains(&"$29".to_string()), "{:?}", aug31);
+        assert!(!aug31.contains(&"$39".to_string()));
+        // Exclusive end: midnight belongs to FACT-B, not FACT-A.
+        let sep01 = at("2026-09-01T00:00:00Z");
+        assert!(sep01.contains(&"$39".to_string()), "{:?}", sep01);
+        assert!(!sep01.contains(&"$29".to_string()));
+
+        // Mixed precision: date-only start with RFC3339 offset end.
+        let mut m = fact("x", "y", "v", FactValueType::Text);
+        m.valid_from = Some("2026-09-01");
+        m.valid_until = Some("2026-10-01T03:00:00+08:00"); // = 2026-09-30T19:00Z
+        storage.insert_fact(&m).unwrap();
+        assert!(storage
+            .facts_valid_at("example.com", "2026-09-30T18:00:00Z")
+            .unwrap()
+            .iter()
+            .any(|f| f.value == "v"));
+        assert!(!storage
+            .facts_valid_at("example.com", "2026-09-30T19:00:00Z")
+            .unwrap()
+            .iter()
+            .any(|f| f.value == "v"));
+
+        // Adjacent [start,end) bounds never double-include.
+        let mut adj_a = fact("adj", "k", "a", FactValueType::Text);
+        adj_a.valid_until = Some("2026-09-01T00:00:00Z");
+        storage.insert_fact(&adj_a).unwrap();
+        let mut adj_b = fact("adj", "k", "b", FactValueType::Text);
+        adj_b.valid_from = Some("2026-09-01T00:00:00Z");
+        storage.insert_fact(&adj_b).unwrap();
+        assert!(storage
+            .authority_conflicts("example.com")
+            .unwrap()
+            .iter()
+            .all(|c| !(c.subject == "adj" && c.predicate == "k")));
+
+        // Malformed and inverted windows rejected at creation.
+        for (from, until) in [
+            (Some("09/01/2026"), None),
+            (Some("2026-09-01"), Some("not-a-date")),
+            (Some("2026-09-02"), Some("2026-09-01")),
+            (Some("2026-09-01T10:00:00Z"), Some("2026-09-01T09:00:00Z")),
+        ] {
+            let mut bad = fact("bad", "w", "v", FactValueType::Text);
+            bad.valid_from = from;
+            bad.valid_until = until;
+            assert!(
+                storage.insert_fact(&bad).is_err(),
+                "accepted {:?} → {:?}",
+                from,
+                until
+            );
+        }
+    }
+
+    #[test]
+    fn test_conflict_regression_matrix() {
+        let (_dir, storage) = open_test_db();
+        let add = |storage: &AuditStorage,
+                   subject: &str,
+                   predicate: &str,
+                   value: &str,
+                   from: Option<&str>,
+                   until: Option<&str>,
+                   retire: bool| {
+            let id = storage
+                .insert_fact(&NewFact {
+                    project_id: "example.com",
+                    subject,
+                    predicate,
+                    value,
+                    value_type: FactValueType::Text,
+                    valid_from: from,
+                    valid_until: until,
+                    source_kind: FactSourceKind::Manual,
+                    source_ref: None,
+                    source_digest: None,
+                    notes: None,
+                    created_by: "human",
+                    supersedes_fact_id: None,
+                })
+                .unwrap();
+            if retire {
+                storage.retire_fact(&id).unwrap();
+            }
+            id
+        };
+        let conflicts_for = |s: &str, p: &str| {
+            storage
+                .authority_conflicts("example.com")
+                .unwrap()
+                .into_iter()
+                .filter(|c| c.subject == s && c.predicate == p)
+                .collect::<Vec<_>>()
+        };
+
+        // Non-overlapping windows: no conflict.
+        add(
+            &storage,
+            "a",
+            "p",
+            "v1",
+            Some("2026-01-01"),
+            Some("2026-06-30"),
+            false,
+        );
+        add(&storage, "a", "p", "v2", Some("2026-07-01"), None, false);
+        assert!(conflicts_for("a", "p").is_empty());
+
+        // Overlapping windows, different values: conflict with overlap math.
+        add(&storage, "b", "p", "$29", Some("2026-01-01"), None, false);
+        add(&storage, "b", "p", "$39", Some("2026-09-01"), None, false);
+        let c = conflicts_for("b", "p");
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].kind, AuthorityConflictKind::ConflictingActiveFacts);
+        assert_eq!(c[0].fact_ids.len(), 2);
+        assert_eq!(c[0].overlap_start.as_deref(), Some("2026-09-01T00:00:00Z"));
+        assert_eq!(c[0].overlap_end, None); // open-ended
+
+        // Both open-ended: conflict.
+        add(&storage, "c", "p", "x", None, None, false);
+        add(&storage, "c", "p", "y", None, None, false);
+        assert_eq!(conflicts_for("c", "p").len(), 1);
+
+        // Identical values overlapping: redundant, still surfaced.
+        add(&storage, "d", "p", "same", Some("2026-01-01"), None, false);
+        add(&storage, "d", "p", "same", Some("2026-06-01"), None, false);
+        let d = conflicts_for("d", "p");
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].kind, AuthorityConflictKind::RedundantActiveFacts);
+
+        // Different predicate / subject: no conflict.
+        add(&storage, "e", "p1", "v", Some("2026-01-01"), None, false);
+        add(&storage, "e", "p2", "v", Some("2026-01-01"), None, false);
+        add(&storage, "f", "p1", "v", Some("2026-01-01"), None, false);
+        assert!(conflicts_for("e", "p1").is_empty());
+        assert!(conflicts_for("e", "p2").is_empty());
+
+        // ACTIVE + SUPERSEDED via real supersession: no active conflict.
+        let old = add(&storage, "g", "p", "old", Some("2026-01-01"), None, false);
+        storage
+            .insert_fact(&NewFact {
+                project_id: "example.com",
+                subject: "g",
+                predicate: "p",
+                value: "new",
+                value_type: FactValueType::Text,
+                valid_from: Some("2026-01-01"),
+                valid_until: None,
+                source_kind: FactSourceKind::Manual,
+                source_ref: None,
+                source_digest: None,
+                notes: None,
+                created_by: "human",
+                supersedes_fact_id: Some(&old),
+            })
+            .unwrap();
+        assert!(conflicts_for("g", "p").is_empty());
+
+        // ACTIVE + RETIRED: no active conflict.
+        add(&storage, "h", "p", "old", Some("2026-01-01"), None, true);
+        add(&storage, "h", "p", "new", Some("2026-01-01"), None, false);
+        assert!(conflicts_for("h", "p").is_empty());
+    }
+
+    #[test]
+    fn test_export_assay_matrix() {
+        // Full export contract at storage level: label mapping, version
+        // gating, multi-fact preservation, determinism.
+        let (_dir, storage) = open_test_db();
+        let obs = seed_observation(&storage);
+        for (verdict, state) in [
+            (JudgmentVerdict::Supported, "SUPPORTED"),
+            (JudgmentVerdict::Contradicted, "CONTRADICTION"),
+            (JudgmentVerdict::Partial, "PARTIAL"),
+            (JudgmentVerdict::InsufficientEvidence, "INSUFFICIENT"),
+        ] {
+            let claim_id = storage
+                .insert_claim(&NewClaim {
+                    project_id: "example.com",
+                    observation_id: &obs,
+                    claim_text: "Some claim.",
+                    source_span_text: None,
+                    source_part: None,
+                    start_offset: None,
+                    end_offset: None,
+                    claim_subject: None,
+                    claim_type: None,
+                    created_by: "human",
+                })
+                .unwrap();
+            let f1 = storage
+                .insert_fact(&fact("s", "p", "v1", FactValueType::Text))
+                .unwrap();
+            let f2 = storage
+                .insert_fact(&fact("s", "p", "v2", FactValueType::Text))
+                .unwrap();
+            let jid = storage
+                .insert_judgment(&NewJudgment {
+                    claim_id: &claim_id,
+                    fact_ids: &[f1.clone(), f2.clone()],
+                    verdict,
+                    rationale: Some("notes"),
+                    reviewer: "human",
+                    supersedes_judgment_id: None,
+                })
+                .unwrap();
+            let finding = storage.integrity_finding(&claim_id).unwrap().unwrap();
+            assert_eq!(finding.state, Some(state));
+            assert_eq!(finding.facts.len(), 2);
+            assert_eq!(finding.judgment.as_ref().unwrap().judgment_id, jid);
+            // Supersede, then confirm only the latest is current.
+            let jid2 = storage
+                .insert_judgment(&NewJudgment {
+                    claim_id: &claim_id,
+                    fact_ids: std::slice::from_ref(&f1),
+                    verdict: JudgmentVerdict::InsufficientEvidence,
+                    rationale: None,
+                    reviewer: "human",
+                    supersedes_judgment_id: Some(&jid),
+                })
+                .unwrap();
+            assert_eq!(
+                storage
+                    .latest_judgment(&claim_id)
+                    .unwrap()
+                    .unwrap()
+                    .judgment_id,
+                jid2
+            );
         }
     }
 
