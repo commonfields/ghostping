@@ -218,7 +218,6 @@ export const HumanJudgment = Schema.Struct({
   notes: Schema.NullOr(Schema.String),
   factIds: Schema.Array(FactId),
   supersedesId: Schema.NullOr(JudgmentId),
-  superseded: Schema.Boolean,
   createdAt: Schema.DateTimeUtc,
 })
 export type HumanJudgment = typeof HumanJudgment.Type
@@ -383,7 +382,8 @@ export const detectAuthorityConflicts = (
 }
 
 // ---------------------------------------------------------------------------
-// CheckRun transitions (failed attempts are permanent; no erase-on-retry)
+// CheckRun transitions (terminal states immutable; retryable failures are
+// retried boundedly by CheckRunner before a terminal FAILED is recorded)
 // ---------------------------------------------------------------------------
 export const canTransitionCheckRun = (from: CheckRunStatus, to: CheckRunStatus): boolean => {
   switch (from) {
@@ -401,13 +401,19 @@ export const assertCheckTransition = (from: CheckRunStatus, to: CheckRunStatus):
   if (!canTransitionCheckRun(from, to)) throw new Error(`InvalidCheckTransition: ${from} -> ${to}`)
 }
 
-/** Latest unsuperseded judgment head. */
+/** Latest judgment head: the record no newer judgment supersedes.
+ * Supersession is append-only (J2.supersedesId = J1.id); old rows are never
+ * rewritten, so the head derives from the chain, not a mutable flag. */
 export const latestJudgment = (
   judgments: ReadonlyArray<HumanJudgment>,
 ): HumanJudgment | null => {
-  const head = judgments.filter((j) => !j.superseded)
-  if (head.length === 0) return null
-  return head.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0] ?? null
+  if (judgments.length === 0) return null
+  const supersededIds = new Set(
+    judgments.filter((j) => j.supersedesId !== null).map((j) => j.supersedesId as string),
+  )
+  const heads = judgments.filter((j) => !supersededIds.has(j.id as string))
+  if (heads.length === 0) return null
+  return heads.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0] ?? null
 }
 
 /** Retryable provider failures use bounded Schedule; auth/malformed/contract never auto-retry. */
