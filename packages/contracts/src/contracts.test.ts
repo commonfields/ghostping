@@ -50,6 +50,20 @@ describe("worker-contract golden fixtures", () => {
     }
   })
 
+  it("9router success result shares result-v1 (no version bump)", () => {
+    const parsed = decodeEither(WorkerResultV1, fixture("result-v1.9router.json"))
+    expect(parsed._tag).toBe("Right")
+    if (parsed._tag === "Right") {
+      expect(parsed.right.provider).toBe("9router")
+      expect(parsed.right.requested_model).toBe("oc/pinned-free-test")
+      expect(parsed.right.observed_model).toBe("oc/pinned-free-test")
+      expect(parsed.right.retrieval_mode).toBe("unknown")
+      expect(parsed.right.citations).toEqual([])
+      const raw = parsed.right.raw_response as Record<string, unknown>
+      expect((raw["usage"] as Record<string, unknown>)["total_tokens"]).toBe(30)
+    }
+  })
+
   it("TS output encodes back into the fixture shape", () => {
     const decoded = decodeWorkerResult(fixture("result-v1.success.json"))
     const encoded = encodeWorkerResult(decoded) as Record<string, unknown>
