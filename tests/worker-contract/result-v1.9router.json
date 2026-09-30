@@ -1,0 +1,36 @@
+{
+  "contract_version": "ghostping-worker-result-v1",
+  "run_id": "RUN-FIXTURE-9R",
+  "status": "succeeded",
+  "provider": "9router",
+  "requested_model": "oc/pinned-free-test",
+  "observed_model": "oc/pinned-free-test",
+  "collected_at": "2026-10-01T00:00:00.000Z",
+  "answer_text": "Notion Plus costs $10 per member per month.",
+  "retrieval_mode": "unknown",
+  "citations": [],
+  "raw_digest": "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a09",
+  "raw_response": {
+    "id": "chatcmpl-test9r",
+    "object": "chat.completion",
+    "created": 1790000000,
+    "model": "oc/pinned-free-test",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Notion Plus costs $10 per member per month."
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 18,
+      "completion_tokens": 12,
+      "total_tokens": 30
+    }
+  },
+  "failure_class": null,
+  "failure_detail_safe": null
+}
