@@ -47,7 +47,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
@@ -113,7 +113,7 @@ pub fn execute_job(job: &WorkerJob) -> WorkerResult {
             )),
         };
     }
-    if job.provider != "mock" {
+    if job.provider != "mock" && job.provider != crate::nine_router::NINE_ROUTER_PROVIDER {
         return WorkerResult {
             contract_version: RESULT_CONTRACT_VERSION.to_string(),
             run_id: job.run_id.clone(),
@@ -129,8 +129,13 @@ pub fn execute_job(job: &WorkerJob) -> WorkerResult {
             raw_digest: sha256_hex(b"unsupported-provider"),
             raw_response: serde_json::json!({"error": "unsupported provider in hosted V1"}),
             failure_class: Some("WORKER_FAILED".to_string()),
-            failure_detail_safe: Some("only provider=mock is enabled in Hosted V1".to_string()),
+            failure_detail_safe: Some(
+                "only provider=mock,9router is enabled in Hosted V1".to_string(),
+            ),
         };
+    }
+    if job.provider == crate::nine_router::NINE_ROUTER_PROVIDER {
+        return crate::nine_router::execute_9router(job);
     }
     if is_mock_failure(&job.prompt) {
         let raw = serde_json::json!({
