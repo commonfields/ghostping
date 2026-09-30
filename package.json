@@ -1,0 +1,15 @@
+{
+  "name": "ghostping-hosted",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build",
+    "db:migrate": "pnpm --filter @ghostping/db migrate",
+    "db:seed": "pnpm --filter @ghostping/db seed",
+    "dev": "echo 'run: pnpm --filter @ghostping/api dev | pnpm --filter @ghostping/worker dev | pnpm --filter @ghostping/web dev (see docs)'"
+  }
+}
