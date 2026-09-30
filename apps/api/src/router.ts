@@ -482,12 +482,14 @@ export const makeRouter = (pool: pg.Pool) => {
           if (!body) return yield* json(422, malformed)
           const questionId = body.questionId
           const provider = body.provider ?? "mock"
-          if (provider !== "mock") return yield* json(422, { _tag: "InvalidFactValue", reason: "only mock provider in V1" })
+          const requestedModel = body.requestedModel ?? null
           const q = yield* QuestionRepository
           if (!(yield* q.getScoped(businessId, questionId))) return yield* json(404, { _tag: "QuestionNotFound" })
           const runs = yield* CheckRunRepository
           // Every execution creates a CheckRun QUEUED; worker claims it.
-          const row = yield* runs.enqueue({ businessId, questionId, provider, requestedModel: null })
+          // provider is schema-restricted to mock|9router; the 9router model
+          // pin is enforced inside the Rust worker, not here.
+          const row = yield* runs.enqueue({ businessId, questionId, provider, requestedModel })
           return yield* json(200, { checkRun: row })
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),

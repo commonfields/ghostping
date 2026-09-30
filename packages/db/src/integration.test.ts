@@ -57,9 +57,20 @@ run("postgres closeout regressions", () => {
     return { a, b, q }
   }
 
+  // Drain QUEUED rows left by prior tests so concurrency tests are exact.
+  // Uses the real claim/finish path: DELETE would cascade into observations
+  // and correctly trip the append-only trigger, so it is not used here.
   const drainQueue = async () => {
-    // Remove QUEUED rows from prior tests so concurrency tests are exact.
-    await pool.query(`DELETE FROM check_runs WHERE status = 'QUEUED'`)
+    const env = await withRepos((ctx) => Context.get(ctx, CheckRunRepository))
+    try {
+      for (;;) {
+        const claimed = await Effect.runPromise(env.value.claimOne())
+        if (!claimed) return
+        await Effect.runPromise(env.value.markFinished(claimed.id, "FAILED", "UNKNOWN", "test drain"))
+      }
+    } finally {
+      await closeScope(env.scope)
+    }
   }
 
   const setupClaim = async () => {

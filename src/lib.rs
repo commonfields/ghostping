@@ -9,6 +9,7 @@ pub mod gsc;
 pub mod integrity;
 pub mod jev_assay;
 pub mod marketplace;
+pub mod nine_router;
 pub mod observation_views;
 pub mod observations;
 pub mod parser;

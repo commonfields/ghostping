@@ -119,7 +119,7 @@ export const makeCheckRunnerLive = (
         Effect.gen(function*() {
           const claimed = yield* runs.claimOne()
           if (!claimed) return false
-          const log = (msg: string) =>
+          const log = (msg: string, extra: Record<string, unknown> = {}) =>
             Effect.sync(() =>
               console.log(
                 JSON.stringify({
@@ -127,7 +127,9 @@ export const makeCheckRunnerLive = (
                   accountHint: "hosted",
                   business_id: claimed.businessId,
                   check_run_id: claimed.id,
-                  provider: claimed.provider,
+                  gateway: claimed.provider,
+                  requested_model: claimed.requestedModel,
+                  ...extra,
                   msg,
                 }),
               ),
@@ -146,16 +148,20 @@ export const makeCheckRunnerLive = (
           // One real worker invocation. attempt_count increments first so
           // every actual invocation is observable even if the process dies.
           const attemptOnce: Effect.Effect<
-            WorkerResultV1,
+            { readonly result: WorkerResultV1; readonly attempt: number; readonly latencyMs: number },
             RetryableWorkerFailure | TerminalWorkerFailure | SqlError
           > = Effect.gen(function*() {
-            yield* runs.recordAttempt(claimed.id)
+            const attempt = yield* runs.recordAttempt(claimed.id)
+            const startedAt = Date.now()
             const result = yield* worker.invoke(job).pipe(
               Effect.mapError(
                 (e): RetryableWorkerFailure | TerminalWorkerFailure => classifyInvokeError(e),
               ),
             )
-            if (result.status === "succeeded") return result
+            const latencyMs = Date.now() - startedAt
+            // Per-attempt visibility; never logs secrets or raw bodies.
+            yield* log("attempt", { attempt, latencyMs, status: result.status })
+            if (result.status === "succeeded") return { result, attempt, latencyMs }
             return yield* Effect.fail(classifyResultFailure(result.failure_class, result.failure_detail_safe))
           })
 
@@ -183,7 +189,9 @@ export const makeCheckRunnerLive = (
                         failure.failureClass,
                         failure.detail,
                       )
-                      yield* log(`failed:${failure.failureClass}`)
+                      yield* log(`failed:${failure.failureClass}`, {
+                        terminal: failure._tag === "TerminalWorkerFailure",
+                      })
                       return true
                     })
                   }
@@ -194,7 +202,7 @@ export const makeCheckRunnerLive = (
                 // values; re-raise preserving the cause.
                 return Effect.failCause(cause) as Effect.Effect<never, never>
               },
-              onSuccess: (r) =>
+              onSuccess: ({ result: r, attempt, latencyMs }) =>
                 Effect.gen(function*() {
                   yield* observations.create({
                     businessId: claimed.businessId,
@@ -210,7 +218,7 @@ export const makeCheckRunnerLive = (
                     citations: r.citations,
                   })
                   yield* runs.markFinished(claimed.id, "SUCCEEDED", null, null)
-                  yield* log("succeeded")
+                  yield* log("succeeded", { attempt, latencyMs })
                   return true
                 }),
             }),
