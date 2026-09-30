@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Link, useParams } from "react-router"
 import { Questions, Checks } from "../lib/api.js"
 
@@ -7,11 +7,11 @@ export function ChecksPage() {
   const [questions, setQuestions] = useState<Array<{ id: string; prompt: string }>>([])
   const [runs, setRuns] = useState<Array<{ id: string; status: string; provider: string; observationId: string | null }>>([])
   const [prompt, setPrompt] = useState("How much does Northstar cost?")
-  const reload = () => {
+  const reload = useCallback(() => {
     Questions.list(id).then((r) => setQuestions(r.questions)).catch(() => undefined)
     Checks.list(id).then((r) => setRuns(r.checkRuns)).catch(() => undefined)
-  }
-  useEffect(() => { reload(); const t = setInterval(reload, 2000); return () => clearInterval(t) }, [id])
+  }, [id])
+  useEffect(() => { reload(); const t = setInterval(reload, 2000); return () => clearInterval(t) }, [reload])
   return (
     <section>
       <h1>Checks</h1>
