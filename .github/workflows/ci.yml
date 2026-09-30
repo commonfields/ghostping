@@ -48,6 +48,9 @@ jobs:
       - name: ghostping-worker contract tests (mock only, no network)
         run: cargo test --locked worker_contract
 
+      - name: Cross-language worker fixtures (Rust side)
+        run: cargo test --locked --test worker_contract_fixtures
+
       - name: CLI exit contracts (isolated HOME, mock only, no network)
         run: GHOSTPING_BIN="${{ github.workspace }}/target/debug/ghostping" bash scripts/check-cli-contracts.sh
 
@@ -58,7 +61,7 @@ jobs:
         run: bash scripts/test-install.sh
 
   hosted:
-    name: hosted typecheck / tests / builds (mock only)
+    name: hosted typecheck / lint / tests / builds (mock only)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -92,17 +95,17 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build ghostping-worker (mock provider only)
-        run: cargo build --bin ghostping-worker
+        run: cargo build --locked --bin ghostping-worker
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10.12.1
 
-      - name: Set up Node LTS
+      - name: Set up Node 24 LTS (hosted baseline; see .node-version)
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: pnpm
 
       - name: Install TypeScript workspace (frozen lockfile)
@@ -114,13 +117,16 @@ jobs:
       - name: Typecheck (strict)
         run: pnpm typecheck
 
+      - name: Lint (real ESLint, fails on violations)
+        run: pnpm lint
+
       - name: Unit tests (Effect layers, no network)
         run: pnpm -r --filter "@ghostping/domain" --filter "@ghostping/contracts" --filter "@ghostping/config" --filter "@ghostping/providers" test
 
-      - name: Worker + API tests
+      - name: Worker + API tests (incl. bounded-retry matrix)
         run: pnpm --filter @ghostping/worker test && pnpm --filter @ghostping/api test
 
-      - name: Postgres integration tests
+      - name: Postgres integration tests (queue ownership, dedupe, judgments)
         run: pnpm --filter @ghostping/db test
 
       - name: Web unit tests (incl. no-score guard)
@@ -129,9 +135,15 @@ jobs:
       - name: Build web + api + worker
         run: pnpm --filter @ghostping/web build && pnpm --filter @ghostping/api build && pnpm --filter @ghostping/worker build
 
-      - name: Confirm zero provider network calls in CI
+      - name: Rust worker build (release, locked)
+        run: cargo build --release --locked --bin ghostping-worker
+
+      - name: Cross-language contract fixtures (TypeScript side)
+        run: pnpm --filter @ghostping/contracts test
+
+      - name: Provider boundary guard (mock only, enforced by tests)
         run: |
-          echo "CI provider mode: mock only (GHOSTPING_WORKER_PATH points at local mock binary)"
+          pnpm --filter @ghostping/providers test
+          cargo test --locked non_mock_provider_fails_before_any_network_path
           test "${GHOSTPING_WORKER_PATH}" = "${{ github.workspace }}/target/debug/ghostping-worker"
-          ! grep -riE "OPENAI_API_KEY|ANTHROPIC_API_KEY" --include="*.ts" apps packages | grep -v "provider keys only" || true
-          echo "no live provider keys configured; worker supports provider=mock only"
+          echo "provider boundary enforced: worker supports provider=mock only (see worker_contract non-mock test)"
