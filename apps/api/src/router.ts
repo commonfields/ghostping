@@ -6,10 +6,21 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "@effect/platform"
-import { Effect, Layer } from "effect"
-import { PgClient } from "@effect/sql-pg"
+import { Effect, Schema } from "effect"
 import { randomUUID } from "node:crypto"
 import pg from "pg"
+import {
+  CreateBusinessRequest,
+  CreateClaimRequest,
+  CreateFactRequest,
+  CreateJudgmentRequest,
+  CreateQuestionRequest,
+  decodeRouteId,
+  RunCheckRequest,
+  SignInRequest,
+  SignUpRequest,
+  SupersedeFactRequest,
+} from "@ghostping/contracts"
 import {
   BusinessRepository,
   BusinessRepositoryLive,
@@ -42,6 +53,20 @@ const readJson = Effect.flatMap(
   HttpServerRequest.HttpServerRequest,
   (req) => req.json as Effect.Effect<unknown>,
 )
+
+// Decode an untrusted request body through Effect Schema. On success the
+// validated typed input flows to the service; on failure the caller must
+// return a deterministic 4xx (never 500, never partial persistence).
+const decodeRequest = <A, I>(schema: Schema.Schema<A, I>, raw: unknown): A | null => {
+  const parsed = Schema.decodeUnknownEither(schema)(raw)
+  return parsed._tag === "Right" ? parsed.right : null
+}
+
+const malformed = { _tag: "InvalidFactValue", reason: "malformed request" } as const
+
+// Route identifiers are externally supplied: validate before any repository
+// operation so malformed ids become 4xx, never opaque SQL errors.
+const isRouteId = (id: string): boolean => decodeRouteId(id)._tag === "Right"
 
 const sessionOf = (req: {
   headers: { [k: string]: string | undefined } | Headers
@@ -97,7 +122,9 @@ export const makeRouter = (pool: pg.Pool) => {
     HttpRouter.post(
       "/api/auth/signup",
       Effect.gen(function*() {
-        const body = (yield* readJson) as { email?: string; password?: string; accountName?: string }
+        const raw = (yield* readJson) as unknown
+        const body = decodeRequest(SignUpRequest, raw)
+        if (!body) return yield* json(422, malformed)
         const email = String(body.email ?? "").trim().toLowerCase()
         const password = String(body.password ?? "")
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return yield* json(422, { _tag: "InvalidFactValue", reason: "bad email" })
@@ -161,7 +188,9 @@ export const makeRouter = (pool: pg.Pool) => {
     HttpRouter.post(
       "/api/auth/signin",
       Effect.gen(function*() {
-        const body = (yield* readJson) as { email?: string; password?: string }
+        const raw = (yield* readJson) as unknown
+        const body = decodeRequest(SignInRequest, raw)
+        if (!body) return yield* json(422, malformed)
         const email = String(body.email ?? "").trim().toLowerCase()
         const password = String(body.password ?? "")
         const found = yield* Effect.tryPromise({
@@ -227,8 +256,10 @@ export const makeRouter = (pool: pg.Pool) => {
       "/api/businesses",
       withSession((session) =>
         Effect.gen(function*() {
-          const body = (yield* readJson) as { name?: string }
-          const name = String(body.name ?? "").trim()
+          const raw = (yield* readJson) as unknown
+          const body = decodeRequest(CreateBusinessRequest, raw)
+          if (!body) return yield* json(422, malformed)
+          const name = body.name.trim()
           if (!name) return yield* json(422, { _tag: "InvalidFactValue", reason: "name required" })
           const repo = yield* BusinessRepository
           const row = yield* repo.create(session.accountId, name)
@@ -243,6 +274,7 @@ export const makeRouter = (pool: pg.Pool) => {
         Effect.gen(function*() {
           const params = yield* HttpRouter.RouteContext
           const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
           const biz = yield* BusinessRepository
           const scoped = yield* biz.getScoped(session.accountId, businessId)
           if (!scoped) return yield* json(404, { _tag: "BusinessNotFound" })
@@ -274,25 +306,20 @@ export const makeRouter = (pool: pg.Pool) => {
         Effect.gen(function*() {
           const params = yield* HttpRouter.RouteContext
           const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
           const biz = yield* BusinessRepository
           const scoped = yield* biz.getScoped(session.accountId, businessId)
           if (!scoped) return yield* json(404, { _tag: "BusinessNotFound" })
-          const body = (yield* readJson) as {
-            subject?: string
-            predicate?: string
-            valueText?: string
-            valueType?: string
-            validFrom?: string
-            validUntil?: string | null
-            sourceKind?: string
-          }
-          const subject = String(body.subject ?? "").trim()
-          const predicate = String(body.predicate ?? "").trim()
-          const valueText = String(body.valueText ?? "")
-          const valueType = String(body.valueType ?? "TEXT")
-          const validFrom = String(body.validFrom ?? new Date().toISOString())
-          const validUntil = (body.validUntil as string | null | undefined) ?? null
-          const sourceKind = String(body.sourceKind ?? "MANUAL")
+          const raw = (yield* readJson) as unknown
+          const body = decodeRequest(CreateFactRequest, raw)
+          if (!body) return yield* json(422, malformed)
+          const subject = body.subject.trim()
+          const predicate = body.predicate.trim()
+          const valueText = body.valueText
+          const valueType = body.valueType
+          const validFrom = body.validFrom
+          const validUntil = body.validUntil ?? null
+          const sourceKind = body.sourceKind
           if (!subject || !predicate || !valueText.trim()) {
             return yield* json(422, { _tag: "InvalidFactValue", reason: "subject/predicate/value required" })
           }
@@ -330,27 +357,26 @@ export const makeRouter = (pool: pg.Pool) => {
         Effect.gen(function*() {
           const params = yield* HttpRouter.RouteContext
           const p = params.params as Record<string, string>
+          if (!isRouteId(p["id"] as string) || !isRouteId(p["factId"] as string)) {
+            return yield* json(422, malformed)
+          }
           const biz = yield* BusinessRepository
           if (!(yield* biz.getScoped(session.accountId, p["id"] as string))) {
             return yield* json(404, { _tag: "BusinessNotFound" })
           }
-          const body = (yield* readJson) as {
-            valueText?: string
-            valueType?: string
-            validFrom?: string
-            validUntil?: string | null
-            sourceKind?: string
-          }
+          const raw = (yield* readJson) as unknown
+          const body = decodeRequest(SupersedeFactRequest, raw)
+          if (!body) return yield* json(422, malformed)
           const facts = yield* FactRepository
           // Never mutate fact value in place: supersede creates v+1.
           const row = yield* facts.supersede({
             businessId: p["id"] as string,
             factId: p["factId"] as string,
-            valueText: String(body.valueText ?? ""),
-            valueType: String(body.valueType ?? "TEXT"),
-            validFrom: String(body.validFrom ?? new Date().toISOString()),
-            validUntil: (body.validUntil as string | null | undefined) ?? null,
-            sourceKind: String(body.sourceKind ?? "MANUAL"),
+            valueText: body.valueText,
+            valueType: body.valueType,
+            validFrom: body.validFrom,
+            validUntil: body.validUntil ?? null,
+            sourceKind: body.sourceKind,
           })
           return yield* json(200, { fact: row })
         }),
@@ -362,6 +388,9 @@ export const makeRouter = (pool: pg.Pool) => {
         Effect.gen(function*() {
           const params = yield* HttpRouter.RouteContext
           const p = params.params as Record<string, string>
+          if (!isRouteId(p["id"] as string) || !isRouteId(p["factId"] as string)) {
+            return yield* json(422, malformed)
+          }
           const biz = yield* BusinessRepository
           if (!(yield* biz.getScoped(session.accountId, p["id"] as string))) {
             return yield* json(404, { _tag: "BusinessNotFound" })
@@ -380,6 +409,7 @@ export const makeRouter = (pool: pg.Pool) => {
         Effect.gen(function*() {
           const params = yield* HttpRouter.RouteContext
           const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
           const biz = yield* BusinessRepository
           if (!(yield* biz.getScoped(session.accountId, businessId))) {
             return yield* json(404, { _tag: "BusinessNotFound" })
@@ -395,19 +425,21 @@ export const makeRouter = (pool: pg.Pool) => {
         Effect.gen(function*() {
           const params = yield* HttpRouter.RouteContext
           const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
           const biz = yield* BusinessRepository
           if (!(yield* biz.getScoped(session.accountId, businessId))) {
             return yield* json(404, { _tag: "BusinessNotFound" })
           }
-          const body = (yield* readJson) as { prompt?: string; label?: string | null; origin?: string }
-          const prompt = String(body.prompt ?? "").trim()
+          const body = decodeRequest(CreateQuestionRequest, (yield* readJson) as unknown)
+          if (!body) return yield* json(422, malformed)
+          const prompt = body.prompt.trim()
           if (!prompt) return yield* json(422, { _tag: "InvalidFactValue", reason: "prompt required" })
           const q = yield* QuestionRepository
           const row = yield* q.create({
             businessId,
-            label: (body.label as string | null | undefined) ?? null,
+            label: body.label ?? null,
             prompt,
-            origin: String(body.origin ?? "OTHER"),
+            origin: body.origin,
           })
           return yield* json(200, { question: row })
         }),
@@ -420,6 +452,7 @@ export const makeRouter = (pool: pg.Pool) => {
         Effect.gen(function*() {
           const params = yield* HttpRouter.RouteContext
           const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
           const biz = yield* BusinessRepository
           if (!(yield* biz.getScoped(session.accountId, businessId))) {
             return yield* json(404, { _tag: "BusinessNotFound" })
@@ -440,13 +473,15 @@ export const makeRouter = (pool: pg.Pool) => {
         Effect.gen(function*() {
           const params = yield* HttpRouter.RouteContext
           const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
           const biz = yield* BusinessRepository
           if (!(yield* biz.getScoped(session.accountId, businessId))) {
             return yield* json(404, { _tag: "BusinessNotFound" })
           }
-          const body = (yield* readJson) as { questionId?: string; provider?: string }
-          const questionId = String(body.questionId ?? "")
-          const provider = String(body.provider ?? "mock")
+          const body = decodeRequest(RunCheckRequest, (yield* readJson) as unknown)
+          if (!body) return yield* json(422, malformed)
+          const questionId = body.questionId
+          const provider = body.provider ?? "mock"
           if (provider !== "mock") return yield* json(422, { _tag: "InvalidFactValue", reason: "only mock provider in V1" })
           const q = yield* QuestionRepository
           if (!(yield* q.getScoped(businessId, questionId))) return yield* json(404, { _tag: "QuestionNotFound" })
@@ -465,6 +500,7 @@ export const makeRouter = (pool: pg.Pool) => {
         if (!s) return yield* json(401, { _tag: "NotAuthenticated" })
         const params = yield* HttpRouter.RouteContext
         const observationId = (params.params as Record<string, string>)["observationId"] as string
+        if (!isRouteId(observationId)) return yield* json(422, malformed)
         const obs = yield* ObservationRepository
         // Account scoping: observation's business must belong to session account.
         const biz = yield* BusinessRepository
@@ -514,9 +550,10 @@ export const makeRouter = (pool: pg.Pool) => {
       "/api/claims",
       withSession((session) =>
         Effect.gen(function*() {
-          const body = (yield* readJson) as { observationId?: string; text?: string }
-          const observationId = String(body.observationId ?? "")
-          const text = String(body.text ?? "").trim()
+          const body = decodeRequest(CreateClaimRequest, (yield* readJson) as unknown)
+          if (!body) return yield* json(422, malformed)
+          const observationId = body.observationId
+          const text = body.text.trim()
           if (!text) return yield* json(422, { _tag: "InvalidFactValue", reason: "claim text required" })
           const found = yield* Effect.tryPromise({
             try: () =>
@@ -547,17 +584,10 @@ export const makeRouter = (pool: pg.Pool) => {
       "/api/judgments",
       withSession((session) =>
         Effect.gen(function*() {
-          const body = (yield* readJson) as {
-            claimId?: string
-            verdict?: string
-            notes?: string | null
-            factIds?: Array<string>
-          }
-          const claimId = String(body.claimId ?? "")
-          const verdict = String(body.verdict ?? "")
-          if (!["SUPPORTED", "CONTRADICTED", "PARTIAL", "INSUFFICIENT_EVIDENCE"].includes(verdict)) {
-            return yield* json(422, { _tag: "InvalidFactValue", reason: "bad verdict" })
-          }
+          const body = decodeRequest(CreateJudgmentRequest, (yield* readJson) as unknown)
+          if (!body) return yield* json(422, malformed)
+          const claimId = body.claimId
+          const verdict = body.verdict
           const found = yield* Effect.tryPromise({
             try: () =>
               pool.query(
@@ -575,8 +605,8 @@ export const makeRouter = (pool: pg.Pool) => {
             businessId: r.business_id,
             claimId,
             verdict,
-            notes: (body.notes as string | null | undefined) ?? null,
-            factIds: (body.factIds as Array<string> | undefined) ?? [],
+            notes: body.notes ?? null,
+            factIds: body.factIds,
           })
           return yield* json(200, { judgment: row })
         }),
@@ -589,6 +619,7 @@ export const makeRouter = (pool: pg.Pool) => {
         Effect.gen(function*() {
           const params = yield* HttpRouter.RouteContext
           const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
           const biz = yield* BusinessRepository
           if (!(yield* biz.getScoped(session.accountId, businessId))) {
             return yield* json(404, { _tag: "BusinessNotFound" })
@@ -605,7 +636,7 @@ export const makeRouter = (pool: pg.Pool) => {
                  JOIN observations o ON o.id = c.observation_id
                  LEFT JOIN check_runs cr ON cr.id = o.check_run_id
                  LEFT JOIN buyer_questions q ON q.id = cr.question_id
-                 LEFT JOIN human_judgments j ON j.claim_id = c.id AND j.superseded = false
+                 LEFT JOIN human_judgments j ON j.claim_id = c.id AND NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id)
                  WHERE c.business_id = $1 ORDER BY c.created_at DESC`,
                 [businessId],
               ),
@@ -637,6 +668,7 @@ export const makeRouter = (pool: pg.Pool) => {
         Effect.gen(function*() {
           const params = yield* HttpRouter.RouteContext
           const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
           const biz = yield* BusinessRepository
           if (!(yield* biz.getScoped(session.accountId, businessId))) {
             return yield* json(404, { _tag: "BusinessNotFound" })
@@ -647,8 +679,8 @@ export const makeRouter = (pool: pg.Pool) => {
                 `SELECT
                    (SELECT count(*) FROM check_runs WHERE business_id = $1 AND status = 'SUCCEEDED') AS completed,
                    (SELECT max(o.collected_at) FROM observations o WHERE o.business_id = $1) AS last_checked,
-                   (SELECT count(*) FROM candidate_claims c LEFT JOIN human_judgments j ON j.claim_id = c.id AND j.superseded = false WHERE c.business_id = $1 AND j.id IS NULL) AS unreviewed,
-                   (SELECT count(*) FROM candidate_claims c JOIN human_judgments j ON j.claim_id = c.id AND j.superseded = false WHERE c.business_id = $1 AND j.verdict IN ('CONTRADICTED','PARTIAL','INSUFFICIENT_EVIDENCE')) AS needs_attention`,
+                   (SELECT count(*) FROM candidate_claims c LEFT JOIN human_judgments j ON j.claim_id = c.id AND NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id) WHERE c.business_id = $1 AND j.id IS NULL) AS unreviewed,
+                   (SELECT count(*) FROM candidate_claims c JOIN human_judgments j ON j.claim_id = c.id AND NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id) WHERE c.business_id = $1 AND j.verdict IN ('CONTRADICTED','PARTIAL','INSUFFICIENT_EVIDENCE')) AS needs_attention`,
                 [businessId],
               ),
             catch: () => ({ rows: [{}] }) as unknown as pg.QueryResult,
