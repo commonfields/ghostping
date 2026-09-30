@@ -22,7 +22,7 @@ describe("run now flow", () => {
 describe("issue appears after CONTRADICTED judgment", () => {
   it("maps to WRONG attention state", () => {
     expect(
-      deriveIssueState({ id: "j" as never, businessId: "b" as never, claimId: "c" as never, verdict: "CONTRADICTED", notes: null, factIds: [], supersedesId: null, superseded: false, createdAt: "2026-09-30T00:00:00Z" as never }),
+      deriveIssueState({ id: "j" as never, businessId: "b" as never, claimId: "c" as never, verdict: "CONTRADICTED", notes: null, factIds: [], supersedesId: null, createdAt: "2026-09-30T00:00:00Z" as never }),
     ).toBe("WRONG")
   })
 })
