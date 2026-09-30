@@ -72,3 +72,127 @@ export const decodeWorkerJob = Schema.decodeUnknownSync(WorkerJobV1)
 export const decodeWorkerResult = Schema.decodeUnknownSync(WorkerResultV1)
 export const encodeWorkerJob = Schema.encodeSync(WorkerJobV1)
 export const encodeWorkerResult = Schema.encodeSync(WorkerResultV1)
+
+// ---------------------------------------------------------------------------
+// HTTP write-boundary request contracts. External JSON is untrusted: every
+// write endpoint decodes unknown JSON through one of these schemas first
+// (Schema.decodeUnknown) and returns 4xx on failure. Never `as`-cast.
+// ---------------------------------------------------------------------------
+
+const NonEmptyTrimmed = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.annotations({ description: "non-empty string" }),
+)
+
+// Timestamps must parse; otherwise they would become opaque SQL errors
+// (500) instead of deterministic 4xx at the boundary.
+const TimestampString = Schema.String.pipe(
+  Schema.filter((s) => !Number.isNaN(Date.parse(s)), {
+    description: "parseable timestamp",
+  }),
+)
+
+export const SignUpRequest = Schema.Struct({
+  email: Schema.String,
+  password: Schema.String,
+  accountName: Schema.optional(Schema.String),
+})
+export type SignUpRequest = typeof SignUpRequest.Type
+
+export const SignInRequest = Schema.Struct({
+  email: Schema.String,
+  password: Schema.String,
+})
+export type SignInRequest = typeof SignInRequest.Type
+
+export const CreateBusinessRequest = Schema.Struct({
+  name: NonEmptyTrimmed,
+})
+export type CreateBusinessRequest = typeof CreateBusinessRequest.Type
+
+export const FactValueTypeLiteral = Schema.Literal(
+  "TEXT",
+  "NUMBER",
+  "CURRENCY",
+  "BOOLEAN",
+  "DATE",
+  "URL",
+  "ENUM",
+)
+
+export const FactSourceKindLiteral = Schema.Literal(
+  "MANUAL",
+  "WEBSITE",
+  "PRODUCT_CATALOG",
+  "POLICY_DOCUMENT",
+  "OTHER",
+)
+
+export const CreateFactRequest = Schema.Struct({
+  subject: NonEmptyTrimmed,
+  predicate: NonEmptyTrimmed,
+  valueText: NonEmptyTrimmed,
+  valueType: FactValueTypeLiteral,
+  validFrom: TimestampString,
+  validUntil: Schema.optional(Schema.NullOr(TimestampString)),
+  sourceKind: FactSourceKindLiteral,
+})
+export type CreateFactRequest = typeof CreateFactRequest.Type
+
+export const SupersedeFactRequest = Schema.Struct({
+  valueText: NonEmptyTrimmed,
+  valueType: FactValueTypeLiteral,
+  validFrom: TimestampString,
+  validUntil: Schema.optional(Schema.NullOr(TimestampString)),
+  sourceKind: FactSourceKindLiteral,
+})
+export type SupersedeFactRequest = typeof SupersedeFactRequest.Type
+
+export const QuestionOriginLiteral = Schema.Literal(
+  "BUSINESS_OWNER",
+  "SALES",
+  "SUPPORT",
+  "CUSTOMER_INTERVIEW",
+  "SEARCH_DATA",
+  "OPERATOR_CONSTRUCTED",
+  "OTHER",
+)
+
+export const CreateQuestionRequest = Schema.Struct({
+  prompt: NonEmptyTrimmed,
+  label: Schema.optional(Schema.NullOr(Schema.String)),
+  origin: QuestionOriginLiteral,
+})
+export type CreateQuestionRequest = typeof CreateQuestionRequest.Type
+
+export const RunCheckRequest = Schema.Struct({
+  questionId: Schema.UUID,
+  provider: Schema.optional(Schema.String),
+})
+export type RunCheckRequest = typeof RunCheckRequest.Type
+
+export const CreateClaimRequest = Schema.Struct({
+  observationId: Schema.UUID,
+  text: NonEmptyTrimmed,
+})
+export type CreateClaimRequest = typeof CreateClaimRequest.Type
+
+export const JudgmentVerdictLiteral = Schema.Literal(
+  "SUPPORTED",
+  "CONTRADICTED",
+  "PARTIAL",
+  "INSUFFICIENT_EVIDENCE",
+)
+
+export const CreateJudgmentRequest = Schema.Struct({
+  claimId: Schema.UUID,
+  verdict: JudgmentVerdictLiteral,
+  notes: Schema.optional(Schema.NullOr(Schema.String)),
+  factIds: Schema.Array(Schema.UUID),
+})
+export type CreateJudgmentRequest = typeof CreateJudgmentRequest.Type
+
+// Route identifiers: validate before touching the repository so malformed
+// ids become 4xx, never opaque SQL errors.
+export const RouteId = Schema.UUID
+export const decodeRouteId = Schema.decodeUnknownEither(RouteId)
