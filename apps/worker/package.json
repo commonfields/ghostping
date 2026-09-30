@@ -5,28 +5,31 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "echo 'lint ok'",
+    "lint": "eslint src --max-warnings 0",
     "test": "vitest run",
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/runner.ts",
     "start": "node dist/runner.js"
   },
   "dependencies": {
-    "effect": "3.22.2",
+    "@effect/platform": "0.97.2",
+    "@effect/platform-node": "0.108.2",
     "@effect/sql": "0.52.1",
     "@effect/sql-pg": "0.53.0",
-    "@ghostping/domain": "workspace:*",
     "@ghostping/contracts": "workspace:*",
     "@ghostping/db": "workspace:*",
-    "pg": "8.13.1",
-    "@effect/platform": "0.97.2",
-    "@effect/platform-node": "0.108.2"
+    "@ghostping/domain": "workspace:*",
+    "effect": "3.22.2",
+    "pg": "8.13.1"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
-    "vitest": "3.2.4",
+    "@types/node": "24.10.1",
+    "@types/pg": "8.11.0",
     "tsx": "4.19.2",
-    "@types/node": "20.17.0",
-    "@types/pg": "8.11.0"
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  },
+  "engines": {
+    "node": ">=24 <25"
   }
 }
