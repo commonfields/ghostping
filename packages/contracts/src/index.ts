@@ -167,7 +167,10 @@ export type CreateQuestionRequest = typeof CreateQuestionRequest.Type
 
 export const RunCheckRequest = Schema.Struct({
   questionId: Schema.UUID,
-  provider: Schema.optional(Schema.String),
+  provider: Schema.optional(Schema.Literal("mock", "9router")),
+  // Requested model passes through to the worker: for 9router it must equal
+  // the NINE_ROUTER_MODEL pin (enforced in Rust), else the run fails closed.
+  requestedModel: Schema.optional(Schema.NullOr(Schema.String)),
 })
 export type RunCheckRequest = typeof RunCheckRequest.Type
 
