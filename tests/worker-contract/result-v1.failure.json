@@ -1,0 +1,20 @@
+{
+  "contract_version": "ghostping-worker-result-v1",
+  "run_id": "RUN-FIXTURE-1",
+  "status": "failed",
+  "provider": "mock",
+  "requested_model": null,
+  "observed_model": "mock-v1",
+  "collected_at": "2026-09-30T00:00:00.000Z",
+  "answer_text": null,
+  "retrieval_mode": "unknown",
+  "citations": [],
+  "raw_digest": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "raw_response": {
+    "provider": "mock",
+    "prompt": "boom __fail__",
+    "error": "simulated provider failure"
+  },
+  "failure_class": "PROVIDER_UNAVAILABLE",
+  "failure_detail_safe": "mock simulated provider failure (safe detail only)"
+}

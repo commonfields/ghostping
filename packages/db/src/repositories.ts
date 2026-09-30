@@ -1,11 +1,17 @@
 // Effect repository services over PostgreSQL (@effect/sql-pg).
 // Explicit SQL; no ORM. Every customer-data query is account-scoped.
-import { Context, Effect, Layer } from "effect"
+import { Context, Data, Effect, Layer } from "effect"
 import { PgClient } from "@effect/sql-pg"
 import type { SqlClient } from "@effect/sql"
 import type { SqlError } from "@effect/sql/SqlError"
 
 export type DbEffect<A> = Effect.Effect<A, SqlError>
+
+// Content-addressed integrity failure: an existing digest maps to different
+// bytes than the incoming payload. Fails closed; never overwrites.
+export class RawDigestMismatch extends Data.TaggedError("RawDigestMismatch")<{
+  readonly digest: string
+}> {}
 
 // Row helpers: pg returns UUIDs as strings, timestamptz as Date|string.
 const iso = (v: unknown): string =>
@@ -297,6 +303,7 @@ export interface CheckRunRow {
   readonly completedAt: string | null
   readonly failureClass: string | null
   readonly failureDetailSafe: string | null
+  readonly attemptCount: number
 }
 
 const mapRun = (r: Record<string, unknown>): CheckRunRow => ({
@@ -311,6 +318,7 @@ const mapRun = (r: Record<string, unknown>): CheckRunRow => ({
   completedAt: (r["completed_at"] as unknown) == null ? null : iso(r["completed_at"]),
   failureClass: (r["failure_class"] as string | null) ?? null,
   failureDetailSafe: (r["failure_detail_safe"] as string | null) ?? null,
+  attemptCount: Number(r["attempt_count"] ?? 0),
 })
 
 export class CheckRunRepository extends Context.Tag("CheckRunRepository")<
@@ -326,6 +334,7 @@ export class CheckRunRepository extends Context.Tag("CheckRunRepository")<
     readonly getScoped: (businessId: string, id: string) => DbEffect<CheckRunRow | null>
     readonly claimOne: () => DbEffect<CheckRunRow | null>
     readonly markRunning: (id: string) => DbEffect<void>
+    readonly recordAttempt: (id: string) => DbEffect<number>
     readonly markFinished: (
       id: string,
       status: "SUCCEEDED" | "FAILED",
@@ -355,23 +364,43 @@ export const CheckRunRepositoryLive = Layer.effect(
       ),
     claimOne: () =>
       Effect.gen(function*() {
+        // Atomic ownership: exactly one worker can transition a given
+        // QUEUED row to RUNNING. The CTE locks the candidate and the UPDATE
+        // re-checks status = 'QUEUED', so two concurrent claimers can never
+        // both receive the same CheckRun. No select-then-update-then-reread.
         const rows = (yield* sql`
-          SELECT * FROM check_runs WHERE status = 'QUEUED' ORDER BY queued_at ASC LIMIT 1
-          FOR UPDATE SKIP LOCKED`) as Array<Record<string, unknown>>
+          WITH candidate AS (
+            SELECT id FROM check_runs
+            WHERE status = 'QUEUED'
+            ORDER BY queued_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+          )
+          UPDATE check_runs AS r
+          SET status = 'RUNNING', started_at = now()
+          FROM candidate
+          WHERE r.id = candidate.id AND r.status = 'QUEUED'
+          RETURNING r.*`) as Array<Record<string, unknown>>
         const r = rows[0]
         if (!r) return null
-        yield* sql`UPDATE check_runs SET status = 'RUNNING', started_at = now() WHERE id = ${String(r["id"])} AND status = 'QUEUED'`
-        const after = (yield* sql`SELECT * FROM check_runs WHERE id = ${String(r["id"])}`) as Array<
-          Record<string, unknown>
-        >
-        const a = after[0]
-        if (!a || String(a["status"]) !== "RUNNING") return null
-        return mapRun(a)
+        return mapRun(r)
       }),
     markRunning: (id: string) =>
-      sql`UPDATE check_runs SET status = 'RUNNING', started_at = now() WHERE id = ${id}`.pipe(Effect.asVoid),
+      // Guarded transition: only QUEUED -> RUNNING is legal here.
+      sql`UPDATE check_runs SET status = 'RUNNING', started_at = now() WHERE id = ${id} AND status = 'QUEUED'`.pipe(
+        Effect.asVoid,
+      ),
+    recordAttempt: (id: string) =>
+      Effect.gen(function*() {
+        const rows = (yield* sql`UPDATE check_runs SET attempt_count = attempt_count + 1 WHERE id = ${id} RETURNING attempt_count`) as Array<
+          Record<string, unknown>
+        >
+        return Number((rows[0] as Record<string, unknown>)["attempt_count"])
+      }),
     markFinished: (id: string, status, failureClass, failureDetailSafe) =>
-      sql`UPDATE check_runs SET status = ${status}, completed_at = now(), failure_class = ${failureClass}, failure_detail_safe = ${failureDetailSafe} WHERE id = ${id}`.pipe(
+      // Terminal transition: only RUNNING -> SUCCEEDED | FAILED. Terminal
+      // rows (SUCCEEDED/FAILED) can never be re-opened via this path.
+      sql`UPDATE check_runs SET status = ${status}, completed_at = now(), failure_class = ${failureClass}, failure_detail_safe = ${failureDetailSafe} WHERE id = ${id} AND status = 'RUNNING'`.pipe(
         Effect.asVoid,
       ),
   })),
@@ -420,7 +449,7 @@ export class ObservationRepository extends Context.Tag("ObservationRepository")<
         readonly position: number | null
         readonly attributed: boolean
       }>
-    }) => DbEffect<ObservationRow>
+    }) => Effect.Effect<ObservationRow, SqlError | RawDigestMismatch>
     readonly getScoped: (businessId: string, id: string) => DbEffect<ObservationRow | null>
     readonly getByCheckRun: (checkRunId: string) => DbEffect<ObservationRow | null>
   }
@@ -444,12 +473,22 @@ export const ObservationRepositoryLive = Layer.effect(
       create: (input) =>
         Effect.gen(function*() {
           const rawText = JSON.stringify(input.rawResponse)
-          const raw = (yield* sql`
+          // Immutable get-or-insert: never UPDATE the existing row (the
+          // raw_evidence trigger forbids it). Repeated identical provider
+          // payloads share one content-addressed row.
+          yield* sql`
             INSERT INTO raw_evidence (digest, content_text) VALUES (${input.rawDigest}, ${rawText})
-            ON CONFLICT (digest) DO UPDATE SET digest = EXCLUDED.digest RETURNING id, digest`) as Array<
+            ON CONFLICT (digest) DO NOTHING`
+          const existing = (yield* sql`SELECT id, digest, content_text FROM raw_evidence WHERE digest = ${input.rawDigest}`) as Array<
             Record<string, unknown>
           >
-          const rawId = String((raw[0] as Record<string, unknown>)["id"])
+          const row = existing[0]
+          if (!row) return yield* Effect.dieMessage("raw_evidence insert produced no row")
+          if (String(row["content_text"]) !== rawText) {
+            // Same digest, different bytes: fail closed, keep the original.
+            return yield* Effect.fail(new RawDigestMismatch({ digest: input.rawDigest }))
+          }
+          const rawId = String(row["id"])
           const obs = (yield* sql`
             INSERT INTO observations (business_id, check_run_id, provider, requested_model, observed_model, collected_at, answer_text, retrieval_mode, raw_evidence_id, raw_digest)
             VALUES (${input.businessId}, ${input.checkRunId}, ${input.provider}, ${input.requestedModel}, ${input.observedModel}, ${input.collectedAt}::timestamptz, ${input.answerText}, ${input.retrievalMode}, ${rawId}, ${input.rawDigest})
@@ -606,9 +645,26 @@ export interface JudgmentRow {
   readonly notes: string | null
   readonly factIds: ReadonlyArray<string>
   readonly supersedesId: string | null
-  readonly superseded: boolean
   readonly createdAt: string
 }
+
+const mapJudgment = (
+  j: Record<string, unknown>,
+  factIds: ReadonlyArray<string>,
+): JudgmentRow => ({
+  id: String(j["id"]),
+  businessId: String(j["business_id"]),
+  claimId: String(j["claim_id"]),
+  verdict: String(j["verdict"]),
+  notes: (j["notes"] as string | null) ?? null,
+  factIds,
+  supersedesId: (j["supersedes_id"] as string | null) ?? null,
+  createdAt: iso(j["created_at"]),
+})
+
+// Current head = the judgment no newer judgment points at:
+//   NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id)
+// inlined in the queries below.
 
 export class JudgmentRepository extends Context.Tag("JudgmentRepository")<
   JudgmentRepository,
@@ -629,33 +685,37 @@ export const JudgmentRepositoryLive = Layer.effect(
   JudgmentRepository,
   Effect.map(PgClient.PgClient, (sql: SqlClient.SqlClient) => ({
     create: (input) =>
-      Effect.gen(function*() {
-        // Supersede previous heads (append-only history; old rows stay).
-        yield* sql`UPDATE human_judgments SET superseded = true WHERE claim_id = ${input.claimId} AND superseded = false`
-        const rows = (yield* sql`
-          INSERT INTO human_judgments (business_id, claim_id, verdict, notes)
-          VALUES (${input.businessId}, ${input.claimId}, ${input.verdict}, ${input.notes}) RETURNING *`) as Array<
-          Record<string, unknown>
-        >
-        const j = rows[0] as Record<string, unknown>
-        for (const fid of input.factIds) {
-          yield* sql`INSERT INTO human_judgment_facts (judgment_id, fact_id) VALUES (${String(j["id"])}, ${fid}) ON CONFLICT DO NOTHING`
-        }
-        const facts = (yield* sql`SELECT fact_id FROM human_judgment_facts WHERE judgment_id = ${String(j["id"])}`) as Array<
-          Record<string, unknown>
-        >
-        return {
-          id: String(j["id"]),
-          businessId: String(j["business_id"]),
-          claimId: String(j["claim_id"]),
-          verdict: String(j["verdict"]),
-          notes: (j["notes"] as string | null) ?? null,
-          factIds: facts.map((f) => String(f["fact_id"])),
-          supersedesId: (j["supersedes_id"] as string | null) ?? null,
-          superseded: Boolean(j["superseded"]),
-          createdAt: iso(j["created_at"]),
-        }
-      }),
+      // Append-only supersession: J1 is never rewritten. J2 carries
+      // supersedes_id = J1.id, so J1's historical status derives from J2's
+      // existence. Creation is serialized per claim (SELECT the claim
+      // FOR UPDATE) so two concurrent reviews form one linear chain,
+      // never two current heads.
+      sql.withTransaction(
+        Effect.gen(function*() {
+          const claims = (yield* sql`SELECT id FROM candidate_claims WHERE id = ${input.claimId} FOR UPDATE`) as Array<
+            Record<string, unknown>
+          >
+          if (!claims[0]) return yield* Effect.dieMessage("ClaimNotFound")
+          const headRows = (yield* sql`
+            SELECT * FROM human_judgments j
+            WHERE j.claim_id = ${input.claimId}
+              AND NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id)
+            ORDER BY j.created_at DESC LIMIT 1`) as Array<Record<string, unknown>>
+          const head = headRows[0]
+          const rows = (yield* sql`
+            INSERT INTO human_judgments (business_id, claim_id, verdict, notes, supersedes_id)
+            VALUES (${input.businessId}, ${input.claimId}, ${input.verdict}, ${input.notes}, ${head ? String(head["id"]) : null})
+            RETURNING *`) as Array<Record<string, unknown>>
+          const j = rows[0] as Record<string, unknown>
+          for (const fid of input.factIds) {
+            yield* sql`INSERT INTO human_judgment_facts (judgment_id, fact_id) VALUES (${String(j["id"])}, ${fid}) ON CONFLICT DO NOTHING`
+          }
+          const facts = (yield* sql`SELECT fact_id FROM human_judgment_facts WHERE judgment_id = ${String(j["id"])}`) as Array<
+            Record<string, unknown>
+          >
+          return mapJudgment(j, facts.map((f) => String(f["fact_id"])))
+        }),
+      ),
     listByClaim: (claimId: string) =>
       Effect.gen(function*() {
         const rows = (yield* sql`SELECT * FROM human_judgments WHERE claim_id = ${claimId} ORDER BY created_at ASC`) as Array<
@@ -666,41 +726,23 @@ export const JudgmentRepositoryLive = Layer.effect(
           const facts = (yield* sql`SELECT fact_id FROM human_judgment_facts WHERE judgment_id = ${String(j["id"])}`) as Array<
             Record<string, unknown>
           >
-          out.push({
-            id: String(j["id"]),
-            businessId: String(j["business_id"]),
-            claimId: String(j["claim_id"]),
-            verdict: String(j["verdict"]),
-            notes: (j["notes"] as string | null) ?? null,
-            factIds: facts.map((f) => String(f["fact_id"])),
-            supersedesId: (j["supersedes_id"] as string | null) ?? null,
-            superseded: Boolean(j["superseded"]),
-            createdAt: iso(j["created_at"]),
-          })
+          out.push(mapJudgment(j, facts.map((f) => String(f["fact_id"]))))
         }
         return out
       }),
     latestForClaim: (claimId: string) =>
       Effect.gen(function*() {
-        const rows = (yield* sql`SELECT * FROM human_judgments WHERE claim_id = ${claimId} AND superseded = false ORDER BY created_at DESC LIMIT 1`) as Array<
-          Record<string, unknown>
-        >
+        const rows = (yield* sql`
+          SELECT * FROM human_judgments j
+          WHERE j.claim_id = ${claimId}
+            AND NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id)
+          ORDER BY j.created_at DESC LIMIT 1`) as Array<Record<string, unknown>>
         const j = rows[0]
         if (!j) return null
         const facts = (yield* sql`SELECT fact_id FROM human_judgment_facts WHERE judgment_id = ${String(j["id"])}`) as Array<
           Record<string, unknown>
         >
-        return {
-          id: String(j["id"]),
-          businessId: String(j["business_id"]),
-          claimId: String(j["claim_id"]),
-          verdict: String(j["verdict"]),
-          notes: (j["notes"] as string | null) ?? null,
-          factIds: facts.map((f) => String(f["fact_id"])),
-          supersedesId: (j["supersedes_id"] as string | null) ?? null,
-          superseded: Boolean(j["superseded"]),
-          createdAt: iso(j["created_at"]),
-        }
+        return mapJudgment(j, facts.map((f) => String(f["fact_id"])))
       }),
   })),
 )

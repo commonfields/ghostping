@@ -122,7 +122,7 @@ export const RustObservationWorkerLive = (workerPath: string, timeoutMs = 60_000
         })
         if (result.contract_version !== RESULT_CONTRACT_VERSION) {
           return yield* Effect.fail(
-            new WorkerContractMismatch({ detail: `bad contract ${result.contract_version}` }),
+            new WorkerContractMismatch({ detail: `bad contract ${String(result.contract_version)}` }),
           )
         }
         if (result.run_id !== input.runId) {

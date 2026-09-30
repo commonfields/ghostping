@@ -64,21 +64,37 @@ local timezone.
 
 ## Postgres ownership
 
-PostgreSQL owns all hosted state (`packages/db/migrations/0001_init.sql`).
-Local CLI mode keeps SQLite `evidence.db`; hosted never shares it.
-`observations`/`raw_evidence` are append-only (no API update/delete +
-defensive triggers). Judgments append-only (supersede flag, history kept).
-Issues are derived (claim + latest unsuperseded judgment + facts +
-observation); there is no `issues` truth table.
+PostgreSQL owns all hosted state (`packages/db/migrations/0001_init.sql`,
+`0002_closeout.sql`). Local CLI mode keeps SQLite `evidence.db`; hosted
+never shares it. `observations`/`raw_evidence`/`observation_citations` are
+append-only (no API update/delete + defensive triggers).
+`human_judgments` and `human_judgment_facts` are append-only the same way:
+there is no mutable `superseded` flag. A replacement judgment carries
+`supersedes_id` pointing at its predecessor; the current head is the row no
+newer judgment points at (`NOT EXISTS (child.supersedes_id = j.id)`).
+Judgment creation is serialized per claim (`SELECT candidate_claims ...
+FOR UPDATE` inside one transaction), so concurrent reviews form one linear
+chain, never two heads. Issues are derived (claim + chain-derived latest
+judgment + facts + observation); there is no `issues` truth table.
 
 ## Job lifecycle
 
-`POST check-runs` → `QUEUED` → worker `SELECT … FOR UPDATE SKIP LOCKED`
-→ `RUNNING` → `ghostping-worker` → raw evidence stored (exact bytes +
-digest + mime) → immutable `Observation` → `SUCCEEDED`, or typed `FAILED`
-(`failure_class`, `failure_detail_safe`). Failed attempts are permanent;
-retries are bounded `Schedule` for 429/5xx/transient only — never for
-auth/malformed/contract mismatch, never forever.
+`POST check-runs` → `QUEUED` → worker claims with ONE atomic statement
+(`WITH candidate ... FOR UPDATE SKIP LOCKED` + `UPDATE ... WHERE status =
+'QUEUED' ... RETURNING`) → `RUNNING` → `ghostping-worker` → raw evidence
+stored (exact bytes + digest + mime) → immutable `Observation` →
+`SUCCEEDED`, or typed `FAILED` (`failure_class`, `failure_detail_safe`).
+Exactly zero or one worker can win a given CheckRun; state transitions are
+guarded in SQL (`QUEUED → RUNNING`, `RUNNING → SUCCEEDED | FAILED` only).
+
+Retries are actually executed by `CheckRunner` (`Effect.retry` composing
+`RetrySchedule`): initial attempt + at most 3 retries = at most 4 worker
+invocations (`MAX_WORKER_ATTEMPTS = 4`). Retryable, by typed failure class
+only: `PROVIDER_RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `PROVIDER_TIMEOUT`.
+Never retried: `PROVIDER_AUTH`, `PROVIDER_MALFORMED`,
+`WORKER_CONTRACT_MISMATCH`, `WORKER_FAILED`, unsupported providers, invalid
+contracts. Every real invocation increments `check_runs.attempt_count`, so
+the number of provider attempts per CheckRun is always recoverable.
 
 ## Rust worker contract
 
@@ -95,9 +111,15 @@ auth/malformed/contract mismatch, never forever.
 ## Evidence immutability
 
 Raw response preserved byte-exact (`raw_evidence`), digest-pinned by the
-observation. Interpretation changes create new claims/judgments; history is
-never rewritten (proof: no update/delete routes + PG triggers +
-integration test asserting triggers + judgment supersede test).
+observation. Repeated identical provider payloads (the normal monitoring
+case) share ONE content-addressed row via immutable get-or-insert
+(`INSERT ... ON CONFLICT DO NOTHING`, then `SELECT` by digest — never
+`UPDATE`): two observations, one evidence object, zero mutation errors. If
+an existing digest maps to different bytes, creation fails closed with a
+typed `RawDigestMismatch` error and the original row is untouched.
+Interpretation changes create new claims/judgments; history is never
+rewritten (proof: no update/delete routes + PG triggers + integration
+tests for dedupe, mismatch, and judgment chains).
 
 ## Typed error taxonomy
 
@@ -114,6 +136,27 @@ writes, scrypt password hashing, no provider secrets in frontend/DB/job
 payload (env-only), direct-spawn worker invocation (no shell), strict
 `Schema` validation of the worker contract.
 
+## HTTP write boundaries
+
+External JSON is untrusted. Every write endpoint (`signup`, `signin`,
+`create business`, `create/supersede fact`, `create question`, `run check`,
+`create claim`, `create judgment`) decodes its body through an Effect
+Schema request contract (`packages/contracts`: `SignUpRequest`,
+`CreateBusinessRequest`, `CreateFactRequest`, `SupersedeFactRequest`,
+`CreateQuestionRequest`, `RunCheckRequest`, `CreateClaimRequest`,
+`CreateJudgmentRequest`) via `Schema.decodeUnknown` — never an `as` cast.
+Malformed payloads (bad enums, wrong types, non-array `factIds`, missing
+fields, unparseable timestamps, unexpected nulls) return deterministic
+422 before any persistence. Route identifiers are validated as UUIDs before
+any repository call, so malformed ids become 4xx, never opaque SQL errors.
+
+## Runtime baseline
+
+Hosted V1 runs on **Node 24 LTS** (`.node-version` = `24`,
+`engines: >=24 <25` in every workspace package, Node 24 in CI). Effect
+stays at `3.22.2` stable (no v4 migration). If Dockerfiles are added later,
+they must use the same Node 24 major.
+
 ## Local development
 
 ```bash
@@ -123,21 +166,23 @@ pnpm db:migrate
 cargo build --bin ghostping-worker
 pnpm dev
 ```
-
-Seed the Northstar demo via `pnpm db:seed` (fictional business, 3 facts,
-3 questions; mock answers yield contradiction/supported/unknown).
+(requires Node 24; see `.node-version`)
 
 ## Future deployment shape
 
 `apps/web` + `apps/api` + `apps/worker` + `ghostping-worker` + Postgres
 (+ object storage later behind the raw-evidence repository). No
-architecture changes needed; Dockerfiles can be added per process. No
-Kubernetes in V1.
+architecture changes needed; Dockerfiles can be added per process (Node 24
+major, matching `.node-version`). No Kubernetes in V1.
 
 ## TypeScript↔Rust friction
 
 JSON-over-stdio keeps the boundary narrow but duplicates the v1 contract in
-two languages (Effect `Schema` + serde structs) with no codegen; drift must
-be caught by contract tests on both sides. Error-cause fidelity also
-narrows at the boundary (typed Rust failure → safe string detail). Kept
-intentionally; not solved by rewriting providers in TypeScript.
+two languages (Effect `Schema` + serde structs) with no codegen; drift is
+caught by shared golden fixtures (`tests/worker-contract/`: `job-v1`,
+`result-v1` success + failure) decoded on BOTH sides — Rust integration
+test `tests/worker_contract_fixtures.rs` and the TypeScript fixture suite in
+`packages/contracts` — plus negative cases (unknown version, wrong type,
+missing field) rejected by both. Error-cause fidelity also narrows at the
+boundary (typed Rust failure → safe string detail). Kept intentionally; not
+solved by rewriting providers in TypeScript.

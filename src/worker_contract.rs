@@ -257,6 +257,30 @@ mod tests {
     }
 
     #[test]
+    fn non_mock_provider_fails_before_any_network_path() {
+        // Hosted V1 supports ONLY provider=mock. openai/anthropic/gemini must
+        // fail locally as unsupported — this test proves no network-capable
+        // path exists for them (execute_job is pure; no HTTP client involved).
+        for provider in ["openai", "anthropic", "gemini", "perplexity"] {
+            let r = execute_job(&WorkerJob {
+                contract_version: JOB_CONTRACT_VERSION.to_string(),
+                run_id: "RUN-1".to_string(),
+                provider: provider.to_string(),
+                model: None,
+                prompt: "How much does Northstar cost?".to_string(),
+            });
+            assert_eq!(r.status, "failed", "provider={provider}");
+            assert!(r
+                .failure_detail_safe
+                .as_deref()
+                .unwrap_or_default()
+                .contains("only provider=mock"));
+            let v = serde_json::to_value(&r).unwrap().to_string().to_lowercase();
+            assert!(!v.contains("api_key"));
+        }
+    }
+
+    #[test]
     fn no_key_in_job_or_result() {
         let r = execute_job(&job("How much does Northstar cost?"));
         let v = serde_json::to_value(&r).unwrap().to_string().to_lowercase();

@@ -70,12 +70,21 @@ describe("checks", () => {
 describe("judgments + issues", () => {
   const j = (v: HumanJudgment["verdict"], id: string): HumanJudgment => ({
     id: id as never, businessId: "b" as never, claimId: "c" as never, verdict: v,
-    notes: null, factIds: [], supersedesId: null, superseded: false, createdAt: "2026-09-30T00:00:00Z" as never,
+    notes: null, factIds: [], supersedesId: null, createdAt: "2026-09-30T00:00:00Z" as never,
   })
-  it("resolves latest unsuperseded head", () => {
-    const oldH = { ...j("SUPPORTED", "j1"), superseded: true, createdAt: "2026-01-01T00:00:00Z" as never }
-    const head = latestJudgment([oldH, j("CONTRADICTED", "j2")])
-    expect(head?.id).toBe("j2")
+  it("resolves the chain-derived head (no mutable flags)", () => {
+    const j1 = { ...j("SUPPORTED", "j1"), createdAt: "2026-01-01T00:00:00Z" as never }
+    const j2 = { ...j("CONTRADICTED", "j2"), supersedesId: "j1" as never }
+    // j1 is historical because j2 points at it — j1 itself is unchanged.
+    expect(latestJudgment([j1, j2])?.id).toBe("j2")
+    expect(j1.supersedesId).toBeNull()
+    expect(j2.supersedesId).toBe("j1")
+  })
+  it("follows a three-link supersession chain", () => {
+    const j1 = { ...j("SUPPORTED", "j1"), createdAt: "2026-01-01T00:00:00Z" as never }
+    const j2 = { ...j("CONTRADICTED", "j2"), supersedesId: "j1" as never, createdAt: "2026-01-02T00:00:00Z" as never }
+    const j3 = { ...j("SUPPORTED", "j3"), supersedesId: "j2" as never, createdAt: "2026-01-03T00:00:00Z" as never }
+    expect(latestJudgment([j1, j2, j3])?.id).toBe("j3")
   })
   it("derives inbox states", () => {
     expect(deriveIssueState(null)).toBe("NEEDS_REVIEW")

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useParams, Link } from "react-router"
 import { Observations, Claims, Judgments, Facts } from "../lib/api.js"
 
@@ -17,7 +17,7 @@ export function ObservationPage() {
   const [claims, setClaims] = useState<Array<{ id: string; text: string }>>([])
   const [claimText, setClaimText] = useState("Northstar costs $29/month.")
   const [facts, setFacts] = useState<Array<{ id: string; predicate: string; valueText: string }>>([])
-  const reload = () => {
+  const reload = useCallback(() => {
     Observations.get(observationId).then((r) => {
       const o = r.observation as unknown as Obs
       setObservation(o)
@@ -26,8 +26,8 @@ export function ObservationPage() {
         Facts.list(o.business_id).then((f) => setFacts((f.facts as Array<{ id: string; predicate: string; valueText: string }>).filter((x) => (x as unknown as { status: string }).status === "ACTIVE" || true))).catch(() => undefined)
       }
     }).catch(() => undefined)
-  }
-  useEffect(() => { reload() }, [observationId])
+  }, [observationId])
+  useEffect(() => { reload() }, [reload])
   return (
     <main style={{ maxWidth: 800, margin: "0 auto", fontFamily: "system-ui" }}>
       <Link to="/">← Back</Link>
