@@ -39,6 +39,23 @@ fn valid_failure_result_fixture_decodes_in_rust() {
 }
 
 #[test]
+fn valid_9router_result_fixture_decodes_in_rust() {
+    // provider=9router observations share result-v1 (no version bump): the
+    // gateway is the provider field, resolved model is observed_model, and
+    // usage/cost metadata rides inside the exact raw_response body.
+    let r: WorkerResult =
+        serde_json::from_str(&fixture("result-v1.9router.json")).expect("9router fixture");
+    assert_eq!(r.contract_version, RESULT_CONTRACT_VERSION);
+    assert_eq!(r.status, "succeeded");
+    assert_eq!(r.provider, "9router");
+    assert_eq!(r.requested_model.as_deref(), Some("oc/pinned-free-test"));
+    assert_eq!(r.observed_model.as_deref(), Some("oc/pinned-free-test"));
+    assert_eq!(r.retrieval_mode, "unknown");
+    assert!(r.citations.is_empty());
+    assert_eq!(r.raw_response["usage"]["total_tokens"], 30);
+}
+
+#[test]
 fn unknown_contract_version_is_rejected_or_mismatch() {
     let mut v: serde_json::Value = serde_json::from_str(&fixture("job-v1.valid.json")).unwrap();
     v["contract_version"] = serde_json::Value::String("ghostping-worker-job-v99".to_string());
