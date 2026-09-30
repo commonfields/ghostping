@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useParams } from "react-router"
 import { Facts } from "../lib/api.js"
 
@@ -19,8 +19,8 @@ export function FactsPage() {
   const [facts, setFacts] = useState<Fact[]>([])
   const [conflicts, setConflicts] = useState<Array<{ a: string; b: string }>>([])
   const [form, setForm] = useState({ subject: "northstar", predicate: "monthly_price", valueText: "$39", valueType: "CURRENCY" })
-  const reload = () => Facts.list(id).then((r) => { setFacts(r.facts as Fact[]); setConflicts(r.conflicts) }).catch(() => undefined)
-  useEffect(() => { reload() }, [id])
+  const reload = useCallback(() => Facts.list(id).then((r) => { setFacts(r.facts as Fact[]); setConflicts(r.conflicts) }).catch(() => undefined), [id])
+  useEffect(() => { reload() }, [reload])
   const conflictIds = new Set(conflicts.flatMap((c) => [c.a, c.b]))
   return (
     <section>
