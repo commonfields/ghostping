@@ -5,13 +5,19 @@
     "outDir": "dist",
     "rootDir": ".",
     "types": [
-      "node"
+      "node",
+      "vite/client"
     ],
     "lib": [
       "ES2022",
       "DOM",
       "DOM.Iterable"
-    ]
+    ],
+    "paths": {
+      "@/*": [
+        "./app/*"
+      ]
+    }
   },
   "include": [
     "app",
