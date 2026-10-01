@@ -1,0 +1,193 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/inter";
+
+@custom-variant dark (&:is(.dark *));
+
+/* One accent (deep green, "checked against your
+   facts"); status hues are reserved for verdicts and run states. */
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.21 0.006 285.9);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.9);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.9);
+  --primary: oklch(0.43 0.075 168);
+  --primary-foreground: oklch(0.985 0.01 168);
+  --secondary: oklch(0.967 0.001 286.4);
+  --secondary-foreground: oklch(0.21 0.006 285.9);
+  --muted: oklch(0.967 0.001 286.4);
+  --muted-foreground: oklch(0.52 0.014 285.9);
+  --accent: oklch(0.955 0.004 286.3);
+  --accent-foreground: oklch(0.21 0.006 285.9);
+  --destructive: oklch(0.577 0.215 27.3);
+  --border: oklch(0.922 0.004 286.3);
+  --input: oklch(0.9 0.004 286.3);
+  --ring: oklch(0.43 0.075 168 / 0.45);
+
+  --sidebar: oklch(0.972 0.002 286);
+  --sidebar-foreground: oklch(0.32 0.01 285.9);
+  --sidebar-accent: oklch(0.928 0.004 286.3);
+  --sidebar-accent-foreground: oklch(0.21 0.006 285.9);
+  --sidebar-border: oklch(0.922 0.004 286.3);
+
+  --wrong: oklch(0.55 0.19 27);
+  --wrong-soft: oklch(0.97 0.018 27);
+  --partial: oklch(0.58 0.13 65);
+  --partial-soft: oklch(0.975 0.03 85);
+  --unknown: oklch(0.5 0.13 285);
+  --unknown-soft: oklch(0.965 0.02 285);
+  --review: oklch(0.5 0.14 255);
+  --review-soft: oklch(0.965 0.02 255);
+  --supported: oklch(0.47 0.09 160);
+  --supported-soft: oklch(0.965 0.025 160);
+
+  /* Chart series (validated: adjacent CVD and lightness band, light surface).
+     Stack order is wrong, unknown, partial, unreviewed, supported so red and
+     green are never neighbors. */
+  --chart-wrong: #d03b3b;
+  --chart-unknown: #8277c9;
+  --chart-partial: #e09a12;
+  --chart-unreviewed: #2a78d6;
+  --chart-supported: #1f9d6a;
+  --chart-checks: #2a78d6;
+  --chart-grid: oklch(0.21 0.006 285.9 / 0.07);
+
+  --panel-shadow: 0 0 0 1px rgb(0 0 0 / 0.02), 0 0 2px rgb(0 0 0 / 0.05), 0 0 14px rgb(0 0 0 / 0.07);
+  --float-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 2px 10px rgb(0 0 0 / 0.04);
+  --float-shadow-strong: 0 1px 3px rgb(0 0 0 / 0.06), 0 8px 28px rgb(0 0 0 / 0.09);
+}
+
+/* Dark: its own steps, not an inversion. The sidebar canvas is a soft dark
+   (not near-black) and the content panel sits a touch darker still, so the
+   inset reads recessed; popovers stay one step above the panel. */
+.dark {
+  --background: oklch(0.177 0.004 286);
+  --foreground: oklch(0.955 0.002 286);
+  --card: oklch(0.177 0.004 286);
+  --card-foreground: oklch(0.955 0.002 286);
+  --popover: oklch(0.23 0.005 286);
+  --popover-foreground: oklch(0.955 0.002 286);
+  --primary: oklch(0.72 0.11 168);
+  --primary-foreground: oklch(0.2 0.03 168);
+  --secondary: oklch(0.25 0.005 286);
+  --secondary-foreground: oklch(0.955 0.002 286);
+  --muted: oklch(0.24 0.005 286);
+  --muted-foreground: oklch(0.69 0.01 286);
+  --accent: oklch(0.25 0.005 286);
+  --accent-foreground: oklch(0.955 0.002 286);
+  --destructive: oklch(0.62 0.2 25);
+  --border: oklch(1 0 0 / 0.085);
+  --input: oklch(1 0 0 / 0.13);
+  --ring: oklch(0.72 0.11 168 / 0.45);
+
+  --sidebar: oklch(0.17 0.004 286);
+  --sidebar-foreground: oklch(0.8 0.006 286);
+  --sidebar-accent: oklch(0.235 0.005 286);
+  --sidebar-accent-foreground: oklch(0.955 0.002 286);
+  --sidebar-border: oklch(1 0 0 / 0.07);
+
+  --wrong: oklch(0.74 0.15 25);
+  --wrong-soft: oklch(0.3 0.06 25);
+  --partial: oklch(0.8 0.13 75);
+  --partial-soft: oklch(0.31 0.05 75);
+  --unknown: oklch(0.76 0.1 285);
+  --unknown-soft: oklch(0.3 0.05 285);
+  --review: oklch(0.76 0.11 255);
+  --review-soft: oklch(0.3 0.06 255);
+  --supported: oklch(0.78 0.12 160);
+  --supported-soft: oklch(0.3 0.05 160);
+
+  --chart-wrong: #e05a5a;
+  --chart-unknown: #8579d4;
+  --chart-partial: #c98500;
+  --chart-unreviewed: #3d8ae6;
+  --chart-supported: #199e70;
+  --chart-checks: #3d8ae6;
+  --chart-grid: oklch(1 0 0 / 0.07);
+
+  --panel-shadow: 0 0 0 1px rgb(0 0 0 / 0.3), 0 0 16px rgb(0 0 0 / 0.35);
+  --float-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 2px 10px rgb(0 0 0 / 0.25);
+  --float-shadow-strong: 0 1px 3px rgb(0 0 0 / 0.4), 0 8px 28px rgb(0 0 0 / 0.45);
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-wrong: var(--wrong);
+  --color-wrong-soft: var(--wrong-soft);
+  --color-partial: var(--partial);
+  --color-partial-soft: var(--partial-soft);
+  --color-unknown: var(--unknown);
+  --color-unknown-soft: var(--unknown-soft);
+  --color-review: var(--review);
+  --color-review-soft: var(--review-soft);
+  --color-supported: var(--supported);
+  --color-supported-soft: var(--supported-soft);
+  --color-chart-wrong: var(--chart-wrong);
+  --color-chart-unknown: var(--chart-unknown);
+  --color-chart-partial: var(--chart-partial);
+  --color-chart-unreviewed: var(--chart-unreviewed);
+  --color-chart-supported: var(--chart-supported);
+  --color-chart-checks: var(--chart-checks);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+}
+
+/* Preference: reduce motion. Mirrors the OS setting for people who want it here only. */
+html[data-reduce-motion] *,
+html[data-reduce-motion] *::before,
+html[data-reduce-motion] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: none !important;
+}

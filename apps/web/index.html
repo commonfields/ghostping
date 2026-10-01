@@ -1,5 +1,17 @@
 <!doctype html>
 <html lang="en">
-  <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Ghostping</title></head>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ghostping</title>
+    <script>
+      // Apply the saved theme before first paint so dark mode never flashes light.
+      try {
+        var p = JSON.parse(localStorage.getItem("ghostping:preferences") || "{}")
+        var t = p.theme || "system"
+        if (t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches)) document.documentElement.classList.add("dark")
+      } catch (e) {}
+    </script>
+  </head>
   <body><div id="root"></div><script type="module" src="/app/main.tsx"></script></body>
 </html>
