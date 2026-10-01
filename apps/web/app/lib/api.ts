@@ -1,13 +1,88 @@
 // Typed API client shared with the backend contract (packages/contracts).
 // Most server state comes from these calls; ordinary React state covers UI-local interaction.
+export class ApiError extends Error {
+  readonly status: number
+  readonly tag: string
+  readonly body: Record<string, unknown>
+  constructor(status: number, body: Record<string, unknown>) {
+    const tag = typeof body["_tag"] === "string" ? body["_tag"] : "error"
+    super(`${status} ${tag}`)
+    this.status = status
+    this.tag = tag
+    this.body = body
+  }
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { ...init, credentials: "include", headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } })
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    throw new Error(`${res.status} ${(body as { _tag?: string })._tag ?? "error"} ${JSON.stringify(body).slice(0, 300)}`)
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    throw new ApiError(res.status, body)
   }
   return (await res.json()) as T
 }
+
+export type Business = { id: string; name: string }
+
+export type Fact = {
+  id: string
+  subject: string
+  predicate: string
+  valueText: string
+  valueType: string
+  status: string
+  version: number
+  validFrom: string
+  validUntil: string | null
+}
+
+export type Question = { id: string; prompt: string; label: string | null; origin: string }
+
+export type CheckRun = {
+  id: string
+  status: string
+  provider: string
+  queuedAt: string
+  completedAt: string | null
+  failureClass: string | null
+  failureDetailSafe: string | null
+  attemptCount: number
+  observationId: string | null
+  questionId: string
+}
+
+export type Observation = {
+  id: string
+  business_id: string
+  answer_text: string
+  provider: string
+  observed_model: string | null
+  requested_model?: string | null
+  collected_at: string
+  retrieval_mode: string
+  raw_text?: string | null
+}
+
+export type Claim = { id: string; text: string; created_at?: string }
+
+export type Issue = {
+  claim_id: string
+  claim_text: string
+  state: IssueState
+  verdict: string | null
+  notes: string | null
+  answer_text: string
+  provider: string
+  observed_model: string | null
+  question_prompt: string | null
+  facts: Array<{ id: string; predicate: string; valueText: string; status: string }>
+  observation_id: string
+  collected_at: string
+}
+
+export type IssueState = "WRONG" | "PARTIAL" | "UNKNOWN" | "NEEDS_REVIEW"
+
+export type Overview = { completed: string; last_checked: string | null; unreviewed: string; needs_attention: string }
 
 export const Auth = {
   me: () => api<{ userId: string; accountId: string }>("/api/auth/me"),
@@ -19,48 +94,37 @@ export const Auth = {
 }
 
 export const Businesses = {
-  list: () => api<{ businesses: Array<{ id: string; name: string }> }>("/api/businesses"),
-  create: (name: string) =>
-    api<{ business: { id: string; name: string } }>("/api/businesses", { method: "POST", body: JSON.stringify({ name }) }),
+  list: () => api<{ businesses: Business[] }>("/api/businesses"),
+  create: (name: string) => api<{ business: Business }>("/api/businesses", { method: "POST", body: JSON.stringify({ name }) }),
 }
 
 export const Facts = {
-  list: (businessId: string) =>
-    api<{ facts: Array<{ id: string; subject: string; predicate: string; valueText: string; valueType: string; status: string; version: number; validFrom: string; validUntil: string | null }>; conflicts: Array<{ a: string; b: string }> }>(
-      `/api/businesses/${businessId}/facts`,
-    ),
+  list: (businessId: string) => api<{ facts: Fact[]; conflicts: Array<{ a: string; b: string }> }>(`/api/businesses/${businessId}/facts`),
   create: (businessId: string, input: Record<string, unknown>) =>
-    api(`/api/businesses/${businessId}/facts`, { method: "POST", body: JSON.stringify(input) }),
+    api<{ fact: Fact }>(`/api/businesses/${businessId}/facts`, { method: "POST", body: JSON.stringify(input) }),
   supersede: (businessId: string, factId: string, input: Record<string, unknown>) =>
-    api(`/api/businesses/${businessId}/facts/${factId}/supersede`, { method: "POST", body: JSON.stringify(input) }),
+    api<{ fact: Fact }>(`/api/businesses/${businessId}/facts/${factId}/supersede`, { method: "POST", body: JSON.stringify(input) }),
   retire: (businessId: string, factId: string) =>
-    api(`/api/businesses/${businessId}/facts/${factId}/retire`, { method: "POST" }),
+    api<{ fact: Fact }>(`/api/businesses/${businessId}/facts/${factId}/retire`, { method: "POST" }),
 }
 
 export const Questions = {
-  list: (businessId: string) =>
-    api<{ questions: Array<{ id: string; prompt: string; origin: string }> }>(`/api/businesses/${businessId}/questions`),
-  create: (businessId: string, prompt: string) =>
-    api(`/api/businesses/${businessId}/questions`, { method: "POST", body: JSON.stringify({ prompt, origin: "BUSINESS_OWNER" }) }),
+  list: (businessId: string) => api<{ questions: Question[] }>(`/api/businesses/${businessId}/questions`),
+  create: (businessId: string, input: { prompt: string; label: string | null; origin: string }) =>
+    api<{ question: Question }>(`/api/businesses/${businessId}/questions`, { method: "POST", body: JSON.stringify(input) }),
 }
 
 export const Checks = {
-  list: (businessId: string) =>
-    api<{ checkRuns: Array<{ id: string; status: string; provider: string; queuedAt: string; observationId: string | null; questionId: string }> }>(
-      `/api/businesses/${businessId}/check-runs`,
-    ),
-  run: (businessId: string, questionId: string) =>
-    api<{ checkRun: { id: string; status: string } }>(`/api/businesses/${businessId}/check-runs`, {
+  list: (businessId: string) => api<{ checkRuns: CheckRun[] }>(`/api/businesses/${businessId}/check-runs`),
+  run: (businessId: string, questionId: string, provider: "mock" | "9router" = "mock") =>
+    api<{ checkRun: CheckRun }>(`/api/businesses/${businessId}/check-runs`, {
       method: "POST",
-      body: JSON.stringify({ questionId, provider: "mock" }),
+      body: JSON.stringify({ questionId, provider }),
     }),
 }
 
 export const Observations = {
-  get: (observationId: string) =>
-    api<{ observation: { answer_text: string; provider: string; observed_model: string | null; collected_at: string; retrieval_mode: string } & Record<string, unknown>; claims: Array<{ id: string; text: string }> }>(
-      `/api/observations/${observationId}`,
-    ),
+  get: (observationId: string) => api<{ observation: Observation; claims: Claim[] }>(`/api/observations/${observationId}`),
 }
 
 export const Claims = {
@@ -74,12 +138,22 @@ export const Judgments = {
 }
 
 export const Issues = {
-  list: (businessId: string) =>
-    api<{ issues: Array<{ claim_id: string; claim_text: string; state: string; verdict: string | null; answer_text: string; provider: string; question_prompt: string; facts: Array<{ predicate: string; valueText: string }> }> }>(
-      `/api/businesses/${businessId}/issues`,
-    ),
-  overview: (businessId: string) =>
-    api<{ overview: { completed: string; last_checked: string | null; unreviewed: string; needs_attention: string } }>(
-      `/api/businesses/${businessId}/overview`,
-    ),
+  list: (businessId: string) => api<{ issues: Issue[] }>(`/api/businesses/${businessId}/issues`),
+  overview: (businessId: string) => api<{ overview: Overview }>(`/api/businesses/${businessId}/overview`),
+}
+
+export type VerdictCounts = { supported: number; wrong: number; partial: number; unknown: number; unreviewed: number }
+
+export type Analytics = {
+  range: { days: number; from: string; to: string }
+  current: VerdictCounts & { checks: number; answers: number; failed: number }
+  previous: VerdictCounts & { checks: number; answers: number }
+  daily: Array<VerdictCounts & { date: string; checks: number; failed: number }>
+  providers: Array<VerdictCounts & { provider: string; answers: number }>
+  questions: Array<VerdictCounts & { id: string; prompt: string; label: string | null; checks: number; last_checked_at: string | null }>
+  facts: Array<VerdictCounts & { id: string; predicate: string; value_text: string; status: string }>
+}
+
+export const AnalyticsApi = {
+  get: (businessId: string, days: number) => api<{ analytics: Analytics }>(`/api/businesses/${businessId}/analytics?days=${days}`),
 }
