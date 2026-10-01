@@ -85,6 +85,143 @@ interface Session {
   readonly accountId: string
 }
 
+// Claims joined to their observation and the head of their judgment chain.
+const CLAIMS_CTE = `
+  WITH claim_rows AS (
+    SELECT c.id AS claim_id, o.provider, o.collected_at, cr.question_id, j.id AS judgment_id,
+           COALESCE(j.verdict, 'UNREVIEWED') AS verdict
+    FROM candidate_claims c
+    JOIN observations o ON o.id = c.observation_id
+    LEFT JOIN check_runs cr ON cr.id = o.check_run_id
+    LEFT JOIN human_judgments j ON j.claim_id = c.id
+      AND NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id)
+    WHERE c.business_id = $1
+  )`
+
+const verdictCounts = (where: string) => `
+  count(*) FILTER (WHERE ${where} AND verdict = 'SUPPORTED')::int AS supported,
+  count(*) FILTER (WHERE ${where} AND verdict = 'CONTRADICTED')::int AS wrong,
+  count(*) FILTER (WHERE ${where} AND verdict = 'PARTIAL')::int AS partial,
+  count(*) FILTER (WHERE ${where} AND verdict = 'INSUFFICIENT_EVIDENCE')::int AS unknown,
+  count(*) FILTER (WHERE ${where} AND verdict = 'UNREVIEWED')::int AS unreviewed`
+
+const loadAnalytics = async (pool: pg.Pool, businessId: string, days: number) => {
+  const now = new Date()
+  const start = new Date(now.getTime() - days * 86_400_000)
+  const prevStart = new Date(start.getTime() - days * 86_400_000)
+  const args = [businessId, start.toISOString(), prevStart.toISOString()]
+
+  const [runTotals, claimTotals, daily, providers, questions, facts] = await Promise.all([
+    pool.query(
+      `SELECT
+         count(*) FILTER (WHERE queued_at >= $2)::int AS checks,
+         count(*) FILTER (WHERE queued_at >= $2 AND status = 'SUCCEEDED')::int AS succeeded,
+         count(*) FILTER (WHERE queued_at >= $2 AND status = 'FAILED')::int AS failed,
+         count(*) FILTER (WHERE queued_at >= $3 AND queued_at < $2)::int AS prev_checks,
+         count(*) FILTER (WHERE queued_at >= $3 AND queued_at < $2 AND status = 'SUCCEEDED')::int AS prev_succeeded
+       FROM check_runs WHERE business_id = $1`,
+      args,
+    ),
+    pool.query(
+      `${CLAIMS_CTE}
+       SELECT ${verdictCounts("collected_at >= $2")},
+              ${verdictCounts("collected_at >= $3 AND collected_at < $2").replace(/ AS (\w+)/g, " AS prev_$1")}
+       FROM claim_rows`,
+      args,
+    ),
+    pool.query(
+      `${CLAIMS_CTE},
+       day_series AS (SELECT generate_series(($2::timestamptz AT TIME ZONE 'UTC')::date, (now() AT TIME ZONE 'UTC')::date, interval '1 day')::date AS day),
+       runs AS (
+         SELECT (queued_at AT TIME ZONE 'UTC')::date AS day, count(*)::int AS checks,
+                count(*) FILTER (WHERE status = 'FAILED')::int AS failed
+         FROM check_runs WHERE business_id = $1 AND queued_at >= $2 GROUP BY 1
+       ),
+       claims AS (
+         SELECT (collected_at AT TIME ZONE 'UTC')::date AS day, ${verdictCounts("true")}
+         FROM claim_rows WHERE collected_at >= $2 GROUP BY 1
+       )
+       SELECT to_char(d.day, 'YYYY-MM-DD') AS date,
+              COALESCE(r.checks, 0) AS checks, COALESCE(r.failed, 0) AS failed,
+              COALESCE(c.supported, 0) AS supported, COALESCE(c.wrong, 0) AS wrong, COALESCE(c.partial, 0) AS partial,
+              COALESCE(c.unknown, 0) AS unknown, COALESCE(c.unreviewed, 0) AS unreviewed
+       FROM day_series d LEFT JOIN runs r ON r.day = d.day LEFT JOIN claims c ON c.day = d.day
+       ORDER BY d.day`,
+      args.slice(0, 2),
+    ),
+    pool.query(
+      `${CLAIMS_CTE},
+       answers AS (
+         SELECT provider, count(*)::int AS answers FROM observations
+         WHERE business_id = $1 AND collected_at >= $2 GROUP BY provider
+       ),
+       claims AS (SELECT provider, ${verdictCounts("true")} FROM claim_rows WHERE collected_at >= $2 GROUP BY provider)
+       SELECT COALESCE(a.provider, c.provider) AS provider, COALESCE(a.answers, 0) AS answers,
+              COALESCE(c.supported, 0) AS supported, COALESCE(c.wrong, 0) AS wrong, COALESCE(c.partial, 0) AS partial,
+              COALESCE(c.unknown, 0) AS unknown, COALESCE(c.unreviewed, 0) AS unreviewed
+       FROM answers a FULL OUTER JOIN claims c ON c.provider = a.provider
+       ORDER BY answers DESC`,
+      args.slice(0, 2),
+    ),
+    pool.query(
+      `${CLAIMS_CTE}
+       SELECT q.id, q.prompt, q.label,
+              (SELECT count(*)::int FROM check_runs r WHERE r.question_id = q.id AND r.queued_at >= $2) AS checks,
+              (SELECT max(o.collected_at) FROM observations o JOIN check_runs r ON r.id = o.check_run_id WHERE r.question_id = q.id) AS last_checked_at,
+              ${verdictCounts("cr.collected_at >= $2")}
+       FROM buyer_questions q
+       LEFT JOIN claim_rows cr ON cr.question_id = q.id
+       WHERE q.business_id = $1
+       GROUP BY q.id
+       ORDER BY wrong DESC, partial DESC, checks DESC`,
+      args.slice(0, 2),
+    ),
+    pool.query(
+      `${CLAIMS_CTE}
+       SELECT f.id, f.predicate, f.value_text, f.status, ${verdictCounts("true")}
+       FROM claim_rows cr
+       JOIN human_judgment_facts hjf ON hjf.judgment_id = cr.judgment_id
+       JOIN authoritative_facts f ON f.id = hjf.fact_id
+       WHERE cr.collected_at >= $2
+       GROUP BY f.id
+       ORDER BY wrong DESC, partial DESC`,
+      args.slice(0, 2),
+    ),
+  ])
+
+  const rt = runTotals.rows[0] as Record<string, number>
+  const ct = claimTotals.rows[0] as Record<string, number>
+  return {
+    range: { days, from: start.toISOString(), to: now.toISOString() },
+    current: {
+      checks: rt["checks"] ?? 0,
+      answers: rt["succeeded"] ?? 0,
+      failed: rt["failed"] ?? 0,
+      supported: ct["supported"] ?? 0,
+      wrong: ct["wrong"] ?? 0,
+      partial: ct["partial"] ?? 0,
+      unknown: ct["unknown"] ?? 0,
+      unreviewed: ct["unreviewed"] ?? 0,
+    },
+    previous: {
+      checks: rt["prev_checks"] ?? 0,
+      answers: rt["prev_succeeded"] ?? 0,
+      supported: ct["prev_supported"] ?? 0,
+      wrong: ct["prev_wrong"] ?? 0,
+      partial: ct["prev_partial"] ?? 0,
+      unknown: ct["prev_unknown"] ?? 0,
+      unreviewed: ct["prev_unreviewed"] ?? 0,
+    },
+    daily: daily.rows,
+    providers: providers.rows,
+    questions: questions.rows.map((r: Record<string, unknown>) => ({
+      ...r,
+      last_checked_at: r["last_checked_at"] ? new Date(r["last_checked_at"] as string).toISOString() : null,
+    })),
+    facts: facts.rows,
+  }
+}
+
 // Direct pg pool for auth/session lookups (small, explicit; repositories own the rest).
 const getSession = (pool: pg.Pool, sessionId: string): Promise<Session | null> =>
   pool
@@ -661,6 +798,34 @@ export const makeRouter = (pool: pg.Pool) => {
             })
             .filter((r) => (r["state"] as string) !== "RESOLVED")
           return yield* json(200, { issues })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    // ---- analytics (derived, read-only) ----
+    // Counts and breakdowns only: no composite scores. Claim verdicts use the
+    // head of each judgment chain, the same rule as the issues inbox. Days are
+    // bucketed in UTC (the V1 normalization convention).
+    HttpRouter.get(
+      "/api/businesses/:id/analytics",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          const req = yield* HttpServerRequest.HttpServerRequest
+          const daysParam = new URL(req.url, "http://localhost").searchParams.get("days") ?? "30"
+          const days = Number(daysParam)
+          if (!Number.isInteger(days) || days < 1 || days > 365) return yield* json(422, malformed)
+
+          const data = yield* Effect.tryPromise({
+            try: () => loadAnalytics(pool, businessId, days),
+            catch: () => ({ _tag: "Unknown" as const }),
+          })
+          return yield* json(200, { analytics: data })
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
