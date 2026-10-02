@@ -9,7 +9,7 @@
 //! evidence before any normalization; unknown metadata stays UNKNOWN
 //! (observed_model None, retrieval unknown, citations never invented).
 use crate::worker_contract::{
-    now_rfc3339, sha256_hex, WorkerJob, WorkerResult, RESULT_CONTRACT_VERSION,
+    now_rfc3339, sha256_hex, WorkerCitation, WorkerJob, WorkerResult, RESULT_CONTRACT_VERSION,
 };
 
 pub const NINE_ROUTER_PROVIDER: &str = "9router";
@@ -104,6 +104,9 @@ fn failed(
         citations: vec![],
         raw_digest: sha256_hex(&raw_bytes),
         raw_response: raw,
+        raw_bytes_hex: Some(hex::encode(&raw_bytes)),
+        raw_content_type: Some("application/json".to_string()),
+        provider_metadata: None,
         failure_class: Some(failure_class.to_string()),
         failure_detail_safe: Some(detail.to_string()),
     }
@@ -257,6 +260,8 @@ pub async fn execute_9router_with(
         .get("model")
         .and_then(|m| m.as_str())
         .map(|s| s.to_string());
+    let citations = provider_citations(&parsed);
+    let provider_metadata = provider_metadata(&parsed);
     WorkerResult {
         contract_version: RESULT_CONTRACT_VERSION.to_string(),
         run_id: job.run_id.clone(),
@@ -269,12 +274,75 @@ pub async fn execute_9router_with(
         // UNKNOWN unless directly proven: a chat completion carries no
         // grounding signal, and citations are never invented.
         retrieval_mode: "unknown".to_string(),
-        citations: vec![],
+        citations,
         raw_digest: sha256_hex(&bytes),
         raw_response: parsed,
+        raw_bytes_hex: Some(hex::encode(&bytes)),
+        raw_content_type: Some("application/json".to_string()),
+        provider_metadata,
         failure_class: None,
         failure_detail_safe: None,
     }
+}
+
+/// Citations exactly as the response returned them, in returned order.
+/// Accepts `{uri,title,position?,attributed?}` objects or bare URL strings;
+/// anything else is dropped rather than reinterpreted. Never invented.
+fn provider_citations(parsed: &serde_json::Value) -> Vec<WorkerCitation> {
+    let Some(items) = parsed.get("citations").and_then(|v| v.as_array()) else {
+        return vec![];
+    };
+    items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| {
+            let returned_position = i64::try_from(index + 1).ok();
+            if let Some(uri) = item.as_str() {
+                return Some(WorkerCitation {
+                    uri: Some(uri.to_string()),
+                    title: None,
+                    position: returned_position,
+                    attributed: false,
+                });
+            }
+            let text = |key: &str| item.get(key).and_then(|v| v.as_str()).map(str::to_string);
+            let (uri, title) = (text("uri"), text("title"));
+            if uri.is_none() && title.is_none() {
+                return None;
+            }
+            Some(WorkerCitation {
+                uri,
+                title,
+                position: item
+                    .get("position")
+                    .and_then(|v| v.as_i64())
+                    .or(returned_position),
+                attributed: item
+                    .get("attributed")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
+}
+
+/// Response-level metadata the router actually returned. Absent keys stay
+/// absent (never `null`); no keys at all means no metadata (UNKNOWN).
+fn provider_metadata(parsed: &serde_json::Value) -> Option<serde_json::Value> {
+    let mut out = serde_json::Map::new();
+    for key in [
+        "id",
+        "object",
+        "created",
+        "model",
+        "usage",
+        "system_fingerprint",
+    ] {
+        if let Some(value) = parsed.get(key) {
+            out.insert(key.to_string(), value.clone());
+        }
+    }
+    (!out.is_empty()).then_some(serde_json::Value::Object(out))
 }
 
 /// Synchronous entry point for the stdio worker binary: env config plus a
@@ -404,6 +472,32 @@ mod tests {
     }"#;
 
     #[test]
+    fn citations_are_only_what_the_provider_returned() {
+        assert!(provider_citations(&serde_json::json!({"choices": []})).is_empty());
+        let parsed = serde_json::json!({"citations": [
+            "https://a.example/",
+            {"uri": "https://b.example/", "title": "B", "position": 7, "attributed": true},
+            {"unrelated": 1},
+            42
+        ]});
+        let out = provider_citations(&parsed);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].uri.as_deref(), Some("https://a.example/"));
+        assert_eq!(out[0].position, Some(1));
+        assert!(!out[0].attributed);
+        assert_eq!(out[1].title.as_deref(), Some("B"));
+        assert_eq!(out[1].position, Some(7));
+        assert!(out[1].attributed);
+    }
+
+    #[test]
+    fn metadata_keeps_absent_keys_absent() {
+        let meta = provider_metadata(&serde_json::json!({"id": "x", "model": "m"})).unwrap();
+        assert_eq!(meta, serde_json::json!({"id": "x", "model": "m"}));
+        assert!(provider_metadata(&serde_json::json!({"choices": []})).is_none());
+    }
+
+    #[test]
     fn success_preserves_exact_bytes_and_metadata() {
         let stub = stub_once("200 OK", SUCCESS_BODY);
         let (out, seen) = run_with(&stub, |_| {}, |_| {});
@@ -416,7 +510,15 @@ mod tests {
         assert!(out.citations.is_empty());
         // Exact bytes preserved: digest matches the wire body, usage kept.
         assert_eq!(out.raw_digest, sha256_hex(SUCCESS_BODY.as_bytes()));
+        assert_eq!(
+            hex::decode(out.raw_bytes_hex.as_deref().expect("wire bytes")).expect("hex"),
+            SUCCESS_BODY.as_bytes()
+        );
         assert_eq!(out.raw_response["usage"]["total_tokens"], 30);
+        assert_eq!(
+            out.provider_metadata.as_ref().expect("metadata")["usage"]["total_tokens"],
+            30
+        );
         // One user prompt, explicit pinned model, no streaming.
         assert!(seen.contains("POST /v1/chat/completions"));
         assert!(

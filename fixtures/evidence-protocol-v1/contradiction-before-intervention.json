@@ -1,0 +1,200 @@
+{
+  "schema": "ghostping/evidence-packet-v1",
+  "schema_version": 1,
+  "id": "packet-claim-before",
+  "business": {
+    "id": "business-acme",
+    "name": "Acme"
+  },
+  "issue": {
+    "schema": "ghostping/issue-v1",
+    "schema_version": 1,
+    "id": "claim-before",
+    "business_id": "business-acme",
+    "observation_id": "observation-before",
+    "claim_id": "claim-before",
+    "type": {
+      "state": "KNOWN",
+      "value": "WRONG_PRICE"
+    },
+    "state": "WRONG",
+    "derived_from_judgment_id": "judgment-before-2",
+    "created_at": "2026-10-01T00:00:00.000Z"
+  },
+  "facts": [
+    {
+      "schema": "ghostping/fact-v1",
+      "schema_version": 1,
+      "id": "fact-acme-starter-price-v1",
+      "business_id": "business-acme",
+      "subject": "Acme Starter",
+      "predicate": "monthly price",
+      "value_text": "$39/month",
+      "value_type": "CURRENCY",
+      "status": "ACTIVE",
+      "version": 1,
+      "supersedes_id": null,
+      "valid_from": "2026-01-01T00:00:00.000Z",
+      "valid_until": null,
+      "source_kind": "MANUAL",
+      "created_at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "original_observation": {
+    "schema": "ghostping/observation-v1",
+    "schema_version": 1,
+    "id": "observation-before",
+    "business_id": "business-acme",
+    "measurement": {
+      "schema": "ghostping/measurement-context-v1",
+      "schema_version": 1,
+      "question": "How much does Acme Starter cost?",
+      "question_id": "question-acme-starter-price",
+      "question_version": {
+        "state": "KNOWN",
+        "value": "1"
+      },
+      "business_id": "business-acme",
+      "surface": {
+        "schema": "ghostping/surface-v1",
+        "schema_version": 1,
+        "kind": "DIRECT_API",
+        "product": "Acme fixture provider API",
+        "adapter": "fixture-direct-api",
+        "adapter_version": "1",
+        "gateway": {
+          "state": "NOT_APPLICABLE"
+        },
+        "requested_provider": {
+          "state": "KNOWN",
+          "value": "fixture-provider"
+        },
+        "requested_model": {
+          "state": "KNOWN",
+          "value": "fixture-model-a"
+        },
+        "observed_provider": {
+          "state": "KNOWN",
+          "value": "fixture-provider"
+        },
+        "observed_model": {
+          "state": "KNOWN",
+          "value": "fixture-model-a"
+        },
+        "account_state": {
+          "state": "KNOWN",
+          "value": "SERVICE_ACCOUNT"
+        },
+        "subscription_tier": {
+          "state": "NOT_APPLICABLE"
+        },
+        "locale": {
+          "state": "KNOWN",
+          "value": "en-US"
+        },
+        "region": {
+          "state": "KNOWN",
+          "value": "US"
+        },
+        "search_mode": {
+          "state": "KNOWN",
+          "value": "DISABLED"
+        },
+        "personalization_state": {
+          "state": "NOT_APPLICABLE"
+        },
+        "metadata_visibility": "FULL"
+      },
+      "observed_at": "2026-10-01T00:00:00.000Z",
+      "measurement_configuration": {
+        "state": "KNOWN",
+        "value": {
+          "max_tokens": 100,
+          "stream": false,
+          "temperature": 0
+        }
+      },
+      "sample_number": 1,
+      "repeat_id": {
+        "state": "KNOWN",
+        "value": "repeat-observation-before"
+      }
+    },
+    "raw_evidence": {
+      "id": "raw-observation-before",
+      "digest_sha256": "7067a313b33ca1b555a683cd2c1ea8592603db44b0827471a4600a3b7c93b85c",
+      "content_type": "application/json",
+      "received_at": "2026-10-01T00:00:00.000Z",
+      "reference": "ghostping://raw-evidence/7067a313b33ca1b555a683cd2c1ea8592603db44b0827471a4600a3b7c93b85c"
+    },
+    "normalized_answer_text": "$29/month",
+    "citations": [
+      {
+        "uri": "https://example.com/acme-review",
+        "title": "Acme review",
+        "position": 1,
+        "attributed": false
+      }
+    ],
+    "provider_metadata": {
+      "state": "KNOWN",
+      "value": {
+        "finish_reason": "stop"
+      }
+    },
+    "synthetic": true,
+    "created_at": "2026-10-01T00:00:00.000Z"
+  },
+  "claims": [
+    {
+      "schema": "ghostping/claim-v1",
+      "schema_version": 1,
+      "id": "claim-before",
+      "business_id": "business-acme",
+      "observation_id": "observation-before",
+      "text": "$29/month",
+      "origin": "MANUAL_EXACT_SPAN",
+      "created_at": "2026-10-01T00:00:00.000Z"
+    }
+  ],
+  "judgments": [
+    {
+      "schema": "ghostping/judgment-v1",
+      "schema_version": 1,
+      "id": "judgment-before-1",
+      "business_id": "business-acme",
+      "claim_id": "claim-before",
+      "verdict": "INSUFFICIENT_EVIDENCE",
+      "notes": null,
+      "fact_ids": [],
+      "supersedes_id": null,
+      "created_at": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "schema": "ghostping/judgment-v1",
+      "schema_version": 1,
+      "id": "judgment-before-2",
+      "business_id": "business-acme",
+      "claim_id": "claim-before",
+      "verdict": "CONTRADICTED",
+      "notes": null,
+      "fact_ids": [
+        "fact-acme-starter-price-v1"
+      ],
+      "supersedes_id": "judgment-before-1",
+      "created_at": "2026-10-01T00:05:00.000Z"
+    }
+  ],
+  "interventions": [],
+  "reobservations": [],
+  "reobservation_observations": [],
+  "reobservation_claims": [],
+  "reobservation_judgments": [],
+  "observed_outcome": "NOT_OBSERVED",
+  "causal_attribution": "UNKNOWN",
+  "explicit_unknowns": [],
+  "synthetic": true,
+  "generated_at": "2026-10-02T01:00:00.000Z",
+  "signatures": [],
+  "packet_digest": "f095b1080d519c6d9211b74e0da96afb90604f1def753584e0d59be68594a04e"
+}

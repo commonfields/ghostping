@@ -4,6 +4,7 @@ pub mod audit_storage;
 pub mod cache;
 pub mod config;
 pub mod content_generator;
+pub mod evidence_protocol;
 pub mod geo;
 pub mod gsc;
 pub mod integrity;

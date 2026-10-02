@@ -39,6 +39,12 @@ pub struct WorkerResult {
     pub citations: Vec<WorkerCitation>,
     pub raw_digest: String,
     pub raw_response: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_bytes_hex: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_content_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<serde_json::Value>,
     pub failure_class: Option<String>,
     pub failure_detail_safe: Option<String>,
 }
@@ -106,6 +112,9 @@ pub fn execute_job(job: &WorkerJob) -> WorkerResult {
             citations: vec![],
             raw_digest: sha256_hex(b"contract-mismatch"),
             raw_response: serde_json::json!({"error": "unknown contract version"}),
+            raw_bytes_hex: None,
+            raw_content_type: None,
+            provider_metadata: None,
             failure_class: Some("WORKER_CONTRACT_MISMATCH".to_string()),
             failure_detail_safe: Some(format!(
                 "expected {}, got {}",
@@ -128,6 +137,9 @@ pub fn execute_job(job: &WorkerJob) -> WorkerResult {
             citations: vec![],
             raw_digest: sha256_hex(b"unsupported-provider"),
             raw_response: serde_json::json!({"error": "unsupported provider in hosted V1"}),
+            raw_bytes_hex: None,
+            raw_content_type: None,
+            provider_metadata: None,
             failure_class: Some("WORKER_FAILED".to_string()),
             failure_detail_safe: Some(
                 "only provider=mock,9router is enabled in Hosted V1".to_string(),
@@ -157,6 +169,9 @@ pub fn execute_job(job: &WorkerJob) -> WorkerResult {
             citations: vec![],
             raw_digest: sha256_hex(&raw_bytes),
             raw_response: raw,
+            raw_bytes_hex: Some(hex::encode(&raw_bytes)),
+            raw_content_type: Some("application/json".to_string()),
+            provider_metadata: None,
             failure_class: Some("PROVIDER_UNAVAILABLE".to_string()),
             failure_detail_safe: Some(
                 "mock simulated provider failure (safe detail only)".to_string(),
@@ -189,6 +204,9 @@ pub fn execute_job(job: &WorkerJob) -> WorkerResult {
         citations: vec![],
         raw_digest: sha256_hex(&raw_bytes),
         raw_response: raw,
+        raw_bytes_hex: Some(hex::encode(&raw_bytes)),
+        raw_content_type: Some("application/json".to_string()),
+        provider_metadata: Some(serde_json::json!({"synthetic": true})),
         failure_class: None,
         failure_detail_safe: None,
     }
@@ -251,6 +269,8 @@ mod tests {
         let a = execute_job(&job("How much does Northstar cost?"));
         let b = execute_job(&job("How much does Northstar cost?"));
         assert_eq!(a.raw_digest, b.raw_digest);
+        let raw = hex::decode(a.raw_bytes_hex.expect("mock exact bytes")).expect("hex");
+        assert_eq!(sha256_hex(&raw), a.raw_digest);
     }
 
     #[test]

@@ -11,10 +11,10 @@ export default tseslint.config(
   },
   ...tseslint.configs.recommended.map((c) => ({
     ...c,
-    files: ["apps/*/src/**/*.ts", "apps/web/app/**/*.ts", "apps/web/app/**/*.tsx", "apps/web/tests/**/*.ts", "packages/*/src/**/*.ts", "packages/*/test/**/*.ts"],
+    files: ["apps/*/src/**/*.ts", "apps/web/app/**/*.ts", "apps/web/app/**/*.tsx", "apps/web/tests/**/*.ts", "packages/*/src/**/*.ts", "packages/*/test/**/*.ts", "packages/*/scripts/**/*.ts"],
   })),
   {
-    files: ["apps/*/src/**/*.ts", "apps/web/app/**/*.ts", "apps/web/app/**/*.tsx", "apps/web/tests/**/*.ts", "packages/*/src/**/*.ts", "packages/*/test/**/*.ts"],
+    files: ["apps/*/src/**/*.ts", "apps/web/app/**/*.ts", "apps/web/app/**/*.tsx", "apps/web/tests/**/*.ts", "packages/*/src/**/*.ts", "packages/*/test/**/*.ts", "packages/*/scripts/**/*.ts"],
     rules: {
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "error",

@@ -4,9 +4,23 @@
 [![Rust 1.75+](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](https://github.com/commonfields/ghostping/releases)
 
-> **The private, local-first GEO companion for indie builders — track, generate, and optimize your visibility in AI answers.**
+> **Evidence-backed AI representation integrity, with a local-first CLI for legacy GEO workflows.**
 
-Ghostping measures how often LLMs mention, cite, and recommend your brand, then generates content to improve those odds. Your audit history lives in local SQLite — no SaaS, no subscriptions.
+Ghostping is evolving into an evidence system that separates what a business authorizes, what an AI surface emits, what a reviewer concludes, what operators change, and what a matched later observation shows. It preserves explicit unknowns and does not treat correlation as causality.
+
+The existing CLI still measures mention, citation, and recommendation behavior and can draft content. Its local audit history lives in SQLite. The hosted evidence engine uses PostgreSQL. These legacy features remain available, but their directional scores are not authoritative truth.
+
+## Evidence Protocol V1
+
+The canonical portable protocol is in [`packages/protocol`](packages/protocol), with generated schemas in [`schemas/ghostping`](schemas/ghostping) and shared Rust/TypeScript fixtures in [`fixtures/evidence-protocol-v1`](fixtures/evidence-protocol-v1). See [`docs/protocol/README.md`](docs/protocol/README.md).
+
+The core lineage is: authoritative fact → observation → candidate claim → human judgment → issue → intervention → matched re-observation → evidence packet. Raw evidence remains canonical; normalized text and outcomes are derived. V1 adds no public developer API or MCP server.
+
+> Observation is not interpretation. Interpretation is not authority. Correlation is not causality. Unknown is not false.
+
+## Legacy CLI: GEO visibility tracking
+
+The sections below document the existing local CLI. Its rates are directional measurements, not evidence packets.
 
 ```
   Mention rate:          67.0% (8/12 responses mentioned)

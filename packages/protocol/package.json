@@ -1,0 +1,29 @@
+{
+  "name": "@ghostping/protocol",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint src test scripts --max-warnings 0",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json",
+    "schemas": "tsx scripts/generate-schemas.ts",
+    "fixtures": "tsx scripts/generate-fixtures.ts"
+  },
+  "dependencies": {
+    "effect": "3.22.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "tsx": "4.19.2",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4",
+    "@ghostping/domain": "workspace:*"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  }
+}
