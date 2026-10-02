@@ -45,11 +45,17 @@ jobs:
       - name: Build ghostping-worker
         run: cargo build --locked --bin ghostping-worker
 
+      - name: Release build (all targets)
+        run: cargo build --release --locked
+
       - name: ghostping-worker contract tests (mock only, no network)
         run: cargo test --locked worker_contract
 
       - name: Cross-language worker fixtures (Rust side)
         run: cargo test --locked --test worker_contract_fixtures
+
+      - name: Evidence protocol fixtures (Rust side)
+        run: cargo test --locked --test evidence_protocol_fixtures
 
       - name: CLI exit contracts (isolated HOME, mock only, no network)
         run: GHOSTPING_BIN="${{ github.workspace }}/target/debug/ghostping" bash scripts/check-cli-contracts.sh
@@ -140,6 +146,9 @@ jobs:
 
       - name: Cross-language contract fixtures (TypeScript side)
         run: pnpm --filter @ghostping/contracts test
+
+      - name: Evidence protocol schemas and fixtures (TypeScript side)
+        run: pnpm --filter @ghostping/protocol test
 
       - name: Provider boundary guard (mock only, enforced by tests)
         run: |
