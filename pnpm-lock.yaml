@@ -163,6 +163,9 @@ importers:
       '@ghostping/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@ghostping/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       effect:
         specifier: 3.22.2
         version: 3.22.2
@@ -232,6 +235,9 @@ importers:
       '@ghostping/domain':
         specifier: workspace:*
         version: link:../domain
+      '@ghostping/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       effect:
         specifier: 3.22.2
         version: 3.22.2
@@ -264,6 +270,28 @@ importers:
       '@types/node':
         specifier: 24.10.1
         version: 24.10.1
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@24.10.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.19.2)
+
+  packages/protocol:
+    dependencies:
+      effect:
+        specifier: 3.22.2
+        version: 3.22.2
+    devDependencies:
+      '@ghostping/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@types/node':
+        specifier: 24.10.1
+        version: 24.10.1
+      tsx:
+        specifier: 4.19.2
+        version: 4.19.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3

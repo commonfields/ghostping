@@ -25,6 +25,7 @@ import {
   QuestionRepository,
 } from "@ghostping/db"
 import type { WorkerResultV1 } from "@ghostping/contracts"
+import type { MeasurementContextV1 } from "@ghostping/protocol"
 
 const NoDelayRetry = Schedule.recurs(3)
 
@@ -103,11 +104,14 @@ const QuestionsStub = Layer.succeed(QuestionRepository, {
     }),
 })
 
-const ObsStub = (state: { created: boolean }) =>
+type ObsState = { created: boolean; input?: Record<string, unknown> }
+
+const ObsStub = (state: ObsState) =>
   Layer.succeed(ObservationRepository, {
-    create: () =>
+    create: (input) =>
       Effect.sync(() => {
         state.created = true
+        state.input = input as unknown as Record<string, unknown>
         return {
           id: "o1",
           businessId: "b1",
@@ -120,6 +124,9 @@ const ObsStub = (state: { created: boolean }) =>
           retrievalMode: "unknown",
           rawEvidenceId: "r1",
           rawDigest: "d",
+          surfaceIdentity: null,
+          measurementContext: null,
+          synthetic: true,
           citations: [],
         }
       }),
@@ -129,9 +136,9 @@ const ObsStub = (state: { created: boolean }) =>
 
 const runCase = async (
   script: Array<WorkerResultV1 | WorkerContractMismatch | WorkerFailed | ProviderTimeout>,
-): Promise<{ attempts: number; finished: { status: string; failureClass: string | null } | null; obs: boolean }> => {
+): Promise<{ attempts: number; finished: { status: string; failureClass: string | null } | null; obs: boolean; obsInput: Record<string, unknown> | undefined }> => {
   const runState: RunState = { finished: null, attempts: 0 }
-  const obsState = { created: false }
+  const obsState: ObsState = { created: false }
   let calls = 0
   const Worker = Layer.succeed(RustObservationWorker, {
     invoke: () => {
@@ -155,7 +162,7 @@ const runCase = async (
     Effect.flatMap(CheckRunner, (r) => r.runOnce()).pipe(Effect.provide(RunnerTest)),
   )
   if (!did) throw new Error("expected runOnce to claim work")
-  return { attempts: runState.attempts, finished: runState.finished, obs: obsState.created }
+  return { attempts: runState.attempts, finished: runState.finished, obs: obsState.created, obsInput: obsState.input }
 }
 
 describe("CheckRunner retry taxonomy", () => {
@@ -168,6 +175,28 @@ describe("CheckRunner retry taxonomy", () => {
     expect(out.finished?.status).toBe("SUCCEEDED")
     expect(out.obs).toBe(true)
     expect(out.attempts).toBe(1)
+  })
+
+  it("records protocol provenance: mock is MOCK and synthetic, with the exact prompt", async () => {
+    const out = await runCase([okResult()])
+    const context = out.obsInput?.["measurementContext"] as MeasurementContextV1
+    expect(context.schema).toBe("ghostping/measurement-context-v1")
+    expect(context.question).toBe("How much does Northstar cost?")
+    expect(context.surface.kind).toBe("MOCK")
+    expect(out.obsInput?.["synthetic"]).toBe(true)
+    expect(out.obsInput?.["surfaceIdentity"]).toEqual(context.surface)
+  })
+
+  it("records 9Router as ROUTER_API without inferring hidden state", async () => {
+    const out = await runCase([okResult({ provider: "9router", requested_model: "pin-a", observed_model: null })])
+    const context = out.obsInput?.["measurementContext"] as MeasurementContextV1
+    expect(context.surface.kind).toBe("ROUTER_API")
+    expect(context.surface.gateway).toEqual({ state: "KNOWN", value: "9router" })
+    expect(context.surface.requested_model).toEqual({ state: "KNOWN", value: "pin-a" })
+    expect(context.surface.observed_model).toEqual({ state: "UNKNOWN" })
+    expect(context.surface.search_mode).toEqual({ state: "UNKNOWN" })
+    expect(out.obsInput?.["synthetic"]).toBe(false)
+    expect(out.obsInput?.["providerMetadata"]).toBeNull()
   })
 
   it("rate-limited twice then success: 3 attempts, SUCCEEDED", async () => {

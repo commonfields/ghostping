@@ -1,5 +1,6 @@
 // Effect repository services over PostgreSQL (@effect/sql-pg).
 // Explicit SQL; no ORM. Every customer-data query is account-scoped.
+import { createHash } from "node:crypto"
 import { Context, Data, Effect, Layer } from "effect"
 import { PgClient } from "@effect/sql-pg"
 import type { SqlClient } from "@effect/sql"
@@ -12,6 +13,8 @@ export type DbEffect<A> = Effect.Effect<A, SqlError>
 export class RawDigestMismatch extends Data.TaggedError("RawDigestMismatch")<{
   readonly digest: string
 }> {}
+
+const sha256Hex = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex")
 
 // Row helpers: pg returns UUIDs as strings, timestamptz as Date|string.
 const iso = (v: unknown): string =>
@@ -421,6 +424,9 @@ export interface ObservationRow {
   readonly retrievalMode: string
   readonly rawEvidenceId: string
   readonly rawDigest: string
+  readonly surfaceIdentity: unknown | null
+  readonly measurementContext: unknown | null
+  readonly synthetic: boolean
   readonly citations: ReadonlyArray<{
     readonly uri: string | null
     readonly title: string | null
@@ -443,6 +449,12 @@ export class ObservationRepository extends Context.Tag("ObservationRepository")<
       retrievalMode: string
       rawResponse: unknown
       rawDigest: string
+      rawBytesHex?: string | null
+      rawContentType?: string | null
+      providerMetadata?: unknown
+      surfaceIdentity?: unknown
+      measurementContext?: unknown
+      synthetic?: boolean
       citations: ReadonlyArray<{
         readonly uri: string | null
         readonly title: string | null
@@ -473,25 +485,32 @@ export const ObservationRepositoryLive = Layer.effect(
       create: (input) =>
         Effect.gen(function*() {
           const rawText = JSON.stringify(input.rawResponse)
+          // Exact wire bytes are canonical evidence: they must hash to the
+          // digest the worker reported, or nothing is stored.
+          if (input.rawBytesHex != null && sha256Hex(Buffer.from(input.rawBytesHex, "hex")) !== input.rawDigest) {
+            return yield* Effect.fail(new RawDigestMismatch({ digest: input.rawDigest }))
+          }
           // Immutable get-or-insert: never UPDATE the existing row (the
           // raw_evidence trigger forbids it). Repeated identical provider
           // payloads share one content-addressed row.
           yield* sql`
-            INSERT INTO raw_evidence (digest, content_text) VALUES (${input.rawDigest}, ${rawText})
+            INSERT INTO raw_evidence (digest, content_text, raw_bytes_hex, received_at, provider_metadata, content_type)
+            VALUES (${input.rawDigest}, ${rawText}, ${input.rawBytesHex ?? null}, ${input.collectedAt}::timestamptz, ${input.providerMetadata == null ? null : JSON.stringify(input.providerMetadata)}::jsonb, ${input.rawContentType ?? "application/json"})
             ON CONFLICT (digest) DO NOTHING`
-          const existing = (yield* sql`SELECT id, digest, content_text FROM raw_evidence WHERE digest = ${input.rawDigest}`) as Array<
+          const existing = (yield* sql`SELECT id, digest, content_text, raw_bytes_hex FROM raw_evidence WHERE digest = ${input.rawDigest}`) as Array<
             Record<string, unknown>
           >
           const row = existing[0]
           if (!row) return yield* Effect.dieMessage("raw_evidence insert produced no row")
-          if (String(row["content_text"]) !== rawText) {
+          const storedBytes = row["raw_bytes_hex"] as string | null
+          if (String(row["content_text"]) !== rawText || (storedBytes !== null && input.rawBytesHex != null && storedBytes !== input.rawBytesHex)) {
             // Same digest, different bytes: fail closed, keep the original.
             return yield* Effect.fail(new RawDigestMismatch({ digest: input.rawDigest }))
           }
           const rawId = String(row["id"])
           const obs = (yield* sql`
-            INSERT INTO observations (business_id, check_run_id, provider, requested_model, observed_model, collected_at, answer_text, retrieval_mode, raw_evidence_id, raw_digest)
-            VALUES (${input.businessId}, ${input.checkRunId}, ${input.provider}, ${input.requestedModel}, ${input.observedModel}, ${input.collectedAt}::timestamptz, ${input.answerText}, ${input.retrievalMode}, ${rawId}, ${input.rawDigest})
+            INSERT INTO observations (business_id, check_run_id, provider, requested_model, observed_model, collected_at, answer_text, retrieval_mode, raw_evidence_id, raw_digest, surface_identity, measurement_context, synthetic)
+            VALUES (${input.businessId}, ${input.checkRunId}, ${input.provider}, ${input.requestedModel}, ${input.observedModel}, ${input.collectedAt}::timestamptz, ${input.answerText}, ${input.retrievalMode}, ${rawId}, ${input.rawDigest}, ${input.surfaceIdentity == null ? null : JSON.stringify(input.surfaceIdentity)}::jsonb, ${input.measurementContext == null ? null : JSON.stringify(input.measurementContext)}::jsonb, ${input.synthetic ?? false})
             RETURNING *`) as Array<Record<string, unknown>>
           const o = obs[0] as Record<string, unknown>
           for (const c of input.citations) {
@@ -510,6 +529,9 @@ export const ObservationRepositoryLive = Layer.effect(
             retrievalMode: String(o["retrieval_mode"]),
             rawEvidenceId: String(o["raw_evidence_id"]),
             rawDigest: String(o["raw_digest"]),
+            surfaceIdentity: o["surface_identity"] ?? null,
+            measurementContext: o["measurement_context"] ?? null,
+            synthetic: Boolean(o["synthetic"]),
             citations,
           }
         }),
@@ -533,6 +555,9 @@ export const ObservationRepositoryLive = Layer.effect(
             retrievalMode: String(o["retrieval_mode"]),
             rawEvidenceId: String(o["raw_evidence_id"]),
             rawDigest: String(o["raw_digest"]),
+            surfaceIdentity: o["surface_identity"] ?? null,
+            measurementContext: o["measurement_context"] ?? null,
+            synthetic: Boolean(o["synthetic"]),
             citations,
           }
         }),
@@ -556,6 +581,9 @@ export const ObservationRepositoryLive = Layer.effect(
             retrievalMode: String(o["retrieval_mode"]),
             rawEvidenceId: String(o["raw_evidence_id"]),
             rawDigest: String(o["raw_digest"]),
+            surfaceIdentity: o["surface_identity"] ?? null,
+            measurementContext: o["measurement_context"] ?? null,
+            synthetic: Boolean(o["synthetic"]),
             citations,
           }
         }),
@@ -746,3 +774,4 @@ export const JudgmentRepositoryLive = Layer.effect(
       }),
   })),
 )
+

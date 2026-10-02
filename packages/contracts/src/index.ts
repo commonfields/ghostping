@@ -31,6 +31,11 @@ export const WorkerResultV1 = Schema.Struct({
   ),
   raw_digest: Schema.String,
   raw_response: Schema.Unknown,
+  // Additive result-v1 fields. Older golden fixtures remain decodable; new
+  // workers preserve exact response bytes rather than reconstructing them.
+  raw_bytes_hex: Schema.optional(Schema.NullOr(Schema.String)),
+  raw_content_type: Schema.optional(Schema.NullOr(Schema.String)),
+  provider_metadata: Schema.optional(Schema.Unknown),
   failure_class: Schema.NullOr(Schema.String),
   failure_detail_safe: Schema.NullOr(Schema.String),
 })

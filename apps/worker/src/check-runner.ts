@@ -14,11 +14,13 @@ import pg from "pg"
 import {
   CheckRunRepository,
   ObservationRepository,
+  hostedMeasurementContext,
   QuestionRepository,
   type RawDigestMismatch,
 } from "@ghostping/db"
 import { isRetryableFailure, type FailureClass } from "@ghostping/domain"
 import type { WorkerResultV1 } from "@ghostping/contracts"
+import type { MeasurementContextV1 } from "@ghostping/protocol"
 import {
   ProviderTimeout,
   RetrySchedule,
@@ -204,6 +206,24 @@ export const makeCheckRunnerLive = (
               },
               onSuccess: ({ result: r, attempt, latencyMs }) =>
                 Effect.gen(function*() {
+                  // Protocol provenance. Only providers with a defined surface
+                  // mapping get a context; anything else stays unrecorded
+                  // (exported as UNKNOWN) rather than guessed.
+                  let measurementContext: MeasurementContextV1 | null = null
+                  try {
+                    measurementContext = hostedMeasurementContext({
+                      businessId: claimed.businessId,
+                      questionId: claimed.questionId,
+                      checkRunId: claimed.id,
+                      prompt,
+                      provider: r.provider,
+                      requestedModel: r.requested_model,
+                      observedModel: r.observed_model,
+                      observedAt: r.collected_at,
+                    })
+                  } catch {
+                    measurementContext = null
+                  }
                   yield* observations.create({
                     businessId: claimed.businessId,
                     checkRunId: claimed.id,
@@ -215,6 +235,12 @@ export const makeCheckRunnerLive = (
                     retrievalMode: r.retrieval_mode,
                     rawResponse: r.raw_response,
                     rawDigest: r.raw_digest,
+                    rawBytesHex: r.raw_bytes_hex ?? null,
+                    rawContentType: r.raw_content_type ?? "application/json",
+                    providerMetadata: r.provider_metadata ?? null,
+                    surfaceIdentity: measurementContext?.surface ?? null,
+                    measurementContext,
+                    synthetic: r.provider === "mock",
                     citations: r.citations,
                   })
                   yield* runs.markFinished(claimed.id, "SUCCEEDED", null, null)

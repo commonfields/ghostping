@@ -19,6 +19,7 @@
     "@ghostping/contracts": "workspace:*",
     "@ghostping/db": "workspace:*",
     "@ghostping/domain": "workspace:*",
+    "@ghostping/protocol": "workspace:*",
     "effect": "3.22.2",
     "pg": "8.13.1"
   },
