@@ -1,0 +1,76 @@
+{
+  "accepted": [
+    {
+      "input": {
+        "b": 2,
+        "a": [
+          3,
+          {
+            "z": null,
+            "y": "x"
+          }
+        ]
+      },
+      "canonical": "{\"a\":[3,{\"y\":\"x\",\"z\":null}],\"b\":2}",
+      "sha256": "feff1ef7140fdbfb2fea43dd5235c0d8b90baeb4cacd0ad5f85582c7f5b4375c"
+    },
+    {
+      "input": {
+        "2": "two",
+        "10": "ten",
+        "a": "a",
+        "é": "e-acute",
+        "😀": "emoji",
+        "ﬀ": "ligature",
+        "Z": "upper"
+      },
+      "canonical": "{\"10\":\"ten\",\"2\":\"two\",\"Z\":\"upper\",\"a\":\"a\",\"é\":\"e-acute\",\"ﬀ\":\"ligature\",\"😀\":\"emoji\"}",
+      "sha256": "ee1c023c4c41493ffc8e9e92b591ceb26b8cbcd3fa564acd3b12288e042cedba"
+    },
+    {
+      "input": {
+        "numbers": [
+          0,
+          0,
+          1,
+          -1,
+          0.7,
+          1.5,
+          100,
+          1e-7,
+          0.000001,
+          123456789012,
+          9007199254740991,
+          1.5e-10,
+          123.456
+        ]
+      },
+      "canonical": "{\"numbers\":[0,0,1,-1,0.7,1.5,100,1e-7,0.000001,123456789012,9007199254740991,1.5e-10,123.456]}",
+      "sha256": "bf68be598604296b1065a55a1bf4859cfc95ad7e8d39483ad7352ae7c630e225"
+    },
+    {
+      "input": {
+        "text": "tab\tnewline\ncontrol\u0001quote\"backslash\\slash/unicode é  "
+      },
+      "canonical": "{\"text\":\"tab\\tnewline\\ncontrol\\u0001quote\\\"backslash\\\\slash/unicode é  \"}",
+      "sha256": "a69938ffa0b6e28a2486442de56dbbe813d6d74e0bf69bce543edc57dbf56b1b"
+    },
+    {
+      "input": {
+        "nested": {
+          "empty_object": {},
+          "empty_array": [],
+          "bool": true,
+          "nil": null
+        }
+      },
+      "canonical": "{\"nested\":{\"bool\":true,\"empty_array\":[],\"empty_object\":{},\"nil\":null}}",
+      "sha256": "dcb7dc057160e8b51ae7cf209944380b2e859dce09ec4425d1390f6cc7c82b42"
+    }
+  ],
+  "rejected": [
+    "{\"n\":1e21}",
+    "{\"n\":9007199254740993}",
+    "{\"s\":\"\\ud800\"}"
+  ]
+}

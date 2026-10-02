@@ -1,0 +1,150 @@
+{
+  "changed-unjudged": {
+    "valid": true,
+    "packet_digest": "5bf937bceae966417c9ed87c89f29c5825aa88a639d2249c26c9c59ac75db5b7",
+    "synthetic": true,
+    "observed_outcome": "INDETERMINATE",
+    "match_classifications": [
+      "EXACT_MATCH"
+    ],
+    "outcomes": [
+      "INDETERMINATE"
+    ]
+  },
+  "complete-supported": {
+    "valid": true,
+    "packet_digest": "170e539949f6f2487cf3c4853b07fdfc648697b897b45007dc99f3ddd89928d6",
+    "synthetic": true,
+    "observed_outcome": "NOT_OBSERVED",
+    "match_classifications": [],
+    "outcomes": []
+  },
+  "contradiction-before-intervention": {
+    "valid": true,
+    "packet_digest": "f095b1080d519c6d9211b74e0da96afb90604f1def753584e0d59be68594a04e",
+    "synthetic": true,
+    "observed_outcome": "NOT_OBSERVED",
+    "match_classifications": [],
+    "outcomes": []
+  },
+  "corrected-reobservation": {
+    "valid": true,
+    "packet_digest": "6e20cf373adc218a22d0254f21097f5976b2248a70f751fd63820a10555a8039",
+    "synthetic": true,
+    "observed_outcome": "OBSERVED_CORRECTION",
+    "match_classifications": [
+      "EXACT_MATCH"
+    ],
+    "outcomes": [
+      "OBSERVED_CORRECTION"
+    ]
+  },
+  "corrective-intervention": {
+    "valid": true,
+    "packet_digest": "d024c747d6a1a693ce973ef820e00c980f0b5627bda5248299b10d491f12c01a",
+    "synthetic": true,
+    "observed_outcome": "OBSERVED_CORRECTION",
+    "match_classifications": [
+      "EXACT_MATCH"
+    ],
+    "outcomes": [
+      "OBSERVED_CORRECTION"
+    ]
+  },
+  "incomparable-reobservation": {
+    "valid": true,
+    "packet_digest": "0beee6ecc638d899b19898199849d07dc20a07bf46c03390350809048ab1935a",
+    "synthetic": true,
+    "observed_outcome": "INDETERMINATE",
+    "match_classifications": [
+      "NOT_COMPARABLE"
+    ],
+    "outcomes": [
+      "INDETERMINATE"
+    ]
+  },
+  "indeterminate-hidden-dimensions": {
+    "valid": true,
+    "packet_digest": "c51941dd60989e9ff8042fc06d47126a9a3a23d49f92d6fd23f72a5c8eeb4661",
+    "synthetic": true,
+    "observed_outcome": "INDETERMINATE",
+    "match_classifications": [
+      "INDETERMINATE"
+    ],
+    "outcomes": [
+      "INDETERMINATE"
+    ]
+  },
+  "intervention-not-observed": {
+    "valid": true,
+    "packet_digest": "6d430f8198e38c1c0f12b4bfd2cc6dccc67edb335a29147899f5ef2b7843f8d7",
+    "synthetic": true,
+    "observed_outcome": "NOT_OBSERVED",
+    "match_classifications": [],
+    "outcomes": []
+  },
+  "malformed-digest-mismatch": {
+    "valid": false,
+    "reason": "DigestMismatch"
+  },
+  "malformed-future-version": {
+    "valid": false,
+    "reason": "UnsupportedSchemaVersion"
+  },
+  "malformed-missing-required": {
+    "valid": false,
+    "reason": "SchemaViolation"
+  },
+  "malformed-mock-not-synthetic": {
+    "valid": false,
+    "reason": "MockObservationNotSynthetic"
+  },
+  "malformed-overclaimed-outcome": {
+    "valid": false,
+    "reason": "DerivationMismatch"
+  },
+  "mock-synthetic": {
+    "valid": true,
+    "packet_digest": "65ebe7356aff0c9a192da9ef37fe3bd26e9c76514d7b69efdfcba12c541a79eb",
+    "synthetic": true,
+    "observed_outcome": "NOT_OBSERVED",
+    "match_classifications": [],
+    "outcomes": []
+  },
+  "router-api-reobservation": {
+    "valid": true,
+    "packet_digest": "6c9f6502e41ffb8b5694b2d20c44b4fd2f0b9fa6dc4a8c74f87a4a6cd16e1bf0",
+    "synthetic": true,
+    "observed_outcome": "INDETERMINATE",
+    "match_classifications": [
+      "INDETERMINATE"
+    ],
+    "outcomes": [
+      "INDETERMINATE"
+    ]
+  },
+  "superseded-fact": {
+    "valid": true,
+    "packet_digest": "f004b3e161464d5e564ddd6ec427d3fb361858443c35ec4183d09bc258aef7b5",
+    "synthetic": true,
+    "observed_outcome": "OBSERVED_DIFFERENCE",
+    "match_classifications": [
+      "EXACT_MATCH"
+    ],
+    "outcomes": [
+      "OBSERVED_DIFFERENCE"
+    ]
+  },
+  "unknown-attribution": {
+    "valid": true,
+    "packet_digest": "b078c395cddaf357c44b3fde06adb5e9a1b7d2134088000371bd6f5108cb2638",
+    "synthetic": true,
+    "observed_outcome": "OBSERVED_CORRECTION",
+    "match_classifications": [
+      "EXACT_MATCH"
+    ],
+    "outcomes": [
+      "OBSERVED_CORRECTION"
+    ]
+  }
+}
