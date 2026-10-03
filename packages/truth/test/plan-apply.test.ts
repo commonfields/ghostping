@@ -16,7 +16,10 @@ import {
   syncManifestFacts,
   syncVerificationBindings,
   type FactSyncStore,
+  type FactTxStore,
+  type ManifestFactV1,
   type ProjectionLock,
+  type Provenance,
   type ResolvedFact,
   type SyncedFact,
 } from "../src/index.js"
@@ -28,24 +31,25 @@ const memStore = (): FactSyncStore & { modes: Map<string, "HOSTED" | "REPOSITORY
   const rows = new Map<string, SyncedFact & { business: string }>()
   let n = 0
   const activeFor = (businessId: string) => [...rows.values()].filter((r) => r.business === businessId && r.status === "ACTIVE")
-  return {
+  const self = {
     modes,
     rows,
-    mode: async (b) => modes.get(b) ?? null,
-    factCount: async (b) => [...rows.values()].filter((r) => r.business === b).length,
-    setMode: async (b, m) => {
+    mode: async (b: string) => modes.get(b) ?? null,
+    factCount: async (b: string) => [...rows.values()].filter((r) => r.business === b).length,
+    setMode: async (b: string, m: "HOSTED" | "REPOSITORY_MANIFEST") => {
       modes.set(b, m)
     },
-    activeFacts: async (b) => activeFor(b),
-    provenanceKeys: async (b) => new Set([...rows.values()].filter((r) => r.business === b).map((r) => r.key)),
-    create: async (b, fact, bridged, prov) => {
+    transact: async <T>( _businessId: string, fn: (tx: FactTxStore) => Promise<T>): Promise<T> => fn(self as unknown as FactTxStore),
+    activeFacts: async (b: string) => activeFor(b),
+    provenanceKeys: async (b: string) => new Set([...rows.values()].filter((r) => r.business === b).map((r) => r.key)),
+    create: async (b: string, fact: ManifestFactV1, bridged: { value_text: string; value_type: string }, prov: Provenance) => {
       n += 1
       const row = { id: `fact-${n}`, key: prov.manifest_key, version: 1, status: "ACTIVE" as const, value: fact.value, valid_from: fact.valid_from, valid_until: fact.valid_until, business: b }
       void bridged
       rows.set(row.id, row)
       return row
     },
-    supersede: async (b, prevId, fact, bridged, prov) => {
+    supersede: async (b: string, prevId: string, fact: ManifestFactV1, bridged: { value_text: string; value_type: string }, prov: Provenance) => {
       const prev = rows.get(prevId)!
       rows.set(prevId, { ...prev, status: "SUPERSEDED" })
       n += 1
@@ -54,18 +58,21 @@ const memStore = (): FactSyncStore & { modes: Map<string, "HOSTED" | "REPOSITORY
       rows.set(row.id, row)
       return row
     },
-    retire: async (_b, factId) => {
+    retire: async (_b: string, factId: string) => {
       const prev = rows.get(factId)!
       rows.set(factId, { ...prev, status: "RETIRED" })
     },
   }
+  return self
 }
 
 describe("authority", () => {
   it("existing businesses default to HOSTED and reject manifest sync", async () => {
     const store = memStore()
     // Legacy business with facts, no mode row: stays HOSTED.
-    await store.create("biz", { key: "k", subject: "s", predicate: "p", value: { type: "text", value: "v" }, valid_from: "2026-10-03T00:00:00.000Z", valid_until: null, source_url: null }, { value_text: "v", value_type: "TEXT" }, { manifest_key: "k", manifest_digest: "d", source_revision: null, synced_at: "2026-10-03T00:00:00.000Z", writer: "REPOSITORY_MANIFEST" })
+    await store.transact("biz", (tx) =>
+      tx.create("biz", { key: "k", subject: "s", predicate: "p", value: { type: "text", value: "v" }, valid_from: "2026-10-03T00:00:00.000Z", valid_until: null, source_url: null }, { value_text: "v", value_type: "TEXT" }, { manifest_key: "k", manifest_digest: "d", source_revision: null, synced_at: "2026-10-03T00:00:00.000Z", writer: "REPOSITORY_MANIFEST" }),
+    )
     await expect(guardManifestSync(store, "biz")).rejects.toThrowError(/ManifestSyncRejectedForHosted/)
   })
 
@@ -73,7 +80,9 @@ describe("authority", () => {
     const store = memStore()
     await expect(guardManifestSync(store, "new-biz")).resolves.toBe("REPOSITORY_MANIFEST")
     expect(await store.mode("new-biz")).toBe("REPOSITORY_MANIFEST")
-    await store.create("new-biz", { key: "k", subject: "s", predicate: "p", value: { type: "text", value: "v" }, valid_from: "2026-10-03T00:00:00.000Z", valid_until: null, source_url: null }, { value_text: "v", value_type: "TEXT" }, { manifest_key: "k", manifest_digest: "d", source_revision: null, synced_at: "2026-10-03T00:00:00.000Z", writer: "REPOSITORY_MANIFEST" })
+    await store.transact("new-biz", (tx) =>
+      tx.create("new-biz", { key: "k", subject: "s", predicate: "p", value: { type: "text", value: "v" }, valid_from: "2026-10-03T00:00:00.000Z", valid_until: null, source_url: null }, { value_text: "v", value_type: "TEXT" }, { manifest_key: "k", manifest_digest: "d", source_revision: null, synced_at: "2026-10-03T00:00:00.000Z", writer: "REPOSITORY_MANIFEST" }),
+    )
     await expect(guardModeTransition(store, "new-biz", "HOSTED")).rejects.toThrowError(/AuthorityModeImmutable/)
   })
 
@@ -91,14 +100,20 @@ describe("authority", () => {
     const m2 = parseManifest(VALID_MANIFEST_TEXT.replace('amount: "49.00"', 'amount: "59.00"'))
     const r3 = await syncManifestFacts(m2, "biz", store, { sourceRevision: "abc123", now: "2026-10-04T00:00:00.000Z" })
     expect(r3.superseded).toEqual(["starter-price"])
-    expect(r3.resolved.get("starter-price")?.version).toBe(2)
+    // C. synced compile preserves the real authority version (v2 stays v2).
+    const ref3 = r3.resolved.get("starter-price")?.ref
+    expect(ref3).toMatchObject({ kind: "AUTHORITATIVE_FACT", key: "starter-price", version: 2 })
     const versions = [...store.rows.values()].filter((r) => r.key === "starter-price").map((r) => [r.version, r.status]).sort()
     expect(versions).toEqual([[1, "SUPERSEDED"], [2, "ACTIVE"]])
     // Removal retires, unrelated facts untouched.
     const m3 = parseManifest(VALID_MANIFEST_TEXT.replace(/  tagline:\n(?:    .*\n)+/, ""))
     const r4 = await syncManifestFacts(m3, "biz", store, { sourceRevision: null, now: "2026-10-05T00:00:00.000Z" })
     expect(r4.retired).toEqual(["tagline"])
-    expect(store.rows.get(r1.resolved.get("tagline")!.fact_id)?.status).toBe("RETIRED")
+    const tagRef = r1.resolved.get("tagline")?.ref
+    expect(tagRef?.kind).toBe("AUTHORITATIVE_FACT")
+    if (tagRef?.kind === "AUTHORITATIVE_FACT") {
+      expect(store.rows.get(tagRef.fact_id)?.status).toBe("RETIRED")
+    }
     // Unknown source revision stays absent, never fabricated.
     expect(r1.resolved.size).toBe(3)
   })
@@ -135,7 +150,7 @@ const fileIo = (root: string) => ({
 const compileAll = (text: string) => {
   const m = parseManifest(text)
   const resolved = new Map<string, ResolvedFact>(
-    m.facts.map((f) => [f.key, { key: f.key, fact_id: `fact:${f.key}`, version: 1, value: f.value }]),
+    m.facts.map((f) => [f.key, { key: f.key, value: f.value, ref: { kind: "MANIFEST_FACT" as const, key: f.key, manifest_digest: m.digest } }]),
   )
   return { manifest: m, artifacts: m.projections.map((p) => compileProjection(m, p.id, resolved)) }
 }
@@ -152,6 +167,10 @@ describe("plan and apply", () => {
     expect(applied.entry.action).toBe("CREATE")
     expect(applied.receipt).toMatchObject({ action: "CREATED", after_digest: artifact!.digest_sha256 })
     expect(applied.receipt?.before_digest).toEqual({ state: "NOT_APPLICABLE" })
+    // Offline receipt proves manifest lineage only — no invented fact UUID.
+    expect(applied.receipt?.source_refs).toEqual([
+      { kind: "MANIFEST_FACT", key: "starter-price", manifest_digest: manifest.digest },
+    ])
     expect(readFileSync(resolve(root, artifact!.relative_output_path), "utf8")).toBe(artifact!.canonical_bytes)
     // Receipt carries no publication claims.
     expect(JSON.stringify(applied.receipt)).not.toMatch(/publish|index|retriev|caus/i)

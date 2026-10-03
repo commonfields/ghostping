@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { promises as fs } from "node:fs"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { MATERIALIZATION_RECEIPT_SCHEMA, TRUTH_COMPILER_VERSION } from "./manifest.js"
-import type { ProjectionArtifactV1 } from "./compiler.js"
+import type { ProjectionArtifactV1, ProjectionSourceRefV1 } from "./compiler.js"
 import { EMPTY_LOCK, planProjection, type PlanEntry, type ProjectionLock } from "./plan.js"
 
 export class ApplyError extends Error {
@@ -34,7 +34,7 @@ export interface MaterializationReceiptV1 {
   readonly action: "CREATED" | "UPDATED" | "UNCHANGED"
   readonly before_digest: { state: "KNOWN"; value: string } | { state: "NOT_APPLICABLE" } | { state: "UNKNOWN" }
   readonly after_digest: string
-  readonly source_fact_versions: ProjectionArtifactV1["source_fact_versions"]
+  readonly source_refs: ReadonlyArray<ProjectionSourceRefV1>
   readonly manifest_digest: string
   readonly compiler_version: typeof TRUTH_COMPILER_VERSION
   readonly applied_at: string
@@ -129,7 +129,7 @@ export const applyArtifact = async (
       action: "UNCHANGED",
       before_digest: { state: "KNOWN", value: afterDigest },
       after_digest: afterDigest,
-      source_fact_versions: artifact.source_fact_versions,
+      source_refs: artifact.source_refs,
       manifest_digest: ctx.manifestDigest,
       compiler_version: TRUTH_COMPILER_VERSION,
       applied_at: ctx.now,
@@ -180,7 +180,7 @@ export const applyArtifact = async (
     action: entry.action === "CREATE" ? "CREATED" : "UPDATED",
     before_digest: entry.existing_digest === null ? { state: "NOT_APPLICABLE" } : { state: "KNOWN", value: entry.existing_digest },
     after_digest: afterDigest,
-    source_fact_versions: artifact.source_fact_versions,
+    source_refs: artifact.source_refs,
     manifest_digest: ctx.manifestDigest,
     compiler_version: TRUTH_COMPILER_VERSION,
     applied_at: ctx.now,

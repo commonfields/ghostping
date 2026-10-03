@@ -5,7 +5,7 @@
 
 import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
-import type { ProjectionArtifactV1 } from "./compiler.js"
+import type { ProjectionArtifactV1, ProjectionSourceRefV1 } from "./compiler.js"
 
 export type PlanAction = "CREATE" | "UPDATE" | "UNCHANGED" | "CONFLICT" | "STALE_MANAGED_ARTIFACT"
 
@@ -15,7 +15,7 @@ export interface PlanEntry {
   readonly action: PlanAction
   readonly existing_digest: string | null
   readonly desired_digest: string | null
-  readonly source_fact_versions: ProjectionArtifactV1["source_fact_versions"]
+  readonly source_refs: ReadonlyArray<ProjectionSourceRefV1>
   readonly reason: string
 }
 
@@ -42,7 +42,7 @@ export const planProjection = async (
   const base = {
     projection_id: artifact.projection_id,
     output_path: artifact.relative_output_path,
-    source_fact_versions: artifact.source_fact_versions,
+    source_refs: artifact.source_refs,
   }
   const existing = await readIfExists(io.read, artifact.relative_output_path)
   const proof = lock.projections[artifact.projection_id]
@@ -76,7 +76,7 @@ export const planStale = (lock: ProjectionLock, manifestIds: ReadonlySet<string>
       action: "STALE_MANAGED_ARTIFACT" as const,
       existing_digest: lock.projections[id]?.digest ?? null,
       desired_digest: null,
-      source_fact_versions: [],
+      source_refs: [],
       reason: "projection removed from manifest; explicit deletion required",
     }))
 

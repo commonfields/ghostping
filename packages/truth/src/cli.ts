@@ -42,11 +42,15 @@ const main = async (): Promise<void> => {
   if (cmd === "plan" || cmd === "apply") {
     // Local plan/apply resolve facts from the manifest itself: the manifest
     // IS the desired truth; no database read is required to render it.
+    // Offline refs prove manifest key + digest only — never a fact UUID.
     const lock = await readLock(root)
     const ids = new Set(manifest.projections.map((p) => p.id))
     for (const spec of manifest.projections) {
       const resolved = new Map(
-        manifest.facts.map((f) => [f.key, { key: f.key, fact_id: `manifest:${f.key}`, version: 1, value: f.value }]),
+        manifest.facts.map((f) => [
+          f.key,
+          { key: f.key, value: f.value, ref: { kind: "MANIFEST_FACT" as const, key: f.key, manifest_digest: manifest.digest } },
+        ]),
       )
       const artifact = compileProjection(manifest, spec.id, resolved)
       if (cmd === "plan") {
