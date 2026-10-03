@@ -90,6 +90,7 @@ export function IssueDetailPage() {
                   <div key={f.id} className="flex flex-wrap items-baseline gap-x-2">
                     <dt className="text-sm text-muted-foreground">{sentenceCase(f.predicate)}</dt>
                     <dd className="text-[15px] font-medium">{f.valueText}</dd>
+                    <dd className="text-xs text-muted-foreground tabular-nums">v{f.version}</dd>
                     <dd className="text-xs text-muted-foreground">{f.status}</dd>
                   </div>
                 ))}

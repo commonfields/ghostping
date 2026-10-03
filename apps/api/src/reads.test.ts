@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { assembleCitationEvidence, assembleRepresentationList, findingHistoryForBinding } from "./reads.js"
+import { assembleCitationEvidence, assembleRepresentationList, assertLinearLineage, FactLineageForked, findingHistoryForBinding, issueStateOf } from "./reads.js"
 
 const rows = () => ({
   facts: [{ id: "f", subject: "Acme Starter", predicate: "monthly price", valueText: "49 USD", valueType: "CURRENCY", status: "ACTIVE", version: 2 }],
@@ -73,5 +73,34 @@ describe("findingHistoryForBinding", () => {
       r.values,
     )
     expect(history.map((h) => [h.observation_id, h.state])).toEqual([["o1", "IN_SYNC"], ["o2", "UNKNOWN"]])
+  })
+})
+
+describe("issueStateOf", () => {
+  it("maps every verdict through one rule", () => {
+    expect(issueStateOf("CONTRADICTED")).toBe("WRONG")
+    expect(issueStateOf("PARTIAL")).toBe("PARTIAL")
+    expect(issueStateOf("INSUFFICIENT_EVIDENCE")).toBe("UNKNOWN")
+    expect(issueStateOf("SUPPORTED")).toBe("RESOLVED")
+    expect(issueStateOf(null)).toBe("NEEDS_REVIEW")
+  })
+})
+
+describe("assertLinearLineage", () => {
+  const v = (id: string, supersedes_id: string | null, version: number) => ({ id, supersedes_id, version })
+  it("accepts a linear chain in any input order", () => {
+    const out = assertLinearLineage([v("c", "b", 3), v("a", null, 1), v("b", "a", 2)])
+    expect(out.map((r) => r.id)).toEqual(["a", "b", "c"])
+  })
+  it("rejects forks without flattening", () => {
+    expect(() => assertLinearLineage([v("a", null, 1), v("b", "a", 2), v("c", "a", 2)])).toThrowError(FactLineageForked)
+  })
+  it("rejects cycles and self-supersession", () => {
+    expect(() => assertLinearLineage([v("a", "b", 1), v("b", "a", 2)])).toThrowError(FactLineageForked)
+    expect(() => assertLinearLineage([v("a", "a", 1)])).toThrowError(FactLineageForked)
+  })
+  it("rejects dangling and disconnected rows", () => {
+    expect(() => assertLinearLineage([v("b", "missing", 2)])).toThrowError(FactLineageForked)
+    expect(() => assertLinearLineage([v("a", null, 1), v("b", null, 1)])).toThrowError(FactLineageForked)
   })
 })

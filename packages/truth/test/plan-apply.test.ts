@@ -420,7 +420,7 @@ describe("bridge", () => {
 
 const memBridgeStore = () => {
   const targets = new Map<string, { id: string; url: string }>()
-  const bindings = new Map<string, { id: string; target_id: string; fact_id: string; managed_key: string | null; created_at: string; manifestKey: string | null }>()
+  const bindings = new Map<string, { id: string; target_id: string; fact_id: string; managed_key: string | null; created_at: string; manifestKey: string | null; extractorKind: string; extractorSelector: string; comparator: string }>()
   let n = 0
   const stamp = () => `2026-10-03T00:00:${String(n).padStart(2, "0")}.000Z`
   const store = {
@@ -447,7 +447,7 @@ const memBridgeStore = () => {
     },
     findManagedBinding: async (managedKey: string, tid: string, kind: string, selector: string, comparator: string) => {
       for (const b of bindings.values()) {
-        const row = b as { id: string; target_id: string; fact_id: string; managed_key: string | null; extractorKind: string; extractorSelector: string; comparator: string }
+        const row = b
         if (row.managed_key === managedKey && row.target_id === tid && row.extractorKind === kind && row.extractorSelector === selector && row.comparator === comparator) return b
       }
       return null
@@ -466,7 +466,7 @@ const memBridgeStore = () => {
     },
     listUnmanagedByDims: async (tid: string, kind: string, selector: string, comparator: string) =>
       [...bindings.values()].filter((b) => {
-        const row = b as { target_id: string; managed_key: string | null; extractorKind: string; extractorSelector: string; comparator: string }
+        const row = b
         return row.target_id === tid && row.managed_key === null && row.extractorKind === kind && row.extractorSelector === selector && row.comparator === comparator
       }).sort((a, b) => (a.created_at < b.created_at ? -1 : 1)),
     seedUnmanaged: (tid: string, fid: string, manifestKey: string | null) => {

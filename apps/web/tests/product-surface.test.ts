@@ -49,6 +49,17 @@ describe("truth", () => {
     expect(text).toContain("Unknown")
   })
 
+  it("history dialog renders per-version provenance or honest absence", async () => {
+    const fs = await import("node:fs")
+    const text = fs.readFileSync(new URL("../app/routes/truth.tsx", import.meta.url), "utf8")
+    expect(text).toContain("<ManifestProvenance provenance={h.provenance} />")
+    expect(text).toContain("Entered by hand — no repository provenance.")
+    const component = fs.readFileSync(new URL("../app/routes/truth.tsx", import.meta.url), "utf8")
+    for (const field of ["Manifest key", "Source URL", "Source revision", "Last synchronized", "Manifest digest"]) {
+      expect(component).toContain(field)
+    }
+  })
+
   it("legacy facts route redirects compatibly", async () => {
     const fs = await import("node:fs")
     const facts = fs.readFileSync(new URL("../app/routes/facts.tsx", import.meta.url), "utf8")
@@ -100,6 +111,16 @@ describe("issues", () => {
     expect(list).toContain("View issue")
     expect(list).toContain("Review claim")
     expect(list).toContain("No source citation returned.")
+  })
+
+  it("linked facts render their immutable version", async () => {
+    const fs = await import("node:fs")
+    const detail = fs.readFileSync(new URL("../app/routes/issue.tsx", import.meta.url), "utf8")
+    expect(detail).toContain("v{f.version}")
+    const list = fs.readFileSync(new URL("../app/routes/issues.tsx", import.meta.url), "utf8")
+    expect(list).toContain("v{f.version}")
+    const api = fs.readFileSync(new URL("../app/lib/api.ts", import.meta.url), "utf8")
+    expect(api).toContain("version: number")
   })
 })
 

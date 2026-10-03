@@ -75,7 +75,7 @@ export type Issue = {
   provider: string
   observed_model: string | null
   question_prompt: string | null
-  facts: Array<{ id: string; predicate: string; valueText: string; status: string }>
+  facts: Array<{ id: string; predicate: string; valueText: string; status: string; version: number }>
   observation_id: string
   collected_at: string
 }
@@ -193,7 +193,8 @@ export const Facts = {
     api<{ fact: Fact }>(`/api/businesses/${businessId}/facts/${factId}/supersede`, { method: "POST", body: JSON.stringify(input) }),
   retire: (businessId: string, factId: string) =>
     api<{ fact: Fact }>(`/api/businesses/${businessId}/facts/${factId}/retire`, { method: "POST" }),
-  history: (businessId: string, factId: string) => api<{ fact: Fact; history: Fact[] }>(`/api/businesses/${businessId}/facts/${factId}/history`),
+  history: (businessId: string, factId: string) =>
+    api<{ fact: Fact; history: Array<Fact & { provenance: FactProvenance }> }>(`/api/businesses/${businessId}/facts/${factId}/history`),
 }
 
 export const Questions = {

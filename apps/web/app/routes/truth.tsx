@@ -277,14 +277,23 @@ function HistoryDialog({ businessId, fact, onOpenChange }: { businessId: string;
         ) : (
           <ul className="space-y-3">
             {history.map((h) => (
-              <li key={h.id} className="flex flex-wrap items-baseline gap-x-3 rounded-lg border px-4 py-3">
-                <FactStatusBadge status={h.status} />
-                <span className="text-sm font-medium">{h.valueText}</span>
-                <span className="text-xs text-muted-foreground tabular-nums">v{h.version}</span>
-                <span className="w-full text-xs text-muted-foreground">
-                  {formatDate(h.validFrom)}
-                  {h.validUntil ? <span> to {formatDate(h.validUntil)}</span> : null}
-                </span>
+              <li key={h.id} className="space-y-2 rounded-lg border px-4 py-3">
+                <div className="flex flex-wrap items-baseline gap-x-3">
+                  <FactStatusBadge status={h.status} />
+                  <span className="text-sm font-medium">{h.valueText}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums">v{h.version}</span>
+                  <span className="w-full text-xs text-muted-foreground">
+                    {formatDate(h.validFrom)}
+                    {h.validUntil ? <span> to {formatDate(h.validUntil)}</span> : null}
+                  </span>
+                </div>
+                {h.provenance ? (
+                  <div className="border-t pt-2">
+                    <ManifestProvenance provenance={h.provenance} />
+                  </div>
+                ) : (
+                  <p className="border-t pt-2 text-xs text-muted-foreground">Entered by hand — no repository provenance.</p>
+                )}
               </li>
             ))}
           </ul>
