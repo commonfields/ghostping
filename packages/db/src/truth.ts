@@ -216,22 +216,69 @@ export const pgBridgeStore = (databaseUrl: string, businessId: string): BridgeSt
     },
     findBinding: async (targetId, factId, extractorKind, selector, comparator) => {
       const r = await pool.query(
-        `SELECT id, source_target_id, fact_id FROM source_bindings WHERE business_id = $1 AND source_target_id = $2 AND fact_id = $3 AND extractor_kind = $4 AND extractor_selector = $5 AND comparator = $6 LIMIT 1`,
+        `SELECT id, source_target_id, fact_id, managed_key, created_at FROM source_bindings WHERE business_id = $1 AND source_target_id = $2 AND fact_id = $3 AND extractor_kind = $4 AND extractor_selector = $5 AND comparator = $6 LIMIT 1`,
         [businessId, targetId, factId, extractorKind, selector, comparator],
       )
       const row = (r.rows as Array<Record<string, unknown>>)[0]
-      return row ? { id: String(row["id"]), target_id: String(row["source_target_id"]), fact_id: String(row["fact_id"]) } : null
+      return row ? toBridgeBinding(row) : null
     },
-    createBinding: async (targetId, factId, extractorKind, selector, comparator) => {
+    createBinding: async (targetId, factId, extractorKind, selector, comparator, managedKey = null) => {
       const r = await pool.query(
-        `INSERT INTO source_bindings (business_id, fact_id, source_target_id, extractor_kind, extractor_selector, comparator) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, source_target_id, fact_id`,
-        [businessId, targetId, factId, extractorKind, selector, comparator],
+        `INSERT INTO source_bindings (business_id, fact_id, source_target_id, extractor_kind, extractor_selector, comparator, managed_key) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, source_target_id, fact_id, managed_key, created_at`,
+        [businessId, targetId, factId, extractorKind, selector, comparator, managedKey ?? null],
       )
       const row = r.rows[0] as Record<string, unknown>
-      return { id: String(row["id"]), target_id: String(row["source_target_id"]), fact_id: String(row["fact_id"]) }
+      return toBridgeBinding(row)
+    },
+    findManagedBinding: async (managedKey, targetId, extractorKind, selector, comparator) => {
+      const r = await pool.query(
+        `SELECT id, source_target_id, fact_id, managed_key, created_at FROM source_bindings WHERE business_id = $1 AND managed_key = $2 AND source_target_id = $3 AND extractor_kind = $4 AND extractor_selector = $5 AND comparator = $6 LIMIT 1`,
+        [businessId, managedKey, targetId, extractorKind, selector, comparator],
+      )
+      const row = (r.rows as Array<Record<string, unknown>>)[0]
+      return row ? toBridgeBinding(row) : null
+    },
+    advanceBinding: async (id, factId) => {
+      const r = await pool.query(
+        `UPDATE source_bindings SET fact_id = $2 WHERE id = $1 AND business_id = $3 RETURNING id, source_target_id, fact_id, managed_key, created_at`,
+        [id, factId, businessId],
+      )
+      const row = (r.rows as Array<Record<string, unknown>>)[0]
+      if (!row) throw new Error(`BindingNotFound: ${id}`)
+      return toBridgeBinding(row)
+    },
+    adoptBinding: async (id, managedKey, factId) => {
+      const r = await pool.query(
+        `UPDATE source_bindings SET managed_key = $2, fact_id = $3 WHERE id = $1 AND business_id = $4 RETURNING id, source_target_id, fact_id, managed_key, created_at`,
+        [id, managedKey, factId, businessId],
+      )
+      const row = (r.rows as Array<Record<string, unknown>>)[0]
+      if (!row) throw new Error(`BindingNotFound: ${id}`)
+      return toBridgeBinding(row)
+    },
+    listUnmanagedByDims: async (targetId, extractorKind, selector, comparator) => {
+      const r = await pool.query(
+        `SELECT b.id, b.source_target_id, b.fact_id, b.managed_key, b.created_at, p.manifest_key AS provenance_key
+         FROM source_bindings b LEFT JOIN repository_fact_provenance p ON p.fact_id = b.fact_id
+         WHERE b.business_id = $1 AND b.source_target_id = $2 AND b.extractor_kind = $3 AND b.extractor_selector = $4 AND b.comparator = $5 AND b.managed_key IS NULL
+         ORDER BY b.created_at ASC`,
+        [businessId, targetId, extractorKind, selector, comparator],
+      )
+      return (r.rows as Array<Record<string, unknown>>).map((row) => ({
+        ...toBridgeBinding(row),
+        manifestKey: (row["provenance_key"] as string | null) ?? null,
+      }))
     },
     close: async () => {
       await pool.end()
     },
   }
 }
+
+const toBridgeBinding = (row: Record<string, unknown>) => ({
+  id: String(row["id"]),
+  target_id: String(row["source_target_id"]),
+  fact_id: String(row["fact_id"]),
+  managed_key: (row["managed_key"] as string | null) ?? null,
+  created_at: String(row["created_at"] ?? ""),
+})

@@ -65,19 +65,41 @@ export interface BridgeBinding {
   readonly id: string
   readonly target_id: string
   readonly fact_id: string
+  readonly managed_key: string | null
+  readonly created_at: string
 }
 
 export interface BridgeStore {
   readonly findTargetByUrl: (canonicalUrl: string) => Promise<BridgeTarget | null>
   readonly createTarget: (url: string) => Promise<BridgeTarget>
   readonly findBinding: (targetId: string, factId: string, extractorKind: string, selector: string, comparator: string) => Promise<BridgeBinding | null>
-  readonly createBinding: (targetId: string, factId: string, extractorKind: string, selector: string, comparator: string) => Promise<BridgeBinding>
+  readonly createBinding: (targetId: string, factId: string, extractorKind: string, selector: string, comparator: string, managedKey?: string | null) => Promise<BridgeBinding>
+  /** Logical repository binding: one row per (manifest key, target, extractor, comparator). */
+  readonly findManagedBinding: (managedKey: string, targetId: string, extractorKind: string, selector: string, comparator: string) => Promise<BridgeBinding | null>
+  /** Advance a managed binding to the current authority fact (same row id). */
+  readonly advanceBinding: (id: string, factId: string) => Promise<BridgeBinding>
+  /**
+   * Claim one unmanaged row for a manifest lineage: sets its managed key
+   * and current fact id at once. Used once to adopt pre-lineage duplicates.
+   */
+  readonly adoptBinding: (id: string, managedKey: string, factId: string) => Promise<BridgeBinding>
+  /**
+   * Unmanaged bindings with identical target/extractor/comparator, oldest
+   * first, each annotated with its fact's manifest key (null when the fact
+   * has no repository provenance). Used once to adopt legacy duplicates.
+   */
+  readonly listUnmanagedByDims: (targetId: string, extractorKind: string, selector: string, comparator: string) => Promise<Array<BridgeBinding & { manifestKey: string | null }>>
 }
 
 /**
- * Idempotent binding sync: repeated syncs never duplicate targets/bindings.
- * The binding tracks the logical fact lineage (fact_id resolved from the
- * manifest key at sync time), never a hard-coded old value.
+ * Idempotent binding sync on LOGICAL lineage identity
+ * (manifest key + target + extractor + comparator), never the mutable
+ * fact UUID. A fact version change advances the same binding row to the
+ * current authority id; no duplicate bindings accumulate and no
+ * authoritative value is ever copied into the binding.
+ *
+ * Hosted/manual bindings (managed_key null, no provenance key) are never
+ * adopted or advanced by this path.
  */
 export const syncVerificationBindings = async (
   bindings: VerificationBinding[],
@@ -92,10 +114,22 @@ export const syncVerificationBindings = async (
     const canonical = canonicalize(vb.target.url)
     if (canonical === null) throw new Error(`InvalidVerifyUrl: ${vb.target.url}`)
     const target = (await store.findTargetByUrl(canonical)) ?? (await store.createTarget(vb.target.url))
-    const binding =
-      (await store.findBinding(target.id, factId, vb.binding.extractor.kind, vb.binding.extractor.selector, vb.binding.comparator)) ??
-      (await store.createBinding(target.id, factId, vb.binding.extractor.kind, vb.binding.extractor.selector, vb.binding.comparator))
-    out.push(binding)
+    const { kind, selector } = vb.binding.extractor
+    const managed = await store.findManagedBinding(vb.binding.fact_key, target.id, kind, selector, vb.binding.comparator)
+    if (managed !== null) {
+      out.push(managed.fact_id === factId ? managed : await store.advanceBinding(managed.id, factId))
+      continue
+    }
+    // Adopt the oldest same-lineage unmanaged row (pre-lineage deployments)
+    // instead of duplicating; otherwise create one managed row.
+    const legacy = (await store.listUnmanagedByDims(target.id, kind, selector, vb.binding.comparator)).find(
+      (c) => c.manifestKey === vb.binding.fact_key,
+    )
+    if (legacy !== undefined) {
+      out.push(await store.adoptBinding(legacy.id, vb.binding.fact_key, factId))
+      continue
+    }
+    out.push(await store.createBinding(target.id, factId, kind, selector, vb.binding.comparator, vb.binding.fact_key))
   }
   return out
 }
