@@ -78,6 +78,13 @@ export class ProductReadRepository extends Context.Tag("ProductReadRepository")<
     readonly authorityMode: (businessId: string) => Effect.Effect<string | null, unknown>
     readonly factProvenance: (businessId: string) => Effect.Effect<ReadonlyArray<FactProvenanceRow>, unknown>
     readonly factHistory: (businessId: string, subject: string, predicate: string) => Effect.Effect<ReadonlyArray<Record<string, unknown>>, unknown>
+    /**
+     * Full authority lineage for one fact version: walks supersedes_id up
+     * to the root and down to every descendant, ordered by version.
+     * Cycle-safe (visited path + depth cap). Linearity itself is checked
+     * by the caller (fail closed on forks).
+     */
+    readonly factLineage: (businessId: string, factId: string) => Effect.Effect<ReadonlyArray<Record<string, unknown>>, unknown>
     readonly targets: (businessId: string) => Effect.Effect<ReadonlyArray<ReturnType<typeof mapTarget>>, unknown>
     readonly bindings: (businessId: string) => Effect.Effect<ReadonlyArray<ReturnType<typeof mapBinding>>, unknown>
     readonly binding: (businessId: string, bindingId: string) => Effect.Effect<ReturnType<typeof mapBinding> | null, unknown>
@@ -86,6 +93,13 @@ export class ProductReadRepository extends Context.Tag("ProductReadRepository")<
     readonly aiCitations: (businessId: string) => Effect.Effect<ReadonlyArray<Record<string, unknown>>, unknown>
     readonly createBinding: (input: { businessId: string; factId: string; sourceTargetId: string; extractorKind: string; extractorSelector: string; comparator: string }) => Effect.Effect<ReturnType<typeof mapBinding>, unknown>
     readonly findBindingExact: (businessId: string, targetId: string, factId: string, kind: string, selector: string, comparator: string) => Effect.Effect<ReturnType<typeof mapBinding> | null, unknown>
+    /**
+     * Issue inbox rows for one business (RESOLVED filtered by the caller).
+     * Linked facts carry their own immutable version — a judgment linked to
+     * v1 must render v1 even after authority advances to v3.
+     */
+    readonly issueList: (businessId: string) => Effect.Effect<ReadonlyArray<Record<string, unknown>>, unknown>
+    readonly issueDetailRow: (businessId: string, claimId: string) => Effect.Effect<Record<string, unknown> | null, unknown>
   }
 >() {}
 
@@ -115,6 +129,28 @@ export const ProductReadRepositoryLive = Layer.effect(
     factHistory: (businessId: string, subject: string, predicate: string) =>
       Effect.gen(function*() {
         return (yield* sql`SELECT * FROM authoritative_facts WHERE business_id = ${businessId} AND subject = ${subject} AND predicate = ${predicate} ORDER BY version ASC`) as Array<Record<string, unknown>>
+      }),
+    factLineage: (businessId: string, factId: string) =>
+      Effect.gen(function*() {
+        return (yield* sql`
+          WITH RECURSIVE
+          up(id, sup, depth, path) AS (
+            SELECT id, supersedes_id, 1, ARRAY[id] FROM authoritative_facts WHERE id = ${factId} AND business_id = ${businessId}
+            UNION ALL
+            SELECT f.id, f.supersedes_id, u.depth + 1, u.path || f.id FROM authoritative_facts f
+            JOIN up u ON f.id = u.sup
+            WHERE f.business_id = ${businessId} AND NOT f.id = ANY (u.path) AND u.depth < 1000
+          ),
+          down(id, depth, path) AS (
+            SELECT id, 1, ARRAY[id] FROM authoritative_facts WHERE id = ${factId} AND business_id = ${businessId}
+            UNION ALL
+            SELECT f.id, d.depth + 1, d.path || f.id FROM authoritative_facts f
+            JOIN down d ON f.supersedes_id = d.id
+            WHERE f.business_id = ${businessId} AND NOT f.id = ANY (d.path) AND d.depth < 1000
+          )
+          SELECT DISTINCT f.* FROM authoritative_facts f
+          WHERE f.business_id = ${businessId} AND (f.id IN (SELECT id FROM up) OR f.id IN (SELECT id FROM down))
+          ORDER BY f.version ASC`) as Array<Record<string, unknown>>
       }),
     targets: (businessId: string) =>
       Effect.gen(function*() {
@@ -147,10 +183,9 @@ export const ProductReadRepositoryLive = Layer.effect(
         // Provider-returned citations with their observation context, scoped
         // to this business. Canonical matching happens in the API layer.
         return (yield* sql`
-          SELECT c.uri, c.title, c.position, c.attributed, o.id AS observation_id, o.provider, o.observed_model, o.collected_at, cl.id AS claim_id, cl.text AS claim_text
+          SELECT c.uri, c.title, c.position, c.attributed, o.id AS observation_id, o.provider, o.observed_model, o.collected_at
           FROM observation_citations c
           JOIN observations o ON o.id = c.observation_id
-          LEFT JOIN candidate_claims cl ON cl.observation_id = o.id
           WHERE o.business_id = ${businessId}
           ORDER BY o.collected_at ASC`) as Array<Record<string, unknown>>
       }),
@@ -164,6 +199,37 @@ export const ProductReadRepositoryLive = Layer.effect(
         const rows = (yield* sql`SELECT * FROM source_bindings WHERE business_id = ${businessId} AND source_target_id = ${targetId} AND fact_id = ${factId} AND extractor_kind = ${kind} AND extractor_selector = ${selector} AND comparator = ${comparator} LIMIT 1`) as Array<Record<string, unknown>>
         const r = rows[0]
         return r ? mapBinding(r) : null
+      }),
+    issueList: (businessId: string) =>
+      Effect.gen(function*() {
+        return (yield* sql`
+          SELECT c.id AS claim_id, c.text AS claim_text, c.observation_id, o.answer_text, o.provider, o.observed_model, o.collected_at,
+                 q.prompt AS question_prompt,
+                 j.id AS judgment_id, j.verdict, j.notes,
+                 COALESCE((SELECT json_agg(json_build_object('id', f.id, 'predicate', f.predicate, 'valueText', f.value_text, 'status', f.status, 'version', f.version) ORDER BY f.predicate)
+                   FROM human_judgment_facts hjf JOIN authoritative_facts f ON f.id = hjf.fact_id WHERE hjf.judgment_id = j.id), '[]'::json) AS facts
+          FROM candidate_claims c
+          JOIN observations o ON o.id = c.observation_id
+          LEFT JOIN check_runs cr ON cr.id = o.check_run_id
+          LEFT JOIN buyer_questions q ON q.id = cr.question_id
+          LEFT JOIN human_judgments j ON j.claim_id = c.id AND NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id)
+          WHERE c.business_id = ${businessId} ORDER BY c.created_at DESC`) as Array<Record<string, unknown>>
+      }),
+    issueDetailRow: (businessId: string, claimId: string) =>
+      Effect.gen(function*() {
+        const rows = (yield* sql`
+          SELECT c.id AS claim_id, c.text AS claim_text, c.observation_id, o.answer_text, o.provider, o.observed_model, o.collected_at,
+                 q.prompt AS question_prompt,
+                 j.id AS judgment_id, j.verdict, j.notes,
+                 COALESCE((SELECT json_agg(json_build_object('id', f.id, 'predicate', f.predicate, 'valueText', f.value_text, 'status', f.status, 'version', f.version) ORDER BY f.predicate)
+                   FROM human_judgment_facts hjf JOIN authoritative_facts f ON f.id = hjf.fact_id WHERE hjf.judgment_id = j.id), '[]'::json) AS facts
+          FROM candidate_claims c
+          JOIN observations o ON o.id = c.observation_id
+          LEFT JOIN check_runs cr ON cr.id = o.check_run_id
+          LEFT JOIN buyer_questions q ON q.id = cr.question_id
+          LEFT JOIN human_judgments j ON j.claim_id = c.id AND NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id)
+          WHERE c.business_id = ${businessId} AND c.id = ${claimId}`) as Array<Record<string, unknown>>
+        return (rows[0] ?? null) as Record<string, unknown> | null
       }),
   })),
 )

@@ -200,6 +200,26 @@ run("postgres product surface v1", () => {
     expect(graph.findings[0]?.state).toBe("UNKNOWN")
   })
 
+  it("observation citations never multiply across claims", async () => {
+    const accountId = (await pool.query(`INSERT INTO accounts (name) VALUES ($1) RETURNING id`, [unique("acct")])).rows[0]["id"] as string
+    const businessId = (await pool.query(`INSERT INTO businesses (account_id, name) VALUES ($1,'CiteDedupe') RETURNING id`, [accountId])).rows[0]["id"] as string
+    const questionId = (await pool.query(`INSERT INTO buyer_questions (business_id, prompt) VALUES ($1,'Dedupe?') RETURNING id`, [businessId])).rows[0]["id"] as string
+    const runId = (await pool.query(`INSERT INTO check_runs (business_id, question_id, status) VALUES ($1,$2,'SUCCEEDED') RETURNING id`, [businessId, questionId])).rows[0]["id"] as string
+    const digest = createHash("sha256").update(unique("raw")).digest("hex")
+    const rawId = (await pool.query(`INSERT INTO raw_evidence (digest, content_text) VALUES ($1,'{}') RETURNING id`, [digest])).rows[0]["id"] as string
+    const obsId = (await pool.query(`INSERT INTO observations (business_id, check_run_id, provider, collected_at, answer_text, raw_evidence_id, raw_digest) VALUES ($1,$2,'mock','2026-10-03T12:00:00Z','hi',$3,$4) RETURNING id`, [businessId, runId, rawId, digest])).rows[0]["id"] as string
+    await pool.query(`INSERT INTO observation_citations (observation_id, uri) VALUES ($1,'https://example.com/only')`, [obsId])
+    for (const text of ["Claim A", "Claim B", "Claim C"]) {
+      await pool.query(`INSERT INTO candidate_claims (business_id, observation_id, text, origin) VALUES ($1,$2,$3,'MANUAL_EXACT_SPAN')`, [businessId, obsId, text])
+    }
+    const reads = repo(ProductReadRepository)
+    // One citation row + three claims yields exactly one citation result.
+    const citations = await runFx(reads.aiCitations(businessId))
+    expect(citations).toHaveLength(1)
+    expect(citations[0]).toMatchObject({ uri: "https://example.com/only" })
+    expect("claim_id" in (citations[0] as Record<string, unknown>)).toBe(false)
+    expect("claim_text" in (citations[0] as Record<string, unknown>)).toBe(false)
+  })
   it("tenancy: cross-business representation and truth reads stay invisible", async () => {
     const biz = await setupAcme()
     const other = (await pool.query(`INSERT INTO accounts (name) VALUES ($1) RETURNING id`, [unique("acct")])).rows[0]["id"] as string

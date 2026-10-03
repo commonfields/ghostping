@@ -50,7 +50,7 @@ export function RepresentationDetailPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="shadow-(--float-shadow)">
           <CardHeader>
-            <CardTitle>Approved truth</CardTitle>
+            <CardTitle>Approved facts</CardTitle>
             <CardDescription>The version Ghostping compares against.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -159,7 +159,7 @@ export function RepresentationDetailPage() {
           ) : (
             <ul className="space-y-3">
               {d.citations.map((c) => (
-                <li key={`${c.observation_id}-${c.claim_id ?? "noclaim"}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-4 py-3">
+                <li key={`${c.observation_id}-${c.uri}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-4 py-3">
                   <MessageSquareQuoteIcon className="size-4 text-muted-foreground" />
                   <span className="text-sm">
                     Seen on <span className="font-medium">{sentenceCase(c.provider)}</span>

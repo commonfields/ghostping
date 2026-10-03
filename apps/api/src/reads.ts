@@ -241,6 +241,61 @@ export const findingHistoryForBinding = (
 
 export { buildGraph }
 
+/** Verdict to inbox state (single rule for list and detail). */
+export const issueStateOf = (verdict: string | null): string =>
+  verdict === "CONTRADICTED"
+    ? "WRONG"
+    : verdict === "PARTIAL"
+      ? "PARTIAL"
+      : verdict === "INSUFFICIENT_EVIDENCE"
+        ? "UNKNOWN"
+        : verdict === "SUPPORTED"
+          ? "RESOLVED"
+          : "NEEDS_REVIEW"
+
+export class FactLineageForked extends Error {
+  readonly _tag = "FactLineageForked" as const
+  constructor(detail?: string) {
+    super(detail === undefined ? "FactLineageForked" : `FactLineageForked: ${detail}`)
+  }
+}
+
+/**
+ * Authority history follows supersedes_id lineage, never mutable
+ * subject/predicate metadata. Returns versions oldest-first. Fails closed
+ * on forks, cycles, or disconnected rows instead of flattening them.
+ */
+export const assertLinearLineage = (
+  rows: ReadonlyArray<{ id: string; supersedes_id: string | null; version: number }>,
+): Array<{ id: string; supersedes_id: string | null; version: number }> => {
+  if (rows.length === 0) return []
+  const byId = new Map(rows.map((r) => [r.id, r]))
+  const children = new Map<string, number>()
+  for (const r of rows) {
+    if (r.supersedes_id === null) continue
+    if (r.supersedes_id === r.id) throw new FactLineageForked(`self-supersession ${r.id}`)
+    if (!byId.has(r.supersedes_id)) throw new FactLineageForked(`dangling supersedes_id ${r.id}`)
+    children.set(r.supersedes_id, (children.get(r.supersedes_id) ?? 0) + 1)
+  }
+  for (const [id, n] of children) {
+    if (n > 1) throw new FactLineageForked(`fork at ${id}`)
+  }
+  const superseded = new Set(rows.flatMap((r) => (r.supersedes_id === null ? [] : [r.supersedes_id])))
+  const heads = rows.filter((r) => !superseded.has(r.id))
+  if (heads.length !== 1) throw new FactLineageForked(`heads: ${heads.length}`)
+  const ordered: Array<{ id: string; supersedes_id: string | null; version: number }> = []
+  const visited = new Set<string>()
+  let cur: { id: string; supersedes_id: string | null; version: number } | undefined = heads[0]
+  while (cur !== undefined) {
+    if (visited.has(cur.id)) throw new FactLineageForked(`cycle at ${cur.id}`)
+    visited.add(cur.id)
+    ordered.push(cur)
+    cur = cur.supersedes_id === null ? undefined : byId.get(cur.supersedes_id)
+  }
+  if (ordered.length !== rows.length) throw new FactLineageForked("disconnected")
+  return [...ordered].reverse()
+}
+
 /** Scoped business or null (404 without leaking existence). */
 const scopedBusiness = (accountId: string, businessId: string) =>
   Effect.gen(function*() {
@@ -286,45 +341,14 @@ export const loadRepresentations = (accountId: string, businessId: string) =>
   })
 
 /** Issue detail: claim + observation context + truth + citation evidence. */
-export const loadIssueDetail = (
-  accountId: string,
-  businessId: string,
-  claimId: string,
-  query: (text: string, params: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>,
-) =>
+export const loadIssueDetail = (accountId: string, businessId: string, claimId: string) =>
   Effect.gen(function*() {
     if (!(yield* scopedBusiness(accountId, businessId))) return null
-    const issue = yield* Effect.tryPromise({
-      try: () =>
-        query(
-          `SELECT c.id AS claim_id, c.text AS claim_text, c.observation_id, o.answer_text, o.provider, o.observed_model, o.collected_at,
-                  q.prompt AS question_prompt,
-                  j.id AS judgment_id, j.verdict, j.notes,
-                  COALESCE((SELECT json_agg(json_build_object('id', f.id, 'predicate', f.predicate, 'valueText', f.value_text, 'status', f.status) ORDER BY f.predicate)
-                    FROM human_judgment_facts hjf JOIN authoritative_facts f ON f.id = hjf.fact_id WHERE hjf.judgment_id = j.id), '[]'::json) AS facts
-           FROM candidate_claims c
-           JOIN observations o ON o.id = c.observation_id
-           LEFT JOIN check_runs cr ON cr.id = o.check_run_id
-           LEFT JOIN buyer_questions q ON q.id = cr.question_id
-           LEFT JOIN human_judgments j ON j.claim_id = c.id AND NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id)
-           WHERE c.business_id = $1 AND c.id = $2`,
-          [businessId, claimId],
-        ),
-      catch: () => ({ rows: [] }),
-    })
-    const row = issue.rows[0]
+    const reads = yield* ProductReadRepository
+    const row = yield* reads.issueDetailRow(businessId, claimId)
     if (!row) return null
     const verdict = row["verdict"] as string | null
-    const state =
-      verdict === "CONTRADICTED"
-        ? "WRONG"
-        : verdict === "PARTIAL"
-          ? "PARTIAL"
-          : verdict === "INSUFFICIENT_EVIDENCE"
-            ? "UNKNOWN"
-            : verdict === "SUPPORTED"
-              ? "RESOLVED"
-              : "NEEDS_REVIEW"
+    const state = issueStateOf(verdict)
     const reads = yield* ProductReadRepository
     const rows = yield* loadRows(businessId)
     const representations = assembleRepresentationList(rows)
