@@ -812,7 +812,6 @@ export const makeRouter = (pool: pg.Pool) => {
           // Batched citation evidence: one representation load for the whole
           // inbox, matched per issue observation (never one query per issue).
           const representations = (yield* loadRepresentations(session.accountId, businessId)) ?? []
-          const reads = yield* ProductReadRepository
           const allCitations = yield* reads.aiCitations(businessId)
           const byObservation = new Map<string, Array<Record<string, unknown>>>()
           for (const c of allCitations) {

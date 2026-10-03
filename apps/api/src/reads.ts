@@ -349,7 +349,6 @@ export const loadIssueDetail = (accountId: string, businessId: string, claimId: 
     if (!row) return null
     const verdict = row["verdict"] as string | null
     const state = issueStateOf(verdict)
-    const reads = yield* ProductReadRepository
     const rows = yield* loadRows(businessId)
     const representations = assembleRepresentationList(rows)
     const citations = yield* reads.aiCitations(businessId)
