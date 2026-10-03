@@ -13,11 +13,15 @@ import {
   isForbiddenIp,
   NativeHttpCollector,
   normalizeUrl,
+  originOf,
   parseBoolean,
   parseMoney,
+  readCapped,
   sameCanonicalUrl,
   shouldReuseExtraction,
+  type FetchResponse,
   type HttpTransport,
+  type ResponseBody,
 } from "../src/index.js"
 
 const pricingHtml = (price: string, etag: string) => ({
@@ -53,42 +57,70 @@ const startFixture = async (handlers: Record<string, (reqUrl: string, headers: R
   }
 }
 
+interface RecordedCall {
+  url: string
+  headers: Record<string, string>
+  connectIp: string
+  servername: string
+}
+
+type RouteBody = string | ResponseBody | ((headers: Record<string, string>) => ResponseBody)
+
 // Transport that bypasses SSRF DNS for the explicit loopback test harness.
-const harnessTransport = (base: string, routes: Record<string, string>, extra?: { etag?: Record<string, string> }): HttpTransport => ({
-  lookup: async () => ["93.184.216.34"], // TEST-NET-1, not forbidden
-  fetch: async (url, init) => {
+// lookup() returns TEST-NET addresses; fetch() serves in-memory routes and
+// records every call so tests can assert pinning and header scoping.
+const harnessTransport = (
+  base: string,
+  routes: Record<string, RouteBody>,
+  extra?: { etag?: Record<string, string>; peerIp?: string | null; calls?: RecordedCall[]; lookupAddrs?: string[] },
+): HttpTransport => ({
+  lookup: async () => extra?.lookupAddrs ?? ["93.184.216.34"], // TEST-NET-1, not forbidden
+  fetch: async (url, init): Promise<FetchResponse> => {
+    extra?.calls?.push({ url, headers: { ...init.headers }, connectIp: init.connectIp, servername: init.servername })
+    const peerIp = extra?.peerIp === undefined ? "93.184.216.34" : extra.peerIp
     const path = new URL(url).pathname
     if (path === "/redirect") {
-      return { status: 302, headers: { location: `${base}/pricing` }, body: null }
+      return { status: 302, headers: { location: `${base}/pricing` }, body: null, peerIp }
     }
     if (path === "/redirect-loop") {
-      return { status: 302, headers: { location: `${base}/redirect-loop` }, body: null }
+      return { status: 302, headers: { location: `${base}/redirect-loop` }, body: null, peerIp }
+    }
+    if (path === "/redirect-cross") {
+      return { status: 302, headers: { location: "http://other.test/target" }, body: null, peerIp }
     }
     if (path === "/big") {
-      return { status: 200, headers: { "content-type": "text/html" }, body: new Uint8Array(2_000_000) }
+      return { status: 200, headers: { "content-type": "text/html" }, body: new Uint8Array(2_000_000), peerIp }
     }
     if (path === "/json") {
-      return { status: 200, headers: { "content-type": "application/json" }, body: new TextEncoder().encode("{}") }
+      return { status: 200, headers: { "content-type": "application/json" }, body: new TextEncoder().encode("{}"), peerIp }
     }
-    const body = routes[path]
-    if (body === undefined) return { status: 404, headers: {}, body: new Uint8Array(0) }
+    const route = routes[path]
+    if (route === undefined) return { status: 404, headers: {}, body: new Uint8Array(0), peerIp }
+    const rawBody = typeof route === "function" ? route(init.headers) : route
+    const body: ResponseBody = typeof rawBody === "string" ? new TextEncoder().encode(rawBody) : rawBody
     const etag = extra?.etag?.[path]
     if (etag && init.headers["if-none-match"] === etag) {
-      return { status: 304, headers: {}, body: null }
+      return { status: 304, headers: {}, body: null, peerIp }
     }
     return {
       status: 200,
       headers: { "content-type": "text/html", ...(etag ? { etag } : {}) },
-      body: new TextEncoder().encode(body),
+      body,
+      peerIp,
     }
   },
 })
+
+const streamOf = async function* (chunks: Uint8Array[]): AsyncIterable<Uint8Array> {
+  for (const c of chunks) yield c
+}
 
 describe("native http collector", () => {
   it("fetches pricing and docs, handles ETag 304 reuse", async () => {
     const price49 = pricingHtml("49", '"etag-49"').html
     const docs39 = docsHtml("$39 USD")
-    const transport = harnessTransport("http://example.test", { "/pricing": price49, "/docs": docs39 }, { etag: { "/pricing": '"etag-49"' } })
+    const calls: RecordedCall[] = []
+    const transport = harnessTransport("http://example.test", { "/pricing": price49, "/docs": docs39 }, { etag: { "/pricing": '"etag-49"' }, calls })
     const counters = createCounters()
     const collector = new NativeHttpCollector({ transport, counters })
     const target = { id: "t-pricing", business_id: "b-acme", url: "http://example.test/pricing" }
@@ -96,11 +128,14 @@ describe("native http collector", () => {
     expect(first.observation.collection_state).toBe("FETCHED")
     expect(first.body).toContain("49")
     expect(first.observation.body_digest).toMatch(/^[a-f0-9]{64}$/)
-    const second = await collector.collect(target, { etag: '"etag-49"', last_modified: null, body_digest: first.observation.body_digest })
+    const second = await collector.collect(target, { etag: '"etag-49"', last_modified: null, body_digest: first.observation.body_digest, origin: "http://example.test" })
     expect(second.observation.collection_state).toBe("NOT_MODIFIED")
     expect(second.body).toBeNull()
     expect(counters.notModified).toBe(1)
     expect(counters.requests).toBe(2)
+    // Pinning: every fetch dialed the exact validated address.
+    expect(calls.length).toBe(2)
+    for (const c of calls) expect(c.connectIp).toBe("93.184.216.34")
   })
 
   it("follows redirects within limit and rejects loops", async () => {
@@ -121,6 +156,149 @@ describe("native http collector", () => {
     expect(big.observation.failure).toBe("RESPONSE_TOO_LARGE")
     const json = await new NativeHttpCollector({ transport }).collect({ id: "t", business_id: "b", url: "http://example.test/json" }, null)
     expect(json.observation.failure).toBe("UNSUPPORTED_CONTENT_TYPE")
+  })
+
+  it("caps streaming bodies without buffering them whole", async () => {
+    let pulled = 0
+    const huge = (async function* (): AsyncIterable<Uint8Array> {
+      while (true) {
+        pulled += 1
+        yield new Uint8Array(100)
+      }
+    })()
+    const transport = harnessTransport("http://example.test", { "/stream": huge })
+    const out = await new NativeHttpCollector({ transport, limits: { maxBytes: 250 } }).collect(
+      { id: "t", business_id: "b", url: "http://example.test/stream" },
+      null,
+    )
+    expect(out.observation.failure).toBe("RESPONSE_TOO_LARGE")
+    // 100-byte chunks with a 250 ceiling: at most 3 pulls (300 > 251 stop).
+    expect(pulled).toBeLessThanOrEqual(4)
+  })
+
+  it("applies the ceiling to error and unsupported-type bodies too", async () => {
+    const flood = (): AsyncIterable<Uint8Array> => {
+      const gen = async function* (): AsyncIterable<Uint8Array> {
+        while (true) yield new Uint8Array(1024)
+      }
+      return gen()
+    }
+    const transport: HttpTransport = {
+      lookup: async () => ["93.184.216.34"],
+      fetch: async (url) => {
+        const path = new URL(url).pathname
+        if (path === "/boom") return { status: 500, headers: { "content-type": "text/html" }, body: flood(), peerIp: "93.184.216.34" }
+        return { status: 200, headers: { "content-type": "application/octet-stream" }, body: flood(), peerIp: "93.184.216.34" }
+      },
+    }
+    const collector = new NativeHttpCollector({ transport, limits: { maxBytes: 1000 } })
+    const err = await collector.collect({ id: "t", business_id: "b", url: "http://example.test/boom" }, null)
+    expect(err.observation.failure).toBe("RESPONSE_TOO_LARGE")
+    const unsupported = await collector.collect({ id: "t", business_id: "b", url: "http://example.test/blob" }, null)
+    expect(unsupported.observation.failure).toBe("RESPONSE_TOO_LARGE")
+  })
+
+  it("times out endless and slow bodies", async () => {
+    const endless = (async function* (): AsyncIterable<Uint8Array> {
+      while (true) yield new Uint8Array(1)
+    })()
+    const hanging = (async function* (): AsyncIterable<Uint8Array> {
+      yield new Uint8Array([1])
+      await new Promise(() => undefined) // never resolves
+    })()
+    const transport: HttpTransport = {
+      lookup: async () => ["93.184.216.34"],
+      fetch: async (url) => ({
+        status: 200,
+        headers: { "content-type": "text/html" },
+        body: new URL(url).pathname === "/endless" ? endless : hanging,
+        peerIp: "93.184.216.34",
+      }),
+    }
+    // Endless: byte ceiling trips first (1MB default is far; use tiny cap + short timeout).
+    const fast = new NativeHttpCollector({ transport, limits: { maxBytes: 10, timeoutMs: 200 } })
+    const capped = await fast.collect({ id: "t", business_id: "b", url: "http://example.test/endless" }, null)
+    expect(capped.observation.failure).toBe("RESPONSE_TOO_LARGE")
+    // Hanging after first byte: the request timeout must win, not a hang.
+    const slow = new NativeHttpCollector({ transport, limits: { maxBytes: 1_000_000, timeoutMs: 150 } })
+    const timed = await slow.collect({ id: "t", business_id: "b", url: "http://example.test/hanging" }, null)
+    expect(timed.observation.collection_state).toBe("FAILED")
+    expect(timed.observation.failure).toBe("TIMEOUT")
+  })
+})
+
+describe("conditional validator scoping", () => {
+  it("keeps validators on same-origin redirects", async () => {
+    const calls: RecordedCall[] = []
+    const transport = harnessTransport("http://example.test", { "/pricing": "<html>same</html>" }, { calls })
+    const out = await new NativeHttpCollector({ transport }).collect(
+      { id: "t", business_id: "b", url: "http://example.test/redirect" },
+      { etag: '"e1"', last_modified: "Wed, 01 Oct 2026 00:00:00 GMT", body_digest: "abc", origin: "http://example.test" },
+    )
+    expect(out.observation.collection_state).toBe("FETCHED")
+    expect(calls.length).toBe(2)
+    for (const c of calls) expect(c.headers["if-none-match"]).toBe('"e1"')
+  })
+
+  it("drops validators on cross-origin redirects", async () => {
+    const calls: RecordedCall[] = []
+    const transport: HttpTransport = {
+      lookup: async () => ["93.184.216.34"],
+      fetch: async (url, init): Promise<FetchResponse> => {
+        calls.push({ url, headers: { ...init.headers }, connectIp: init.connectIp, servername: init.servername })
+        if (new URL(url).hostname === "example.test") {
+          return { status: 302, headers: { location: "http://other.test/target" }, body: null, peerIp: "93.184.216.34" }
+        }
+        return { status: 200, headers: { "content-type": "text/html" }, body: new TextEncoder().encode("<html>x</html>"), peerIp: "93.184.216.34" }
+      },
+    }
+    const out = await new NativeHttpCollector({ transport }).collect(
+      { id: "t", business_id: "b", url: "http://example.test/start" },
+      { etag: '"e1"', last_modified: "Wed, 01 Oct 2026 00:00:00 GMT", body_digest: "abc", origin: "http://example.test" },
+    )
+    expect(out.observation.collection_state).toBe("FETCHED")
+    expect(calls.length).toBe(2)
+    expect(calls[0]!.headers["if-none-match"]).toBe('"e1"')
+    expect(calls[1]!.headers["if-none-match"]).toBeUndefined()
+    expect(calls[1]!.headers["if-modified-since"]).toBeUndefined()
+  })
+
+  it("rejects a cross-origin 304 that arrives without validators", async () => {
+    const transport: HttpTransport = {
+      lookup: async () => ["93.184.216.34"],
+      fetch: async (url): Promise<FetchResponse> => {
+        if (new URL(url).hostname === "example.test") {
+          return { status: 302, headers: { location: "http://other.test/target" }, body: null, peerIp: "93.184.216.34" }
+        }
+        return { status: 304, headers: {}, body: null, peerIp: "93.184.216.34" }
+      },
+    }
+    const out = await new NativeHttpCollector({ transport }).collect(
+      { id: "t", business_id: "b", url: "http://example.test/start" },
+      { etag: '"e1"', last_modified: null, body_digest: "abc", origin: "http://example.test" },
+    )
+    expect(out.observation.collection_state).toBe("FAILED")
+    expect(out.observation.failure).toBe("NETWORK_ERROR")
+  })
+
+  it("originOf distinguishes scheme, host, and port", () => {
+    expect(originOf("http://example.test/a")).toBe("http://example.test")
+    expect(originOf("http://example.test:80/a")).toBe("http://example.test")
+    expect(originOf("https://example.test/a")).toBe("https://example.test")
+    expect(originOf("http://other.test/a")).toBe("http://other.test")
+    expect(originOf("http://example.test:8080/a")).toBe("http://example.test:8080")
+    expect(originOf("not a url")).toBeNull()
+  })
+})
+
+describe("readCapped", () => {
+  it("passes small bodies through and truncates large ones", async () => {
+    const small = await readCapped(new TextEncoder().encode("hello"), 10)
+    expect(small).toMatchObject({ truncated: false })
+    expect(new TextDecoder().decode(small.bytes)).toBe("hello")
+    const big = await readCapped(streamOf([new Uint8Array(8), new Uint8Array(8)]), 10)
+    expect(big.truncated).toBe(true)
+    expect(big.bytes.length).toBe(10)
   })
 })
 
@@ -154,13 +332,65 @@ describe("ssrf", () => {
       lookup: async (host) => (host === "example.test" ? ["93.184.216.34"] : ["127.0.0.1"]),
       fetch: async (url) => {
         if (new URL(url).hostname === "example.test") {
-          return { status: 302, headers: { location: "http://127.0.0.1/private" }, body: null }
+          return { status: 302, headers: { location: "http://127.0.0.1/private" }, body: null, peerIp: "93.184.216.34" }
         }
-        return { status: 200, headers: { "content-type": "text/html" }, body: new TextEncoder().encode("x") }
+        return { status: 200, headers: { "content-type": "text/html" }, body: new TextEncoder().encode("x"), peerIp: "127.0.0.1" }
       },
     }
     const collector = new NativeHttpCollector({ transport })
     const out = await collector.collect({ id: "t", business_id: "b", url: "http://example.test/start" }, null)
+    expect(out.observation.failure).toBe("SECURITY_REJECTED")
+  })
+
+  it("rejects connect-time private IPs even when DNS looked public (rebind)", async () => {
+    const seen: string[] = []
+    const transport: HttpTransport = {
+      lookup: async () => ["93.184.216.34"],
+      fetch: async (url, init) => {
+        seen.push(init.connectIp)
+        // Hostile network: the socket actually lands on a private address.
+        return { status: 200, headers: { "content-type": "text/html" }, body: new TextEncoder().encode("x"), peerIp: "10.9.9.9" }
+      },
+    }
+    const out = await new NativeHttpCollector({ transport }).collect(
+      { id: "t", business_id: "b", url: "http://example.test/" },
+      null,
+    )
+    expect(out.observation.failure).toBe("SECURITY_REJECTED")
+    // The collector still pinned the validated address on the way out.
+    expect(seen).toEqual(["93.184.216.34"])
+  })
+
+  it("rejects peers outside the validated set even when public (rebind)", async () => {
+    const transport: HttpTransport = {
+      lookup: async () => ["93.184.216.34"],
+      fetch: async () => ({ status: 200, headers: { "content-type": "text/html" }, body: new TextEncoder().encode("x"), peerIp: "9.9.9.9" }),
+    }
+    const out = await new NativeHttpCollector({ transport }).collect(
+      { id: "t", business_id: "b", url: "http://example.test/" },
+      null,
+    )
+    expect(out.observation.failure).toBe("SECURITY_REJECTED")
+  })
+
+  it("rejects when a re-resolved hop turns private", async () => {
+    let calls = 0
+    const transport: HttpTransport = {
+      lookup: async () => {
+        calls += 1
+        return calls === 1 ? ["93.184.216.34"] : ["192.168.9.9"]
+      },
+      fetch: async (url) => {
+        if (new URL(url).pathname === "/go") {
+          return { status: 302, headers: { location: "http://example.test/inner" }, body: null, peerIp: "93.184.216.34" }
+        }
+        return { status: 200, headers: { "content-type": "text/html" }, body: new TextEncoder().encode("x"), peerIp: "93.184.216.34" }
+      },
+    }
+    const out = await new NativeHttpCollector({ transport }).collect(
+      { id: "t", business_id: "b", url: "http://example.test/go" },
+      null,
+    )
     expect(out.observation.failure).toBe("SECURITY_REJECTED")
   })
 })
@@ -311,11 +541,6 @@ describe("acceptance fixture (Acme, no internet)", () => {
     })
     try {
       expect(fixture.base.startsWith("http://127.0.0.1:")).toBe(true)
-      // Real HTTP through the fixture server (loopback is the harness itself).
-      const { lookup } = await import("node:dns/promises")
-      void lookup
-      const direct = new NativeHttpCollector({ counters: createCounters() })
-      void direct
       // Deterministic extraction over served bodies (collector tested above via harness).
       const pricingBody = pricingHtml("49", pricingEtag).html
       const docsBody = docsHtml("$39 USD")

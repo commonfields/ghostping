@@ -2,6 +2,7 @@
 // Persistence is injected; this package holds orchestration only.
 
 import { extractCssText, extractJsonLd, extractMetaContent } from "./extraction.js"
+import { originOf } from "./collector.js"
 import { shouldReuseExtraction } from "./policy.js"
 import type { CostCounters, PreviousValidators, WebCollector } from "./collector.js"
 import type {
@@ -44,7 +45,9 @@ export const collectAndEvaluate = async (args: {
 }): Promise<{ observation: SourceObservationV1; values: ObservedSourceValueV1[] }> => {
   const prev = await args.store.latestObservation(args.target.id)
   const previous: PreviousValidators | null =
-    prev === null ? null : { etag: prev.etag, last_modified: prev.last_modified, body_digest: prev.body_digest }
+    prev === null
+      ? null
+      : { etag: prev.etag, last_modified: prev.last_modified, body_digest: prev.body_digest, origin: originOf(prev.final_url) }
   const outcome = await args.collector.collect(args.target, previous)
   const observation: SourceObservationV1 = {
     id: args.ids.observationId,
