@@ -78,7 +78,9 @@ describePg("postgres truth authority v1", () => {
       const m2 = parseManifest(manifestText("59.00"))
       const r3 = await syncManifestFacts(m2, biz, store, { sourceRevision: "rev-1", now: "2026-10-04T00:00:00.000Z" })
       expect(r3.superseded).toEqual(["starter-price"])
-      expect(r3.resolved.get("starter-price")?.version).toBe(2)
+      const ref3 = r3.resolved.get("starter-price")?.ref
+      expect(ref3?.kind).toBe("AUTHORITATIVE_FACT")
+      if (ref3?.kind === "AUTHORITATIVE_FACT") expect(ref3.version).toBe(2)
       const prov = await pool.query(`SELECT manifest_key, manifest_digest, source_revision, writer FROM repository_fact_provenance WHERE business_id = $1 ORDER BY synced_at`, [biz])
       expect(prov.rows.map((r) => (r as Record<string, string | null>)["manifest_key"])).toEqual(["starter-price", "starter-price"])
       expect(prov.rows[1]?.["source_revision"]).toBe("rev-1")

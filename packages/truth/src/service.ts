@@ -21,6 +21,16 @@ export interface SyncedFact {
 }
 
 export interface FactSyncStore extends AuthorityStore {
+  /**
+   * One manifest sync = one transaction. The implementation serializes
+   * concurrent syncs for the same business (e.g. SELECT ... FOR UPDATE on
+   * the business row), so first-sync mode acquisition, reads, mutations,
+   * and provenance inserts commit or roll back together.
+   */
+  readonly transact: <T>(businessId: string, fn: (tx: FactTxStore) => Promise<T>) => Promise<T>
+}
+
+export interface FactTxStore extends AuthorityStore {
   readonly activeFacts: (businessId: string) => Promise<SyncedFact[]>
   readonly provenanceKeys: (businessId: string) => Promise<Set<string>>
   readonly create: (businessId: string, fact: ManifestFactV1, bridged: { value_text: string; value_type: string }, provenance: Provenance) => Promise<SyncedFact>
@@ -56,50 +66,58 @@ export const syncManifestFacts = async (
   businessId: string,
   store: FactSyncStore,
   opts: { sourceRevision: string | null; now: string },
-): Promise<SyncResult> => {
-  await guardManifestSync(store, businessId)
-  const active = await store.activeFacts(businessId)
-  const managed = await store.provenanceKeys(businessId)
-  const byKey = new Map(active.map((f) => [f.key, f]))
-  const created: string[] = []
-  const superseded: string[] = []
-  const retired: string[] = []
-  const unchanged: string[] = []
-  const resolved = new Map<string, ResolvedFact>()
-  const seen = new Set<string>()
-  for (const fact of manifest.facts) {
-    seen.add(fact.key)
-    const provenance: Provenance = {
-      manifest_key: fact.key,
+): Promise<SyncResult> =>
+  store.transact(businessId, async (tx) => {
+    await guardManifestSync(tx, businessId)
+    const active = await tx.activeFacts(businessId)
+    const managed = await tx.provenanceKeys(businessId)
+    const byKey = new Map(active.map((f) => [f.key, f]))
+    const created: string[] = []
+    const superseded: string[] = []
+    const retired: string[] = []
+    const unchanged: string[] = []
+    const resolved = new Map<string, ResolvedFact>()
+    const seen = new Set<string>()
+    const refFor = (key: string, factId: string, version: number): ResolvedFact["ref"] => ({
+      kind: "AUTHORITATIVE_FACT",
+      key,
+      fact_id: factId,
+      version,
       manifest_digest: manifest.digest,
-      source_revision: opts.sourceRevision,
-      synced_at: opts.now,
-      writer: "REPOSITORY_MANIFEST",
+    })
+    for (const fact of manifest.facts) {
+      seen.add(fact.key)
+      const provenance: Provenance = {
+        manifest_key: fact.key,
+        manifest_digest: manifest.digest,
+        source_revision: opts.sourceRevision,
+        synced_at: opts.now,
+        writer: "REPOSITORY_MANIFEST",
+      }
+      const bridged = encodeBridge(fact.value)
+      const current = byKey.get(fact.key)
+      if (current === undefined) {
+        const row = await tx.create(businessId, fact, bridged, provenance)
+        created.push(fact.key)
+        resolved.set(fact.key, { key: fact.key, value: fact.value, ref: refFor(fact.key, row.id, row.version) })
+        continue
+      }
+      if (sameAuthority(current, fact)) {
+        unchanged.push(fact.key)
+        resolved.set(fact.key, { key: fact.key, value: fact.value, ref: refFor(fact.key, current.id, current.version) })
+        continue
+      }
+      const row = await tx.supersede(businessId, current.id, fact, bridged, provenance)
+      superseded.push(fact.key)
+      resolved.set(fact.key, { key: fact.key, value: fact.value, ref: refFor(fact.key, row.id, row.version) })
     }
-    const bridged = encodeBridge(fact.value)
-    const current = byKey.get(fact.key)
-    if (current === undefined) {
-      const row = await store.create(businessId, fact, bridged, provenance)
-      created.push(fact.key)
-      resolved.set(fact.key, { key: fact.key, fact_id: row.id, version: row.version, value: fact.value })
-      continue
+    // V1 manifest is complete desired state: retire managed facts that vanished.
+    for (const key of managed) {
+      if (seen.has(key)) continue
+      const current = byKey.get(key)
+      if (current === undefined) continue // already retired on an earlier sync
+      await tx.retire(businessId, current.id)
+      retired.push(key)
     }
-    if (sameAuthority(current, fact)) {
-      unchanged.push(fact.key)
-      resolved.set(fact.key, { key: fact.key, fact_id: current.id, version: current.version, value: fact.value })
-      continue
-    }
-    const row = await store.supersede(businessId, current.id, fact, bridged, provenance)
-    superseded.push(fact.key)
-    resolved.set(fact.key, { key: fact.key, fact_id: row.id, version: row.version, value: fact.value })
-  }
-  // V1 manifest is complete desired state: retire managed facts that vanished.
-  for (const key of managed) {
-    if (seen.has(key)) continue
-    const current = byKey.get(key)
-    if (current === undefined) continue // already retired on an earlier sync
-    await store.retire(businessId, current.id)
-    retired.push(key)
-  }
-  return { created, superseded, retired, unchanged, resolved }
-}
+    return { created, superseded, retired, unchanged, resolved }
+  })
