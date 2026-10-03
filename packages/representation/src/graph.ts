@@ -2,7 +2,7 @@
 // Citation association uses conservative canonical URL matching and
 // creates only CITED edges — never CAUSED_BY.
 
-import { deriveFinding } from "./evaluate.js"
+import { resolveEffectiveEvidence } from "./effective.js"
 import { sameCanonicalUrl } from "./url.js"
 import type {
   AiCitationEdge,
@@ -49,22 +49,22 @@ export const latestSuccessfulByTarget = (
 }
 
 export const buildGraph = (rows: GraphRows): FactRepresentationGraph => {
-  // Findings derive from the latest SUCCESSFUL observation per target.
-  // A later FAILED collection attempt never erases prior valid evidence;
-  // callers that need the newest attempt read rows.observations directly.
-  const latest = latestSuccessfulByTarget(rows.observations)
-  const valuesByBindingObs = new Map<string, ObservedSourceValueV1>()
+  const byTarget = new Map<string, SourceObservationV1[]>()
+  for (const o of rows.observations) {
+    const arr = byTarget.get(o.source_target_id) ?? []
+    arr.push(o)
+    byTarget.set(o.source_target_id, arr)
+  }
+  const valuesByBinding = new Map<string, ObservedSourceValueV1[]>()
   for (const v of rows.values) {
-    valuesByBindingObs.set(`${v.source_binding_id}|${v.source_observation_id}`, v)
+    const arr = valuesByBinding.get(v.source_binding_id) ?? []
+    arr.push(v)
+    valuesByBinding.set(v.source_binding_id, arr)
   }
   const findings: RepresentationFindingV1[] = []
   for (const b of rows.bindings) {
-    const obs = [...latest.values()].find((o) => {
-      // Binding → target → latest observation for that target.
-      const targetOfBinding = b.source_target_id
-      return o.source_target_id === targetOfBinding
-    })
-    if (!obs) {
+    const targetObservations = byTarget.get(b.source_target_id) ?? []
+    if (targetObservations.length === 0) {
       findings.push({
         fact_id: rows.fact.id,
         source_binding_id: b.id,
@@ -75,10 +75,10 @@ export const buildGraph = (rows: GraphRows): FactRepresentationGraph => {
       })
       continue
     }
-    const value = valuesByBindingObs.get(`${b.id}|${obs.id}`) ?? null
-    findings.push(deriveFinding(rows.fact, b, obs.id, value))
+    // One canonical resolver: findings derive from effective evidence
+    // (walked back across 304/unchanged reuse), never the raw latest row.
+    findings.push(resolveEffectiveEvidence(rows.fact, b, targetObservations, valuesByBinding.get(b.id) ?? []).finding)
   }
-  void latest
   const citation_edges: AiCitationEdge[] = []
   for (const c of rows.aiCitations) {
     if (c.uri === null) continue

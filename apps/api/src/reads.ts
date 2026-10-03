@@ -3,7 +3,15 @@
 // canonical citation match) lives here and in @ghostping/representation;
 // React only renders. No scores, no causality, no publication claims.
 import { Effect } from "effect"
-import { buildGraph, deriveFinding, sameCanonicalUrl, type RepresentationFindingV1 } from "@ghostping/representation"
+import {
+  buildGraph,
+  resolveEffectiveEvidence,
+  resolveHistory,
+  sameCanonicalUrl,
+  type ObservedSourceValueV1,
+  type SourceBindingV1,
+  type SourceObservationV1,
+} from "@ghostping/representation"
 import { BusinessRepository, FactRepository, ProductReadRepository } from "@ghostping/db"
 
 export interface FactDto {
@@ -68,7 +76,51 @@ export interface RepresentationRows {
   readonly values: ReadonlyArray<RowValue>
 }
 
-/** Full representation list for one business, findings via domain derivation. */
+const toDomainBinding = (b: RowBinding, factId: string): SourceBindingV1 => ({
+  id: b.id,
+  business_id: "",
+  fact_id: factId,
+  source_target_id: b.sourceTargetId,
+  extractor: { kind: b.extractorKind as SourceBindingV1["extractor"]["kind"], selector: b.extractorSelector },
+  comparator: b.comparator as SourceBindingV1["comparator"],
+  created_at: "",
+})
+
+const toDomainObservation = (o: RowObservation): SourceObservationV1 => ({
+  id: o.id,
+  business_id: "",
+  source_target_id: o.sourceTargetId,
+  collector: "NATIVE_HTTP",
+  collector_version: "",
+  requested_url: "",
+  final_url: "",
+  started_at: o.completedAt,
+  completed_at: o.completedAt,
+  http_status: null,
+  content_type: null,
+  etag: null,
+  last_modified: null,
+  body_digest: null,
+  body_bytes: 0,
+  collection_state: o.collectionState as SourceObservationV1["collection_state"],
+  failure: o.failure as SourceObservationV1["failure"],
+  raw_evidence_id: null,
+})
+
+const toDomainValue = (v: RowValue): ObservedSourceValueV1 => ({
+  id: v.id,
+  business_id: "",
+  source_observation_id: v.sourceObservationId,
+  source_binding_id: v.sourceBindingId,
+  fact_id: v.factId,
+  extracted_value: v.extractedValue,
+  extraction_state: v.extractionState as ObservedSourceValueV1["extraction_state"],
+  evidence_locator: { selector: "", source_observation_id: v.sourceObservationId, node_identity: null },
+  extractor_version: "",
+  created_at: "",
+})
+
+/** Full representation list for one business, via the canonical resolver. */
 export const assembleRepresentationList = (rows: RepresentationRows): RepresentationRowDto[] => {
   const factById = new Map(rows.facts.map((f) => [f.id, f]))
   const targetById = new Map(rows.targets.map((t) => [t.id, t]))
@@ -78,66 +130,44 @@ export const assembleRepresentationList = (rows: RepresentationRows): Representa
     arr.push(o)
     obsByTarget.set(o.sourceTargetId, arr)
   }
-  for (const arr of obsByTarget.values()) arr.sort((a, b) => a.completedAt.localeCompare(b.completedAt))
-  const successfulByTarget = new Map<string, RowObservation>()
-  for (const [tid, arr] of obsByTarget) {
-    const ok = arr.filter((o) => o.collectionState === "FETCHED" || o.collectionState === "NOT_MODIFIED")
-    if (ok.length > 0) successfulByTarget.set(tid, ok[ok.length - 1]!)
+  const valuesByBinding = new Map<string, RowValue[]>()
+  for (const v of rows.values) {
+    const arr = valuesByBinding.get(v.sourceBindingId) ?? []
+    arr.push(v)
+    valuesByBinding.set(v.sourceBindingId, arr)
   }
-  const valueByBindingObs = new Map(rows.values.map((v) => [`${v.sourceBindingId}|${v.sourceObservationId}`, v] as const))
   const out: RepresentationRowDto[] = []
   for (const b of rows.bindings) {
     const fact = factById.get(b.factId)
     const target = targetById.get(b.sourceTargetId)
     if (!fact || !target) continue
-    const attempts = obsByTarget.get(target.id) ?? []
-    const latest = attempts.length > 0 ? attempts[attempts.length - 1]! : null
-    const effective = successfulByTarget.get(target.id) ?? null
-    const value = effective ? (valueByBindingObs.get(`${b.id}|${effective.id}`) ?? null) : null
-    const finding: RepresentationFindingV1 = deriveFinding(
+    // Same canonical semantics as buildGraph: never duplicated here.
+    const evidence = resolveEffectiveEvidence(
       { id: fact.id, value_text: fact.valueText },
-      {
-        id: b.id,
-        business_id: "",
-        fact_id: fact.id,
-        source_target_id: target.id,
-        extractor: { kind: b.extractorKind as "JSON_LD" | "CSS_TEXT" | "META_CONTENT", selector: b.extractorSelector },
-        comparator: b.comparator as "EXACT_TEXT" | "BOOLEAN" | "MONEY",
-        created_at: "",
-      },
-      effective?.id ?? "",
-      value
-        ? {
-            id: value.id,
-            business_id: "",
-            source_observation_id: value.sourceObservationId,
-            source_binding_id: value.sourceBindingId,
-            fact_id: value.factId,
-            extracted_value: value.extractedValue,
-            extraction_state: value.extractionState as "OBSERVED" | "NOT_FOUND" | "AMBIGUOUS" | "UNSUPPORTED" | "FAILED",
-            evidence_locator: { selector: "", source_observation_id: value.sourceObservationId, node_identity: null },
-            extractor_version: "",
-            created_at: "",
-          }
-        : null,
+      toDomainBinding(b, fact.id),
+      (obsByTarget.get(target.id) ?? []).map(toDomainObservation),
+      (valuesByBinding.get(b.id) ?? []).map(toDomainValue),
     )
+    const effective = evidence.effectiveValueObservation
+    const value = evidence.effectiveValue
+    const latest = evidence.latestAttempt
     out.push({
       binding_id: b.id,
       fact,
       source: { target_id: target.id, url: target.url, control: target.control },
-      finding: { state: finding.state, reason: finding.reason },
+      finding: { state: evidence.finding.state, reason: evidence.finding.reason },
       effective_observation:
         effective && value
           ? {
               observation_id: effective.id,
-              completed_at: effective.completedAt,
-              collection_state: effective.collectionState,
-              extracted_value: value.extractedValue,
-              extraction_state: value.extractionState,
+              completed_at: effective.completed_at,
+              collection_state: effective.collection_state,
+              extracted_value: value.extracted_value,
+              extraction_state: value.extraction_state,
             }
           : null,
       latest_attempt: latest
-        ? { completed_at: latest.completedAt, collection_state: latest.collectionState, failure: latest.failure }
+        ? { completed_at: latest.completed_at, collection_state: latest.collection_state, failure: latest.failure }
         : null,
     })
   }
@@ -201,52 +231,13 @@ export const findingHistoryForBinding = (
   binding: RowBinding,
   observations: ReadonlyArray<RowObservation>,
   values: ReadonlyArray<RowValue>,
-): Array<{ observation_id: string; completed_at: string; collection_state: string; state: string; reason: string; extracted_value: string | null }> => {
-  const byObs = new Map(values.filter((v) => v.sourceBindingId === bindingId).map((v) => [v.sourceObservationId, v] as const))
-  return observations
-    .filter((o) => o.sourceTargetId === binding.sourceTargetId)
-    .map((o) => {
-      const v = byObs.get(o.id) ?? null
-      const finding =
-        o.collectionState === "FETCHED" || o.collectionState === "NOT_MODIFIED"
-          ? deriveFinding(
-              { id: fact.id, value_text: fact.valueText },
-              {
-                id: binding.id,
-                business_id: "",
-                fact_id: fact.id,
-                source_target_id: binding.sourceTargetId,
-                extractor: { kind: binding.extractorKind as "JSON_LD" | "CSS_TEXT" | "META_CONTENT", selector: binding.extractorSelector },
-                comparator: binding.comparator as "EXACT_TEXT" | "BOOLEAN" | "MONEY",
-                created_at: "",
-              },
-              o.id,
-              v
-                ? {
-                    id: v.id,
-                    business_id: "",
-                    source_observation_id: v.sourceObservationId,
-                    source_binding_id: v.sourceBindingId,
-                    fact_id: v.factId,
-                    extracted_value: v.extractedValue,
-                    extraction_state: v.extractionState as "OBSERVED" | "NOT_FOUND" | "AMBIGUOUS" | "UNSUPPORTED" | "FAILED",
-                    evidence_locator: { selector: "", source_observation_id: v.sourceObservationId, node_identity: null },
-                    extractor_version: "",
-                    created_at: "",
-                  }
-                : null,
-            )
-          : ({ state: "UNKNOWN", reason: "collection did not produce evidence" } as const)
-      return {
-        observation_id: o.id,
-        completed_at: o.completedAt,
-        collection_state: o.collectionState,
-        state: finding.state,
-        reason: finding.reason,
-        extracted_value: v?.extractedValue ?? null,
-      }
-    })
-}
+): Array<{ observation_id: string; completed_at: string; collection_state: string; state: string; reason: string; extracted_value: string | null }> =>
+  resolveHistory(
+    { id: fact.id, value_text: fact.valueText },
+    toDomainBinding(binding, fact.id),
+    observations.filter((o) => o.sourceTargetId === binding.sourceTargetId).map(toDomainObservation),
+    values.filter((v) => v.sourceBindingId === bindingId).map(toDomainValue),
+  )
 
 export { buildGraph }
 
