@@ -246,9 +246,22 @@ run("postgres product surface v1", () => {
     await pool.query(`UPDATE authoritative_facts SET status = 'RETIRED' WHERE id = $1`, [v3])
     const v4 = await insert("plan:starter-v2", "monthly_price", "69 USD", 4, v3)
     expect((await runFx(reads.factLineage(businessId, v4))).map((r) => String(r["id"]))).toEqual([v1, v2, v3, v4])
-    // Malformed fork: querying from v1 returns BOTH branches, never flattened.
+    // Linear lineage returns identically from every version.
+    for (const start of [v1, v2, v3, v4]) {
+      expect((await runFx(reads.factLineage(businessId, start))).map((r) => String(r["id"])), `from ${start}`).toEqual([v1, v2, v3, v4])
+    }
+    // Malformed fork: EVERY starting version sees the full component.
+    //         v2 → v3 → v4
+    //        /
+    //   v1 --+
+    //        \
+    //         fork
     const fork = await insert("plan:fork", "price", "0 USD", 9, v1)
-    void fork
+    const whole = [v1, v2, v3, v4, fork]
+    for (const start of whole) {
+      const seen = await runFx(reads.factLineage(businessId, start))
+      expect(seen.map((r) => String(r["id"])).sort(), `from ${start}`).toEqual([...whole].sort())
+    }
     const branched = await runFx(reads.factLineage(businessId, v1))
     const childrenOfV1 = branched.filter((r) => (r["supersedes_id"] as string | null) === v1)
     expect(childrenOfV1.length).toBe(2)

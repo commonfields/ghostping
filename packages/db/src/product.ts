@@ -132,6 +132,11 @@ export const ProductReadRepositoryLive = Layer.effect(
       }),
     factLineage: (businessId: string, factId: string) =>
       Effect.gen(function*() {
+        // Root-first full-component traversal: walk supersedes_id upward to
+        // the lineage root, then every descendant below it. A query from ANY
+        // version (or a forked sibling) returns the same connected
+        // component, so assertLinearLineage rejects forks regardless of the
+        // requested starting version. Cycle-safe via visited paths + depth.
         return (yield* sql`
           WITH RECURSIVE
           up(id, sup, depth, path) AS (
@@ -141,8 +146,11 @@ export const ProductReadRepositoryLive = Layer.effect(
             JOIN up u ON f.id = u.sup
             WHERE f.business_id = ${businessId} AND NOT f.id = ANY (u.path) AND u.depth < 1000
           ),
+          roots(id) AS (
+            SELECT id FROM up WHERE sup IS NULL
+          ),
           down(id, depth, path) AS (
-            SELECT id, 1, ARRAY[id] FROM authoritative_facts WHERE id = ${factId} AND business_id = ${businessId}
+            SELECT id, 1, ARRAY[id] FROM up WHERE id IN (SELECT id FROM roots)
             UNION ALL
             SELECT f.id, d.depth + 1, d.path || f.id FROM authoritative_facts f
             JOIN down d ON f.supersedes_id = d.id
