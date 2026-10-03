@@ -85,7 +85,7 @@ const main = async (): Promise<void> => {
     const store = pgSyncStore(databaseUrl)
     try {
       const result = await syncManifestFacts(manifest, businessId, store, { sourceRevision: revision, now })
-      console.log(`synced created=[${result.created}] superseded=[${result.superseded}] retired=[${result.retired}] unchanged=[${result.unchanged}]`)
+      console.log(`synced created=[${result.created}] superseded=[${result.superseded}] reactivated=[${result.reactivated}] retired=[${result.retired}] unchanged=[${result.unchanged}]`)
     } finally {
       await store.close()
     }

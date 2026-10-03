@@ -26,6 +26,8 @@ facts:
       amount: "${amount}"
       currency: USD
     valid_from: 2026-10-03T00:00:00Z
+    source:
+      url: https://acme.example/pricing
 ${extra}projections:
   starter-offer:
     kind: JSON_LD
@@ -230,6 +232,53 @@ describePg("postgres truth closeout v1", () => {
       expect(facts.map((r) => [r["value_text"], r["status"]])).toEqual([["49.00 USD", "ACTIVE"]])
       const prov = await pool.query(`SELECT count(*)::int AS n FROM repository_fact_provenance WHERE business_id = $1`, [biz])
       expect(Number((prov.rows[0] as Record<string, unknown>)["n"])).toBe(1)
+    } finally {
+      await pool.end()
+      await store.close()
+    }
+  })
+
+  it("subject/predicate/source_url changes version; retired keys reactivate linearly", async () => {
+    const pool = new pg.Pool({ connectionString: url })
+    const store = pgSyncStore(url)
+    try {
+      const biz = await makeBusiness(pool, "semantic")
+      await syncManifestFacts(parseManifest(manifestText("49.00")), biz, store, { sourceRevision: null, now: "2026-10-03T00:00:00.000Z" })
+      // Same value, changed subject -> new version.
+      const subj = manifestText("49.00").replace("subject: plan:starter", "subject: plan:starter-plus")
+      const r2 = await syncManifestFacts(parseManifest(subj), biz, store, { sourceRevision: null, now: "2026-10-04T00:00:00.000Z" })
+      expect(r2.superseded).toEqual(["starter-price"])
+      // Same value, changed predicate -> new version.
+      const pred = manifestText("49.00").replace("predicate: price", "predicate: list-price")
+      const r3 = await syncManifestFacts(parseManifest(pred), biz, store, { sourceRevision: null, now: "2026-10-05T00:00:00.000Z" })
+      expect(r3.superseded).toEqual(["starter-price"])
+      // Same value, changed source URL -> new version with persisted provenance.
+      const src = manifestText("49.00").replace("https://acme.example/pricing", "https://acme.example/pricing-v2")
+      const r4 = await syncManifestFacts(parseManifest(src), biz, store, { sourceRevision: null, now: "2026-10-06T00:00:00.000Z" })
+      expect(r4.superseded).toEqual(["starter-price"])
+      const provUrl = await pool.query(`SELECT source_url FROM repository_fact_provenance p JOIN authoritative_facts f ON f.id = p.fact_id WHERE p.business_id = $1 AND f.status = 'ACTIVE'`, [biz])
+      expect((provUrl.rows[0] as Record<string, unknown>)["source_url"]).toBe("https://acme.example/pricing-v2")
+      // Remove the only fact -> retires; re-add -> v2 linked to retired v1... here v5.
+      const noFacts = `schema: ghostping/truth-manifest-v1
+business:
+  key: acme
+authority:
+  mode: repository
+facts: {}
+projections: {}
+`
+      const r5 = await syncManifestFacts(parseManifest(noFacts), biz, store, { sourceRevision: null, now: "2026-10-07T00:00:00.000Z" })
+      expect(r5.retired).toEqual(["starter-price"])
+      const r6 = await syncManifestFacts(parseManifest(manifestText("49.00")), biz, store, { sourceRevision: null, now: "2026-10-08T00:00:00.000Z" })
+      expect(r6.reactivated).toEqual(["starter-price"])
+      expect(r6.created).toEqual([])
+      const rows = (await pool.query(`SELECT version, status, supersedes_id FROM authoritative_facts WHERE business_id = $1 ORDER BY version`, [biz])).rows as Array<Record<string, unknown>>
+      expect(rows.map((r) => [r["version"], r["status"]])).toEqual([[1, "SUPERSEDED"], [2, "SUPERSEDED"], [3, "SUPERSEDED"], [4, "RETIRED"], [5, "ACTIVE"]])
+      const v5 = rows[4]!
+      const v4id = (await pool.query(`SELECT id FROM authoritative_facts WHERE business_id = $1 AND version = 4`, [biz])).rows[0] as Record<string, string>
+      expect(v5["supersedes_id"]).toBe(v4id["id"])
+      const active = rows.filter((r) => r["status"] === "ACTIVE")
+      expect(active.length).toBe(1)
     } finally {
       await pool.end()
       await store.close()

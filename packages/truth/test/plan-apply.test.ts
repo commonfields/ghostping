@@ -42,9 +42,18 @@ const memStore = (): FactSyncStore & { modes: Map<string, "HOSTED" | "REPOSITORY
     transact: async <T>( _businessId: string, fn: (tx: FactTxStore) => Promise<T>): Promise<T> => fn(self as unknown as FactTxStore),
     activeFacts: async (b: string) => activeFor(b),
     provenanceKeys: async (b: string) => new Set([...rows.values()].filter((r) => r.business === b).map((r) => r.key)),
+    latestLineage: async (b: string) => {
+      const out = new Map<string, { id: string; version: number; status: SyncedFact["status"] }>()
+      for (const r of rows.values()) {
+        if (r.business !== b) continue
+        const prev = out.get(r.key)
+        if (prev === undefined || r.version > prev.version) out.set(r.key, { id: r.id, version: r.version, status: r.status })
+      }
+      return out
+    },
     create: async (b: string, fact: ManifestFactV1, bridged: { value_text: string; value_type: string }, prov: Provenance) => {
       n += 1
-      const row = { id: `fact-${n}`, key: prov.manifest_key, version: 1, status: "ACTIVE" as const, value: fact.value, valid_from: fact.valid_from, valid_until: fact.valid_until, business: b }
+      const row = { id: `fact-${n}`, key: prov.manifest_key, version: 1, status: "ACTIVE" as const, subject: fact.subject, predicate: fact.predicate, value: fact.value, valid_from: fact.valid_from, valid_until: fact.valid_until, source_url: fact.source_url, business: b }
       void bridged
       rows.set(row.id, row)
       return row
@@ -53,7 +62,15 @@ const memStore = (): FactSyncStore & { modes: Map<string, "HOSTED" | "REPOSITORY
       const prev = rows.get(prevId)!
       rows.set(prevId, { ...prev, status: "SUPERSEDED" })
       n += 1
-      const row = { id: `fact-${n}`, key: prov.manifest_key, version: prev.version + 1, status: "ACTIVE" as const, value: fact.value, valid_from: fact.valid_from, valid_until: fact.valid_until, business: b }
+      const row = { id: `fact-${n}`, key: prov.manifest_key, version: prev.version + 1, status: "ACTIVE" as const, subject: fact.subject, predicate: fact.predicate, value: fact.value, valid_from: fact.valid_from, valid_until: fact.valid_until, source_url: fact.source_url, business: b }
+      void bridged
+      rows.set(row.id, row)
+      return row
+    },
+    reactivate: async (b: string, prevId: string, fact: ManifestFactV1, bridged: { value_text: string; value_type: string }, prov: Provenance) => {
+      const prev = rows.get(prevId)!
+      n += 1
+      const row = { id: `fact-${n}`, key: prov.manifest_key, version: prev.version + 1, status: "ACTIVE" as const, subject: fact.subject, predicate: fact.predicate, value: fact.value, valid_from: fact.valid_from, valid_until: fact.valid_until, source_url: fact.source_url, business: b }
       void bridged
       rows.set(row.id, row)
       return row
@@ -116,6 +133,94 @@ describe("authority", () => {
     }
     // Unknown source revision stays absent, never fabricated.
     expect(r1.resolved.size).toBe(3)
+  })
+})
+
+describe("authority metadata versioning and reactivation", () => {
+  it("1. identical manifest creates zero new versions", async () => {
+    const store = memStore()
+    const m = parseManifest(VALID_MANIFEST_TEXT)
+    await syncManifestFacts(m, "biz", store, { sourceRevision: null, now: "2026-10-03T00:00:00.000Z" })
+    const again = await syncManifestFacts(m, "biz", store, { sourceRevision: null, now: "2026-10-03T01:00:00.000Z" })
+    expect([...again.created, ...again.superseded, ...again.reactivated, ...again.retired]).toEqual([])
+    expect(again.unchanged.sort()).toEqual(["salesforce-supported", "starter-price", "tagline"])
+  })
+
+  it("2. same value with changed subject supersedes", async () => {
+    const store = memStore()
+    await syncManifestFacts(parseManifest(VALID_MANIFEST_TEXT), "biz", store, { sourceRevision: null, now: "2026-10-03T00:00:00.000Z" })
+    const changed = await syncManifestFacts(
+      parseManifest(VALID_MANIFEST_TEXT.replace("subject: plan:starter", "subject: plan:starter-plus")),
+      "biz",
+      store,
+      { sourceRevision: null, now: "2026-10-04T00:00:00.000Z" },
+    )
+    expect(changed.superseded).toEqual(["starter-price"])
+    expect(changed.unchanged.sort()).toEqual(["salesforce-supported", "tagline"])
+  })
+
+  it("3. same value with changed predicate supersedes", async () => {
+    const store = memStore()
+    await syncManifestFacts(parseManifest(VALID_MANIFEST_TEXT), "biz", store, { sourceRevision: null, now: "2026-10-03T00:00:00.000Z" })
+    const changed = await syncManifestFacts(
+      parseManifest(VALID_MANIFEST_TEXT.replace("predicate: price", "predicate: list-price")),
+      "biz",
+      store,
+      { sourceRevision: null, now: "2026-10-04T00:00:00.000Z" },
+    )
+    expect(changed.superseded).toEqual(["starter-price"])
+  })
+
+  it("4. same value with changed source_url supersedes", async () => {
+    const store = memStore()
+    await syncManifestFacts(parseManifest(VALID_MANIFEST_TEXT), "biz", store, { sourceRevision: null, now: "2026-10-03T00:00:00.000Z" })
+    const changed = await syncManifestFacts(
+      parseManifest(VALID_MANIFEST_TEXT.replace("https://acme.example/pricing", "https://acme.example/pricing-v2")),
+      "biz",
+      store,
+      { sourceRevision: null, now: "2026-10-04T00:00:00.000Z" },
+    )
+    expect(changed.superseded).toEqual(["starter-price"])
+  })
+
+  it("5/6/7/8. removal retires; re-added keys continue lineage with one ACTIVE head", async () => {
+    const store = memStore()
+    const m1 = parseManifest(VALID_MANIFEST_TEXT)
+    const r1 = await syncManifestFacts(m1, "biz", store, { sourceRevision: null, now: "2026-10-03T00:00:00.000Z" })
+    expect(r1.created).toContain("starter-price")
+    const withoutFact = VALID_MANIFEST_TEXT.replace(/  starter-price:\n(?:    .*\n|      .*\n)+/, "")
+    // A removed fact takes its projection with it; otherwise the manifest is invalid.
+    const without = parseManifest(withoutFact.replace(/  starter-offer:\n(?:    .*\n|      .*\n|        .*\n|          .*\n)+/, ""))
+    expect(without.facts.some((f) => f.key === "starter-price")).toBe(false)
+    expect(without.projections.some((f) => f.id === "starter-offer")).toBe(false)
+    // 5. Removal retires.
+    const r2 = await syncManifestFacts(without, "biz", store, { sourceRevision: null, now: "2026-10-04T00:00:00.000Z" })
+    expect(r2.retired).toEqual(["starter-price"])
+    // 6. Re-add identical fact: v2 ACTIVE linked to retired v1, not a fresh v1.
+    const r3 = await syncManifestFacts(m1, "biz", store, { sourceRevision: null, now: "2026-10-05T00:00:00.000Z" })
+    expect(r3.reactivated).toEqual(["starter-price"])
+    expect(r3.created).toEqual([])
+    const ref3 = r3.resolved.get("starter-price")?.ref
+    expect(ref3?.kind).toBe("AUTHORITATIVE_FACT")
+    if (ref3?.kind === "AUTHORITATIVE_FACT") expect(ref3.version).toBe(2)
+    // 8. Exactly one ACTIVE head; retired v1 untouched.
+    const lineage = [...store.rows.values()].filter((r) => r.key === "starter-price").sort((a, b) => a.version - b.version)
+    expect(lineage.map((r) => [r.version, r.status])).toEqual([[1, "RETIRED"], [2, "ACTIVE"]])
+    // 7. Re-add with changed value after another retirement also continues lineage.
+    const r4 = await syncManifestFacts(without, "biz", store, { sourceRevision: null, now: "2026-10-06T00:00:00.000Z" })
+    expect(r4.retired).toEqual(["starter-price"])
+    const changed = parseManifest(VALID_MANIFEST_TEXT.replace('amount: "49.00"', 'amount: "59.00"'))
+    const r5 = await syncManifestFacts(changed, "biz", store, { sourceRevision: null, now: "2026-10-07T00:00:00.000Z" })
+    expect(r5.reactivated).toEqual(["starter-price"])
+    const ref5 = r5.resolved.get("starter-price")?.ref
+    if (ref5?.kind === "AUTHORITATIVE_FACT") {
+      expect(ref5.version).toBe(3)
+      expect(r5.resolved.get("starter-price")?.value).toEqual({ type: "money", amount: "59.00", currency: "USD" })
+    } else {
+      throw new Error("expected authoritative ref")
+    }
+    const final = [...store.rows.values()].filter((r) => r.key === "starter-price").sort((a, b) => a.version - b.version)
+    expect(final.map((r) => [r.version, r.status])).toEqual([[1, "RETIRED"], [2, "RETIRED"], [3, "ACTIVE"]])
   })
 })
 

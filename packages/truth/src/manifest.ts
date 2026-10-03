@@ -197,11 +197,14 @@ export const parseManifest = (text: string): TruthManifestV1 => {
   if (!isRecord(root["authority"])) throw new ManifestInvalid("InvalidAuthority")
   rejectSurplus(root["authority"], ["mode"], "authority")
   if (root["authority"]["mode"] !== "repository") throw new ManifestInvalid("AuthorityModeMustBeRepository", String(root["authority"]["mode"]))
-  if (!isRecord(root["facts"]) || !isRecord(root["projections"])) throw new ManifestInvalid("FactsAndProjectionsMustBeMaps")
+  const factsRaw: Record<string, unknown> = isRecord(root["facts"]) ? root["facts"] : {}
+  const projectionsRaw: Record<string, unknown> = isRecord(root["projections"]) ? root["projections"] : {}
+  if (root["facts"] !== undefined && root["facts"] !== null && !isRecord(root["facts"])) throw new ManifestInvalid("FactsAndProjectionsMustBeMaps")
+  if (root["projections"] !== undefined && root["projections"] !== null && !isRecord(root["projections"])) throw new ManifestInvalid("FactsAndProjectionsMustBeMaps")
 
   const factTypes = new Map<string, string>()
   const facts: ManifestFactV1[] = []
-  for (const [key, raw] of Object.entries(root["facts"])) {
+  for (const [key, raw] of Object.entries(factsRaw)) {
     if (!isRecord(raw)) throw new ManifestInvalid("InvalidFact", key)
     rejectSurplus(raw, ["subject", "predicate", "type", "value", "valid_from", "valid_until", "source"], `facts.${key}`)
     const subject = requireString(raw["subject"], `facts.${key}.subject`)
@@ -229,7 +232,7 @@ export const parseManifest = (text: string): TruthManifestV1 => {
   }
 
   const projections: ProjectionSpecV1[] = []
-  for (const [id, raw] of Object.entries(root["projections"])) {
+  for (const [id, raw] of Object.entries(projectionsRaw)) {
     if (!isRecord(raw)) throw new ManifestInvalid("InvalidProjection", id)
     rejectSurplus(raw, ["kind", "output", "document", "verify"], `projections.${id}`)
     if (raw["kind"] !== "JSON_LD") throw new ManifestInvalid("UnsupportedProjectionKind", `projections.${id}.kind`)

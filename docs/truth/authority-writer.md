@@ -9,6 +9,17 @@ both the repository layer and a DB trigger (sync runs under
 `SET LOCAL ghostping.authority_sync = '1'`). Mode changes are refused
 once facts exist. No UI switching in V1.
 
+Authority comparison is total over persisted metadata: a managed fact
+versions on ANY change to subject, predicate, typed value, validity
+window, or source URL (source URLs persist per version in
+`repository_fact_provenance.source_url`; unknown stays unknown and only
+equals unknown). Identical manifests create zero versions.
+
+Manifest keys are stable lineage: a removed key retires explicitly, and
+a reintroduced key continues as the next version linked via
+`supersedes_id` to its retired head (never a fresh v1, never a fork) —
+exactly one ACTIVE head always.
+
 One manifest sync = one DB transaction: mode acquisition, the
 per-business serialization lock (`SELECT ... FOR UPDATE` on the
 businesses row; lock lifetime equals transaction lifetime), current

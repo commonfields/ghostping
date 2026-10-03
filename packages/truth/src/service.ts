@@ -15,9 +15,13 @@ export interface SyncedFact {
   readonly key: string
   readonly version: number
   readonly status: "ACTIVE" | "SUPERSEDED" | "RETIRED"
+  readonly subject: string
+  readonly predicate: string
   readonly value: ManifestValue
   readonly valid_from: string
   readonly valid_until: string | null
+  /** Manifest source URL at sync time; null when unknown (never inferred). */
+  readonly source_url: string | null
 }
 
 export interface FactSyncStore extends AuthorityStore {
@@ -33,8 +37,16 @@ export interface FactSyncStore extends AuthorityStore {
 export interface FactTxStore extends AuthorityStore {
   readonly activeFacts: (businessId: string) => Promise<SyncedFact[]>
   readonly provenanceKeys: (businessId: string) => Promise<Set<string>>
+  /** Latest lineage head per manifest key, including retired history. */
+  readonly latestLineage: (businessId: string) => Promise<Map<string, { id: string; version: number; status: SyncedFact["status"] }>>
   readonly create: (businessId: string, fact: ManifestFactV1, bridged: { value_text: string; value_type: string }, provenance: Provenance) => Promise<SyncedFact>
   readonly supersede: (businessId: string, prevId: string, fact: ManifestFactV1, bridged: { value_text: string; value_type: string }, provenance: Provenance) => Promise<SyncedFact>
+  /**
+   * Reactivate a retired lineage: appends version latest+1 linked via
+   * supersedes_id to the retired head WITHOUT mutating the old row's
+   * RETIRED status. Exactly one ACTIVE head results.
+   */
+  readonly reactivate: (businessId: string, prevId: string, fact: ManifestFactV1, bridged: { value_text: string; value_type: string }, provenance: Provenance) => Promise<SyncedFact>
   readonly retire: (businessId: string, factId: string) => Promise<void>
 }
 
@@ -49,15 +61,25 @@ export interface Provenance {
 export interface SyncResult {
   readonly created: string[]
   readonly superseded: string[]
+  readonly reactivated: string[]
   readonly retired: string[]
   readonly unchanged: string[]
   readonly resolved: Map<string, ResolvedFact>
 }
 
-const sameAuthority = (active: SyncedFact, fact: ManifestFactV1): boolean => {
+/**
+ * Full authority comparison. A repository-managed fact changes when ANY
+ * authority-defining field changes: subject, predicate, typed value,
+ * validity window, or source URL. Missing persisted metadata (null) only
+ * equals missing metadata — UNKNOWN is never silently equal.
+ */
+export const sameAuthority = (active: SyncedFact, fact: ManifestFactV1): boolean => {
+  if (active.subject !== fact.subject) return false
+  if (active.predicate !== fact.predicate) return false
   if (!sameValue(active.value, fact.value)) return false
   if (active.valid_from !== fact.valid_from) return false
   if ((active.valid_until ?? null) !== fact.valid_until) return false
+  if ((active.source_url ?? null) !== (fact.source_url ?? null)) return false
   return true
 }
 
@@ -71,9 +93,11 @@ export const syncManifestFacts = async (
     await guardManifestSync(tx, businessId)
     const active = await tx.activeFacts(businessId)
     const managed = await tx.provenanceKeys(businessId)
+    const lineage = await tx.latestLineage(businessId)
     const byKey = new Map(active.map((f) => [f.key, f]))
     const created: string[] = []
     const superseded: string[] = []
+    const reactivated: string[] = []
     const retired: string[] = []
     const unchanged: string[] = []
     const resolved = new Map<string, ResolvedFact>()
@@ -97,6 +121,15 @@ export const syncManifestFacts = async (
       const bridged = encodeBridge(fact.value)
       const current = byKey.get(fact.key)
       if (current === undefined) {
+        const hist = lineage.get(fact.key)
+        if (hist !== undefined) {
+          // Retired lineage reintroduced: continue it as the next version
+          // linked to the retired head. Never a fresh v1, never a fork.
+          const row = await tx.reactivate(businessId, hist.id, fact, bridged, provenance)
+          reactivated.push(fact.key)
+          resolved.set(fact.key, { key: fact.key, value: fact.value, ref: refFor(fact.key, row.id, row.version) })
+          continue
+        }
         const row = await tx.create(businessId, fact, bridged, provenance)
         created.push(fact.key)
         resolved.set(fact.key, { key: fact.key, value: fact.value, ref: refFor(fact.key, row.id, row.version) })
@@ -119,5 +152,5 @@ export const syncManifestFacts = async (
       await tx.retire(businessId, current.id)
       retired.push(key)
     }
-    return { created, superseded, retired, unchanged, resolved }
+    return { created, superseded, reactivated, retired, unchanged, resolved }
   })
