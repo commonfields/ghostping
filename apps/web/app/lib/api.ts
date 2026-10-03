@@ -82,6 +82,87 @@ export type Issue = {
 
 export type IssueState = "WRONG" | "PARTIAL" | "UNKNOWN" | "NEEDS_REVIEW"
 
+export type CitationEvidence = {
+  uri: string
+  title: string | null
+  position: number | null
+  attributed: boolean
+  tracked: {
+    binding_id: string
+    target_id: string
+    url: string
+    control: string
+    observed_value: string | null
+    extraction_state: string | null
+    finding: string
+    finding_reason: string
+    observed_at: string | null
+  } | null
+}
+
+export type IssueWithEvidence = Issue & { citation_evidence: CitationEvidence[] }
+
+export type FactProvenance = {
+  manifestKey: string
+  manifestDigest: string
+  sourceRevision: string | null
+  syncedAt: string
+  sourceUrl: string | null
+} | null
+
+export type AuthorityMode = "HOSTED" | "REPOSITORY_MANIFEST"
+
+export type RepresentationRow = {
+  binding_id: string
+  fact: { id: string; subject: string; predicate: string; valueText: string; valueType: string; status: string; version: number }
+  source: { target_id: string; url: string; control: string }
+  finding: { state: string; reason: string }
+  effective_observation: {
+    observation_id: string
+    completed_at: string
+    collection_state: string
+    extracted_value: string | null
+    extraction_state: string
+  } | null
+  latest_attempt: { completed_at: string; collection_state: string; failure: string | null } | null
+}
+
+export type RepresentationHistoryEntry = {
+  observation_id: string
+  completed_at: string
+  collection_state: string
+  state: string
+  reason: string
+  extracted_value: string | null
+}
+
+export type TrackedCitation = {
+  uri: string
+  title: string | null
+  observation_id: string
+  claim_id: string | null
+  claim_text: string | null
+  provider: string
+  observed_model: string | null
+  collected_at: string
+}
+
+export type RepresentationDetail = {
+  binding: { id: string; factId: string; sourceTargetId: string; extractorKind: string; extractorSelector: string; comparator: string }
+  fact: RepresentationRow["fact"] & { subject: string }
+  source: { target_id: string; url: string; control: string }
+  current: RepresentationRow | null
+  history: RepresentationHistoryEntry[]
+  citations: TrackedCitation[]
+}
+
+export type IssueDetail = Omit<Issue, "facts"> & {
+  facts: Issue["facts"]
+  citation_evidence: CitationEvidence[]
+}
+
+export type StoredCitation = { uri: string | null; title: string | null; position: number | null; attributed: boolean }
+
 export type Overview = { completed: string; last_checked: string | null; unreviewed: string; needs_attention: string }
 
 export const Auth = {
@@ -99,13 +180,20 @@ export const Businesses = {
 }
 
 export const Facts = {
-  list: (businessId: string) => api<{ facts: Fact[]; conflicts: Array<{ a: string; b: string }> }>(`/api/businesses/${businessId}/facts`),
+  list: (businessId: string) =>
+    api<{
+      facts: Fact[]
+      conflicts: Array<{ a: string; b: string }>
+      authority: { mode: AuthorityMode }
+      provenance: Record<string, FactProvenance>
+    }>(`/api/businesses/${businessId}/facts`),
   create: (businessId: string, input: Record<string, unknown>) =>
     api<{ fact: Fact }>(`/api/businesses/${businessId}/facts`, { method: "POST", body: JSON.stringify(input) }),
   supersede: (businessId: string, factId: string, input: Record<string, unknown>) =>
     api<{ fact: Fact }>(`/api/businesses/${businessId}/facts/${factId}/supersede`, { method: "POST", body: JSON.stringify(input) }),
   retire: (businessId: string, factId: string) =>
     api<{ fact: Fact }>(`/api/businesses/${businessId}/facts/${factId}/retire`, { method: "POST" }),
+  history: (businessId: string, factId: string) => api<{ fact: Fact; history: Fact[] }>(`/api/businesses/${businessId}/facts/${factId}/history`),
 }
 
 export const Questions = {
@@ -124,7 +212,14 @@ export const Checks = {
 }
 
 export const Observations = {
-  get: (observationId: string) => api<{ observation: Observation; claims: Claim[] }>(`/api/observations/${observationId}`),
+  get: (observationId: string) =>
+    api<{ observation: Observation; claims: Claim[]; citations: StoredCitation[] }>(`/api/observations/${observationId}`),
+}
+
+export const Representations = {
+  list: (businessId: string) => api<{ representations: RepresentationRow[] }>(`/api/businesses/${businessId}/representations`),
+  get: (businessId: string, bindingId: string) =>
+    api<RepresentationDetail>(`/api/businesses/${businessId}/representations/${bindingId}`),
 }
 
 export const Claims = {
@@ -138,7 +233,8 @@ export const Judgments = {
 }
 
 export const Issues = {
-  list: (businessId: string) => api<{ issues: Issue[] }>(`/api/businesses/${businessId}/issues`),
+  list: (businessId: string) => api<{ issues: IssueWithEvidence[] }>(`/api/businesses/${businessId}/issues`),
+  get: (businessId: string, claimId: string) => api<IssueDetail>(`/api/businesses/${businessId}/issues/${claimId}`),
   overview: (businessId: string) => api<{ overview: Overview }>(`/api/businesses/${businessId}/overview`),
 }
 

@@ -47,6 +47,7 @@ export function initial(name: string): string {
 export function errorMessage(err: unknown): string {
   const e = err as { status?: number; tag?: string }
   if (e?.tag === "FactAuthorityConflict") return "An active fact already covers this subject and predicate. Supersede it instead of adding a second one."
+  if (e?.tag === "FactAuthorityManagedByRepository") return "This business's truth is managed by its repository manifest. Change it there and sync, instead of editing here."
   if (e?.status === 401) return "Your session has ended. Sign in again to continue."
   if (e?.status === 404) return "That item no longer exists or belongs to another account."
   if (e?.status === 422) return "Some fields are missing or invalid. Check them and try again."

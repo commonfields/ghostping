@@ -67,7 +67,7 @@ export function ChecksPage() {
     <div className="space-y-8">
       <PageHeader
         title="Checks"
-        description="Ask AI assistants the questions your buyers ask. Each check stores the full answer as evidence you can review later."
+        description="Collect fresh AI observations to review. Checks record answers as evidence; they do not change approved truth."
         actions={
           <Button onClick={() => setAddOpen(true)}>
             <PlusIcon />

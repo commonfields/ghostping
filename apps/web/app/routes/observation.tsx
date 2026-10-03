@@ -15,7 +15,7 @@ import { EmptyState } from "@/components/page"
 import { Spinner } from "@/components/spinner"
 import { IssueStateBadge } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
-import { Claims, Facts, Issues, Judgments, Observations, type Fact, type IssueState } from "@/lib/api"
+import { Claims, Facts, Issues, Judgments, Observations, Representations, type Fact, type IssueState } from "@/lib/api"
 import { errorMessage, formatDateTime, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
 import { cn } from "@/lib/utils"
@@ -73,6 +73,14 @@ export function ObservationPage() {
   }
 
   const claims = obs.data?.claims ?? []
+  const citations = useMemo(() => obs.data?.citations ?? [], [obs.data])
+  const representations = useApi(businessId ? `representations:${businessId}` : null, () =>
+    Representations.list(businessId ?? ""),
+  )
+  const trackedByUrl = useMemo(() => {
+    const rows = representations.data?.representations ?? []
+    return { rows }
+  }, [representations.data])
   const meta: Array<{ label: string; value: string }> = [
     { label: "Provider", value: observation.provider === "9router" ? "9Router" : sentenceCase(observation.provider) },
     { label: "Model", value: observation.observed_model ?? "Not reported" },
@@ -133,8 +141,28 @@ export function ObservationPage() {
 
       <section className="space-y-4">
         <div className="space-y-1">
+          <h2 className="text-lg font-semibold tracking-tight">Cited sources</h2>
+          <p className="text-sm text-muted-foreground">What the provider returned with this answer, exactly as stored.</p>
+        </div>
+        {citations.length === 0 ? (
+          <p className="px-1 text-sm text-muted-foreground">No source citation was returned with this observation.</p>
+        ) : (
+          <Card>
+            <CardContent>
+              <ul className="divide-y">
+                {citations.map((c, i) => (
+                  <CitationRow key={`${c.uri ?? "null"}-${i}`} citation={c} businessId={observation.business_id} representations={trackedByUrl.rows} />
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+      </section>
+
+      <section className="space-y-4">
+        <div className="space-y-1">
           <h2 className="text-lg font-semibold tracking-tight">Claims</h2>
-          <p className="text-sm text-muted-foreground">Transcribe one statement at a time, in the AI's words.</p>
+          <p className="text-sm text-muted-foreground">Transcribe one statement at a time, in the AI&apos;s words.</p>
         </div>
 
         <Card>
@@ -197,6 +225,46 @@ export function ObservationPage() {
         )}
       </section>
     </div>
+  )
+}
+
+function CitationRow({
+  citation,
+  businessId,
+  representations,
+}: {
+  citation: { uri: string | null; title: string | null; position: number | null; attributed: boolean }
+  businessId: string
+  representations: Array<{ binding_id: string; source: { url: string } }>
+}) {
+  const match =
+    citation.uri === null
+      ? null
+      : representations.find((r) => {
+          try {
+            const a = new URL(citation.uri as string)
+            const b = new URL(r.source.url)
+            return a.origin === b.origin && a.pathname.replace(/\/$/, "") === b.pathname.replace(/\/$/, "") && a.search === b.search
+          } catch {
+            return false
+          }
+        }) ?? null
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{citation.title ?? citation.uri ?? "Untitled source"}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {citation.uri ?? "No URI"}
+          {citation.position !== null && citation.position !== undefined ? <span> · position {citation.position}</span> : null}
+          {citation.attributed ? <span> · attributed</span> : null}
+        </p>
+      </div>
+      {match ? (
+        <Button asChild variant="link" size="sm" className="h-auto p-0">
+          <Link to={`/businesses/${businessId}/representations/${match.binding_id}`}>View tracked representation</Link>
+        </Button>
+      ) : null}
+    </li>
   )
 }
 
@@ -296,7 +364,7 @@ function ClaimReview({
                   <BookCheckIcon className="size-4" />
                   <span>
                     No active facts.{" "}
-                    <Link to={`/businesses/${businessId}/facts`} className="font-medium text-foreground underline-offset-4 hover:underline">
+                    <Link to={`/businesses/${businessId}/truth`} className="font-medium text-foreground underline-offset-4 hover:underline">
                       Add one
                     </Link>
                   </span>
