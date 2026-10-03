@@ -67,7 +67,7 @@ export function VerdictBar({ counts, className }: { counts: VerdictCounts; class
           )}
         </div>
       </TooltipTrigger>
-      <TooltipContent className="p-0">
+      <TooltipContent className="border bg-popover p-0 text-popover-foreground shadow-(--float-shadow-strong)">
         <VerdictTooltipBody counts={counts} />
       </TooltipContent>
     </Tooltip>
