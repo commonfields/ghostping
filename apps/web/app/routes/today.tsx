@@ -48,7 +48,7 @@ export function Today() {
             What AI assistants said in collected answers, and how each claim compares with your approved facts.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
           <Tabs value={String(days)} onValueChange={setDays}>
             <TabsList>
               {periods.map((p) => (
