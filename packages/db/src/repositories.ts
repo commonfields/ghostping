@@ -5,6 +5,7 @@ import { Context, Data, Effect, Layer } from "effect"
 import { PgClient } from "@effect/sql-pg"
 import type { SqlClient } from "@effect/sql"
 import type { SqlError } from "@effect/sql/SqlError"
+import { AuthorityError } from "./truth.js"
 
 export type DbEffect<A> = Effect.Effect<A, SqlError>
 
@@ -154,15 +155,30 @@ export class FactRepository extends Context.Tag("FactRepository")<
 
 export const FactRepositoryLive = Layer.effect(
   FactRepository,
-  Effect.map(PgClient.PgClient, (sql: SqlClient.SqlClient) => ({
-    create: (input) =>
+  Effect.map(PgClient.PgClient, (sql: SqlClient.SqlClient) => {
+    // One active writer: direct hosted mutations fail closed for
+    // repository-managed businesses (typed AuthorityError defect, never a
+    // silent second truth). The manifest sync bypasses this layer with
+    // SET LOCAL ghostping.authority_sync = '1', which the hosted API never sets.
+    const assertHostedWritable = (businessId: string, op: string) =>
       Effect.gen(function*() {
-        const rows = (yield* sql`
+        const modes = (yield* sql`SELECT writer FROM business_authority_mode WHERE business_id = ${businessId}`) as Array<
+          Record<string, unknown>
+        >
+        if (modes[0] && String(modes[0]["writer"]) === "REPOSITORY_MANIFEST") {
+          return yield* Effect.die(new AuthorityError("FactAuthorityManagedByRepository", `${op} ${businessId}`))
+        }
+      })
+    return {
+      create: (input) =>
+        Effect.gen(function*() {
+          yield* assertHostedWritable(input.businessId, "create")
+          const rows = (yield* sql`
           INSERT INTO authoritative_facts (business_id, subject, predicate, value_text, value_type, valid_from, valid_until, source_kind)
           VALUES (${input.businessId}, ${input.subject}, ${input.predicate}, ${input.valueText}, ${input.valueType}, ${input.validFrom}::timestamptz, ${input.validUntil}::timestamptz, ${input.sourceKind})
           RETURNING *`) as Array<Record<string, unknown>>
-        return mapFact(rows[0] as Record<string, unknown>)
-      }),
+          return mapFact(rows[0] as Record<string, unknown>)
+        }),
     listByBusiness: (businessId: string) =>
       sql`SELECT * FROM authoritative_facts WHERE business_id = ${businessId} ORDER BY predicate ASC, version ASC`.pipe(
         Effect.map((rows) => (rows as Array<Record<string, unknown>>).map(mapFact)),
@@ -176,6 +192,7 @@ export const FactRepositoryLive = Layer.effect(
       ),
     supersede: (input) =>
       Effect.gen(function*() {
+        yield* assertHostedWritable(input.businessId, "supersede")
         const prev = (yield* sql`SELECT * FROM authoritative_facts WHERE id = ${input.factId} AND business_id = ${input.businessId}`) as Array<
           Record<string, unknown>
         >
@@ -190,6 +207,7 @@ export const FactRepositoryLive = Layer.effect(
       }),
     retire: (businessId: string, factId: string) =>
       Effect.gen(function*() {
+        yield* assertHostedWritable(businessId, "retire")
         const rows = (yield* sql`
           UPDATE authoritative_facts SET status = 'RETIRED'
           WHERE id = ${factId} AND business_id = ${businessId} RETURNING *`) as Array<
@@ -210,7 +228,8 @@ export const FactRepositoryLive = Layer.effect(
             .filter((f) => (input.excludeId ? f.id !== input.excludeId : true)),
         ),
       ),
-  })),
+    }
+  }),
 )
 
 // ---------------------------------------------------------------------------

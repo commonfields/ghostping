@@ -1,5 +1,5 @@
 {
-  "name": "@ghostping/db",
+  "name": "@ghostping/truth",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -7,22 +7,18 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint src --max-warnings 0",
+    "lint": "eslint src test --max-warnings 0",
     "test": "vitest run",
     "build": "tsc -p tsconfig.json",
-    "migrate": "tsx src/migrate.ts",
-    "seed": "tsx src/seed.ts"
+    "truth": "tsx src/cli.ts"
   },
   "dependencies": {
-    "@effect/sql": "0.52.1",
-    "@effect/sql-pg": "0.53.0",
-    "@ghostping/domain": "workspace:*",
-    "@ghostping/protocol": "workspace:*",
-    "@ghostping/truth": "workspace:*",
-    "effect": "3.22.2",
-    "pg": "8.13.1"
+    "@ghostping/db": "workspace:*",
+    "pg": "8.13.1",
+    "yaml": "2.7.0"
   },
   "devDependencies": {
+    "@ghostping/representation": "workspace:*",
     "@types/node": "24.10.1",
     "@types/pg": "8.11.0",
     "tsx": "4.19.2",
