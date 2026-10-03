@@ -29,8 +29,7 @@ import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { CreateBusinessDialog } from "@/components/create-business-dialog"
-import { modKey, useSettings } from "@/components/settings-dialog"
-import { Kbd } from "@/components/ui/kbd"
+import { useSettings } from "@/components/settings-dialog"
 import { rememberedEmail, usePreferences } from "@/lib/preferences"
 import { Auth } from "@/lib/api"
 import { initial } from "@/lib/format"
@@ -348,10 +347,6 @@ function AccountMenu() {
         <DropdownMenuItem onSelect={() => openSettings("general")}>
           <SettingsIcon />
           Settings
-          <span className="ml-auto flex gap-0.5">
-            <Kbd>{modKey}</Kbd>
-            <Kbd>,</Kbd>
-          </span>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => openSettings("account")}>
           <UserRoundIcon />

@@ -358,18 +358,7 @@ function Composer({
           </TooltipTrigger>
           <TooltipContent>Attach files, or drop or paste them here</TooltipContent>
         </Tooltip>
-
-        <div className="ml-auto flex items-center gap-1.5">
-          {listening ? (
-            <span className="mr-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="relative flex size-2">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-wrong opacity-60" />
-                <span className="relative inline-flex size-2 rounded-full bg-wrong" />
-              </span>
-              Listening
-            </span>
-          ) : null}
-          {preferences.voiceInput ? (
+        {preferences.voiceInput ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -386,6 +375,17 @@ function Composer({
             </TooltipTrigger>
             <TooltipContent>{listening ? "Stop voice input" : "Voice input"}</TooltipContent>
           </Tooltip>
+        ) : null}
+
+        <div className="ml-auto flex items-center gap-1.5">
+          {listening ? (
+            <span className="mr-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="relative flex size-2">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-wrong opacity-60" />
+                <span className="relative inline-flex size-2 rounded-full bg-wrong" />
+              </span>
+              Listening
+            </span>
           ) : null}
           <Tooltip>
             <TooltipTrigger asChild>

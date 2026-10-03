@@ -84,62 +84,74 @@ export type IssueState = "WRONG" | "PARTIAL" | "UNKNOWN" | "NEEDS_REVIEW"
 
 export type Overview = { completed: string; last_checked: string | null; unreviewed: string; needs_attention: string }
 
+// TEMP: frontend-only mocks so the full design is visible without a backend.
+// Set to false to use the real API.
+const USE_MOCK = true
+import { mockAddBusiness, mockAddClaim, mockAddFact, mockAddQuestion, mockAnalytics, mockBusinesses, mockCheckRuns, mockFacts, mockIssues, mockObservations, mockOverviews, mockQueueCheck, mockQuestions } from "./mock"
+
 export const Auth = {
-  me: () => api<{ userId: string; accountId: string }>("/api/auth/me"),
+  me: () => (USE_MOCK ? Promise.resolve({ userId: "user-dev", accountId: "dev-local" }) : api<{ userId: string; accountId: string }>("/api/auth/me")),
   signup: (email: string, password: string) =>
-    api<{ userId: string; accountId: string }>("/api/auth/signup", { method: "POST", body: JSON.stringify({ email, password }) }),
+    USE_MOCK ? Promise.resolve({ userId: "user-dev", accountId: "dev-local" }) : api<{ userId: string; accountId: string }>("/api/auth/signup", { method: "POST", body: JSON.stringify({ email, password }) }),
   signin: (email: string, password: string) =>
-    api<{ userId: string; accountId: string }>("/api/auth/signin", { method: "POST", body: JSON.stringify({ email, password }) }),
-  signout: () => api<{ ok: boolean }>("/api/auth/signout", { method: "POST" }),
+    USE_MOCK ? Promise.resolve({ userId: "user-dev", accountId: "dev-local" }) : api<{ userId: string; accountId: string }>("/api/auth/signin", { method: "POST", body: JSON.stringify({ email, password }) }),
+  signout: () => (USE_MOCK ? Promise.resolve({ ok: true }) : api<{ ok: boolean }>("/api/auth/signout", { method: "POST" })),
 }
 
 export const Businesses = {
-  list: () => api<{ businesses: Business[] }>("/api/businesses"),
-  create: (name: string) => api<{ business: Business }>("/api/businesses", { method: "POST", body: JSON.stringify({ name }) }),
+  list: () => (USE_MOCK ? Promise.resolve({ businesses: mockBusinesses }) : api<{ businesses: Business[] }>("/api/businesses")),
+  create: (name: string) => (USE_MOCK ? Promise.resolve({ business: mockAddBusiness(name) }) : api<{ business: Business }>("/api/businesses", { method: "POST", body: JSON.stringify({ name }) })),
 }
 
 export const Facts = {
-  list: (businessId: string) => api<{ facts: Fact[]; conflicts: Array<{ a: string; b: string }> }>(`/api/businesses/${businessId}/facts`),
+  list: (businessId: string) =>
+    USE_MOCK ? Promise.resolve({ facts: mockFacts[businessId] ?? [], conflicts: [] }) : api<{ facts: Fact[]; conflicts: Array<{ a: string; b: string }> }>(`/api/businesses/${businessId}/facts`),
   create: (businessId: string, input: Record<string, unknown>) =>
-    api<{ fact: Fact }>(`/api/businesses/${businessId}/facts`, { method: "POST", body: JSON.stringify(input) }),
+    USE_MOCK ? Promise.resolve({ fact: mockAddFact(businessId, input) }) : api<{ fact: Fact }>(`/api/businesses/${businessId}/facts`, { method: "POST", body: JSON.stringify(input) }),
   supersede: (businessId: string, factId: string, input: Record<string, unknown>) =>
-    api<{ fact: Fact }>(`/api/businesses/${businessId}/facts/${factId}/supersede`, { method: "POST", body: JSON.stringify(input) }),
+    USE_MOCK ? Promise.resolve({ fact: mockAddFact(businessId, { ...input, subject: mockFacts[businessId]?.find((f) => f.id === factId)?.subject ?? "", predicate: mockFacts[businessId]?.find((f) => f.id === factId)?.predicate ?? "" }) }) : api<{ fact: Fact }>(`/api/businesses/${businessId}/facts/${factId}/supersede`, { method: "POST", body: JSON.stringify(input) }),
   retire: (businessId: string, factId: string) =>
-    api<{ fact: Fact }>(`/api/businesses/${businessId}/facts/${factId}/retire`, { method: "POST" }),
+    USE_MOCK
+      ? Promise.resolve({ fact: { ...(mockFacts[businessId]?.find((f) => f.id === factId) ?? mockAddFact(businessId, {})), status: "RETIRED" } })
+      : api<{ fact: Fact }>(`/api/businesses/${businessId}/facts/${factId}/retire`, { method: "POST" }),
 }
 
 export const Questions = {
-  list: (businessId: string) => api<{ questions: Question[] }>(`/api/businesses/${businessId}/questions`),
+  list: (businessId: string) => (USE_MOCK ? Promise.resolve({ questions: mockQuestions[businessId] ?? [] }) : api<{ questions: Question[] }>(`/api/businesses/${businessId}/questions`)),
   create: (businessId: string, input: { prompt: string; label: string | null; origin: string }) =>
-    api<{ question: Question }>(`/api/businesses/${businessId}/questions`, { method: "POST", body: JSON.stringify(input) }),
+    USE_MOCK ? Promise.resolve({ question: mockAddQuestion(businessId, input) }) : api<{ question: Question }>(`/api/businesses/${businessId}/questions`, { method: "POST", body: JSON.stringify(input) }),
 }
 
 export const Checks = {
-  list: (businessId: string) => api<{ checkRuns: CheckRun[] }>(`/api/businesses/${businessId}/check-runs`),
+  list: (businessId: string) => (USE_MOCK ? Promise.resolve({ checkRuns: mockCheckRuns[businessId] ?? [] }) : api<{ checkRuns: CheckRun[] }>(`/api/businesses/${businessId}/check-runs`)),
   run: (businessId: string, questionId: string, provider: "mock" | "9router" = "mock") =>
-    api<{ checkRun: CheckRun }>(`/api/businesses/${businessId}/check-runs`, {
-      method: "POST",
-      body: JSON.stringify({ questionId, provider }),
-    }),
+    USE_MOCK
+      ? Promise.resolve({ checkRun: mockQueueCheck(businessId, questionId, provider) })
+      : api<{ checkRun: CheckRun }>(`/api/businesses/${businessId}/check-runs`, {
+          method: "POST",
+          body: JSON.stringify({ questionId, provider }),
+        }),
 }
 
 export const Observations = {
-  get: (observationId: string) => api<{ observation: Observation; claims: Claim[] }>(`/api/observations/${observationId}`),
+  get: (observationId: string) =>
+    USE_MOCK ? Promise.resolve(mockObservations[observationId] ?? { observation: mockObservations["obs-1"]!.observation, claims: [] }) : api<{ observation: Observation; claims: Claim[] }>(`/api/observations/${observationId}`),
 }
 
 export const Claims = {
   create: (observationId: string, text: string) =>
-    api<{ claim: { id: string } }>("/api/claims", { method: "POST", body: JSON.stringify({ observationId, text }) }),
+    USE_MOCK ? Promise.resolve({ claim: mockAddClaim(observationId, text) }) : api<{ claim: { id: string } }>("/api/claims", { method: "POST", body: JSON.stringify({ observationId, text }) }),
 }
 
 export const Judgments = {
   create: (claimId: string, verdict: string, factIds: Array<string>, notes?: string) =>
-    api("/api/judgments", { method: "POST", body: JSON.stringify({ claimId, verdict, factIds, notes: notes ?? null }) }),
+    USE_MOCK ? Promise.resolve({ ok: true }) : api("/api/judgments", { method: "POST", body: JSON.stringify({ claimId, verdict, factIds, notes: notes ?? null }) }),
 }
 
 export const Issues = {
-  list: (businessId: string) => api<{ issues: Issue[] }>(`/api/businesses/${businessId}/issues`),
-  overview: (businessId: string) => api<{ overview: Overview }>(`/api/businesses/${businessId}/overview`),
+  list: (businessId: string) => (USE_MOCK ? Promise.resolve({ issues: mockIssues[businessId] ?? [] }) : api<{ issues: Issue[] }>(`/api/businesses/${businessId}/issues`)),
+  overview: (businessId: string) =>
+    USE_MOCK ? Promise.resolve({ overview: mockOverviews[businessId] ?? { completed: "0", last_checked: null, unreviewed: "0", needs_attention: "0" } }) : api<{ overview: Overview }>(`/api/businesses/${businessId}/overview`),
 }
 
 export type VerdictCounts = { supported: number; wrong: number; partial: number; unknown: number; unreviewed: number }
@@ -155,5 +167,6 @@ export type Analytics = {
 }
 
 export const AnalyticsApi = {
-  get: (businessId: string, days: number) => api<{ analytics: Analytics }>(`/api/businesses/${businessId}/analytics?days=${days}`),
+  get: (businessId: string, days: number) =>
+    USE_MOCK ? Promise.resolve({ analytics: mockAnalytics(businessId, days) }) : api<{ analytics: Analytics }>(`/api/businesses/${businessId}/analytics?days=${days}`),
 }

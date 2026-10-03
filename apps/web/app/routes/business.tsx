@@ -58,11 +58,11 @@ export function Overview() {
             onValueChange={(v) => setParams({ view: v }, { replace: true })}
             className="pointer-events-auto"
           >
-            <TabsList className="h-10 rounded-full border bg-background/85 p-1 shadow-(--float-shadow-strong) backdrop-blur supports-[backdrop-filter]:bg-background/70">
-              <TabsTrigger value="agent" className="rounded-full px-4 data-[state=active]:bg-sidebar data-[state=active]:text-sidebar-foreground data-[state=active]:shadow-[0_1px_3px_rgb(0_0_0/0.10)]">
+            <TabsList className="h-10 rounded-full border border-sidebar-border bg-sidebar/85 p-1 text-sidebar-foreground shadow-(--float-shadow-strong) backdrop-blur supports-[backdrop-filter]:bg-sidebar/70">
+              <TabsTrigger value="agent" className="rounded-full px-4 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_3px_rgb(0_0_0/0.10)]">
                 Agent
               </TabsTrigger>
-              <TabsTrigger value="today" className="rounded-full px-4 data-[state=active]:bg-sidebar data-[state=active]:text-sidebar-foreground data-[state=active]:shadow-[0_1px_3px_rgb(0_0_0/0.10)]">
+              <TabsTrigger value="today" className="rounded-full px-4 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_3px_rgb(0_0_0/0.10)]">
                 Today
               </TabsTrigger>
             </TabsList>

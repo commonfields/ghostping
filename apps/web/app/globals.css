@@ -191,3 +191,12 @@ html.theme-switching *::before,
 html.theme-switching *::after {
   transition: none !important;
 }
+
+/* TEMP: remove focus rings everywhere (user request). No green ring on
+   buttons, links, tabs, menus, or typing fields. */
+*:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+}
