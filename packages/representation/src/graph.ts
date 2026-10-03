@@ -49,7 +49,10 @@ export const latestSuccessfulByTarget = (
 }
 
 export const buildGraph = (rows: GraphRows): FactRepresentationGraph => {
-  const latest = latestObservationByTarget(rows.observations)
+  // Findings derive from the latest SUCCESSFUL observation per target.
+  // A later FAILED collection attempt never erases prior valid evidence;
+  // callers that need the newest attempt read rows.observations directly.
+  const latest = latestSuccessfulByTarget(rows.observations)
   const valuesByBindingObs = new Map<string, ObservedSourceValueV1>()
   for (const v of rows.values) {
     valuesByBindingObs.set(`${v.source_binding_id}|${v.source_observation_id}`, v)

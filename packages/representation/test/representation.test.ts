@@ -528,6 +528,40 @@ describe("graph", () => {
     expect(g.citation_edges[0]).toMatchObject({ edge: "CITED", source_target_id: "t-docs" })
     expect(JSON.stringify(g)).not.toMatch(/CAUSED_BY|caused/i)
   })
+
+  it("a later failed collection never erases prior valid evidence", () => {
+    const target = { id: "t", business_id: "b", url: "https://acme.example/pricing", control: "OWNED" as const, enabled: true, created_at: "2026-10-03T10:00:00.000Z" }
+    const binding = { id: "b1", business_id: "b", fact_id: "f", source_target_id: "t", extractor: { kind: "JSON_LD" as const, selector: "offers.price" }, comparator: "MONEY" as const, created_at: "2026-10-03T10:00:00.000Z" }
+    const good = { id: "o1", business_id: "b", source_target_id: "t", collector: "NATIVE_HTTP" as const, collector_version: "native-http/1", requested_url: target.url, final_url: target.url, started_at: "2026-10-03T10:00:00.000Z", completed_at: "2026-10-03T10:00:00.000Z", http_status: 200, content_type: "text/html", etag: null, last_modified: null, body_digest: "aa", body_bytes: 10, collection_state: "FETCHED" as const, failure: null, raw_evidence_id: null }
+    const failed = { ...good, id: "o2", started_at: "2026-10-03T11:00:00.000Z", completed_at: "2026-10-03T11:00:00.000Z", http_status: null, content_type: null, body_digest: null, body_bytes: 0, collection_state: "FAILED" as const, failure: "TIMEOUT" as const }
+    const value = { id: "v1", business_id: "b", source_observation_id: "o1", source_binding_id: "b1", fact_id: "f", extracted_value: "49.00 USD", extraction_state: "OBSERVED" as const, evidence_locator: { selector: "offers.price", source_observation_id: "o1", node_identity: "json-ld:offers.price" }, extractor_version: "extractors/1", created_at: "2026-10-03T10:00:00.000Z" }
+    const g = buildGraph({
+      fact: { id: "f", value_text: "49.00 USD", value_type: "CURRENCY" },
+      targets: [target],
+      bindings: [binding],
+      observations: [good, failed],
+      values: [value],
+      aiCitations: [],
+    })
+    expect(g.findings).toHaveLength(1)
+    expect(g.findings[0]).toMatchObject({ state: "IN_SYNC", source_observation_id: "o1", observed_value_id: "v1" })
+    // Full history preserved: the failed attempt is still visible.
+    expect(g.observations.map((o) => o.id).sort()).toEqual(["o1", "o2"])
+  })
+
+  it("a binding with no successful observation is UNKNOWN, not drift", () => {
+    const target = { id: "t", business_id: "b", url: "https://acme.example/x", control: "OWNED" as const, enabled: true, created_at: "2026-10-03T10:00:00.000Z" }
+    const binding = { id: "b1", business_id: "b", fact_id: "f", source_target_id: "t", extractor: { kind: "CSS_TEXT" as const, selector: ".price" }, comparator: "MONEY" as const, created_at: "2026-10-03T10:00:00.000Z" }
+    const g = buildGraph({
+      fact: { id: "f", value_text: "49.00 USD", value_type: "CURRENCY" },
+      targets: [target],
+      bindings: [binding],
+      observations: [],
+      values: [],
+      aiCitations: [],
+    })
+    expect(g.findings).toEqual([{ fact_id: "f", source_binding_id: "b1", source_observation_id: "", observed_value_id: null, state: "UNKNOWN", reason: "no observation yet" }])
+  })
 })
 
 describe("policy and cost", () => {
