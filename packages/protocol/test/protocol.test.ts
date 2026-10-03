@@ -96,6 +96,16 @@ describe("protocol validation", () => {
     const dangling = sealPacket({ ...p, judgments: p.judgments.map((j) => ({ ...j, fact_ids: ["fact-missing"] })) })
     expect(reasonOf(() => validatePacket(dangling))).toBe("DanglingReference")
   })
+  it("rejects judgment forks, cycles, and self-supersession with a shared reason", () => {
+    expect(reasonOf(() => validatePacket(fixture("malformed-judgment-fork")))).toBe("InvalidJudgmentSupersession")
+    expect(reasonOf(() => validatePacket(fixture("malformed-judgment-cycle")))).toBe("InvalidJudgmentSupersession")
+    expect(reasonOf(() => validatePacket(fixture("malformed-judgment-self")))).toBe("InvalidJudgmentSupersession")
+  })
+  it("rejects intervention forks, cycles, and self-supersession with a shared reason", () => {
+    expect(reasonOf(() => validatePacket(fixture("malformed-intervention-fork")))).toBe("InvalidInterventionSupersession")
+    expect(reasonOf(() => validatePacket(fixture("malformed-intervention-cycle")))).toBe("InvalidInterventionSupersession")
+    expect(reasonOf(() => validatePacket(fixture("malformed-intervention-self")))).toBe("InvalidInterventionSupersession")
+  })
 })
 
 describe("canonical JSON", () => {
@@ -159,6 +169,18 @@ describe("surface protocol", () => {
 describe("measurement comparison", () => {
   const sig = measurementSignature(packet("corrected-reobservation").original_observation.measurement)
   it("identical known configuration is EXACT_MATCH", () => expect(compareMeasurements(sig, { ...sig })).toBe("EXACT_MATCH"))
+  it("account_state and subscription_tier participate as critical dimensions", () => {
+    const free = { ...sig, subscription_tier: knownValue("free") }
+    const pro = { ...sig, subscription_tier: knownValue("pro") }
+    expect(compareMeasurements(free, pro)).toBe("NOT_COMPARABLE")
+    const authed = { ...sig, account_state: knownValue("authenticated") }
+    const anon = { ...sig, account_state: knownValue("anonymous") }
+    expect(compareMeasurements(authed, anon)).toBe("NOT_COMPARABLE")
+    const unknownA = { ...sig, account_state: UNKNOWN, subscription_tier: UNKNOWN }
+    const unknownB = { ...sig, account_state: UNKNOWN, subscription_tier: UNKNOWN }
+    expect(compareMeasurements(unknownA, unknownB)).toBe("INDETERMINATE")
+    expect(compareMeasurements(sig, unknownA)).toBe("INDETERMINATE")
+  })
   it("incomplete supporting configuration is COMPARABLE; incomplete critical configuration is INDETERMINATE", () => {
     expect(compareMeasurements(sig, { ...sig, locale: UNKNOWN })).toBe("COMPARABLE")
     expect(compareMeasurements(sig, { ...sig, adapter_version: "2" })).toBe("COMPARABLE")

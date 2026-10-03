@@ -15,10 +15,10 @@
     "claim_id": "claim-before",
     "type": {
       "state": "KNOWN",
-      "value": "PRICE"
+      "value": "WRONG_PRICE"
     },
-    "state": "RESOLVED",
-    "derived_from_judgment_id": "judgment-before",
+    "state": "WRONG",
+    "derived_from_judgment_id": "judgment-before-2",
     "created_at": "2026-10-01T00:00:00.000Z"
   },
   "facts": [
@@ -29,32 +29,15 @@
       "business_id": "business-acme",
       "subject": "Acme Starter",
       "predicate": "monthly price",
-      "value_text": "$29/month",
-      "value_type": "CURRENCY",
-      "status": "SUPERSEDED",
-      "version": 1,
-      "supersedes_id": null,
-      "valid_from": "2026-01-01T00:00:00.000Z",
-      "valid_until": "2026-10-01T12:00:00.000Z",
-      "source_kind": "MANUAL",
-      "created_at": "2026-01-01T00:00:00.000Z"
-    },
-    {
-      "schema": "ghostping/fact-v1",
-      "schema_version": 1,
-      "id": "fact-acme-starter-price-v2",
-      "business_id": "business-acme",
-      "subject": "Acme Starter",
-      "predicate": "monthly price",
       "value_text": "$39/month",
       "value_type": "CURRENCY",
       "status": "ACTIVE",
-      "version": 2,
-      "supersedes_id": "fact-acme-starter-price-v1",
-      "valid_from": "2026-10-01T12:00:00.000Z",
+      "version": 1,
+      "supersedes_id": null,
+      "valid_from": "2026-01-01T00:00:00.000Z",
       "valid_until": null,
       "source_kind": "MANUAL",
-      "created_at": "2026-10-01T12:00:00.000Z"
+      "created_at": "2026-01-01T00:00:00.000Z"
     }
   ],
   "original_observation": {
@@ -178,19 +161,119 @@
     {
       "schema": "ghostping/judgment-v1",
       "schema_version": 1,
-      "id": "judgment-before",
+      "id": "judgment-before-1",
       "business_id": "business-acme",
       "claim_id": "claim-before",
-      "verdict": "SUPPORTED",
+      "verdict": "INSUFFICIENT_EVIDENCE",
+      "notes": null,
+      "fact_ids": [],
+      "supersedes_id": null,
+      "created_at": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "schema": "ghostping/judgment-v1",
+      "schema_version": 1,
+      "id": "judgment-before-2",
+      "business_id": "business-acme",
+      "claim_id": "claim-before",
+      "verdict": "CONTRADICTED",
       "notes": null,
       "fact_ids": [
         "fact-acme-starter-price-v1"
       ],
-      "supersedes_id": null,
-      "created_at": "2026-10-01T00:00:00.000Z"
+      "supersedes_id": "judgment-before-1",
+      "created_at": "2026-10-01T00:05:00.000Z"
     }
   ],
-  "interventions": [],
+  "interventions": [
+    {
+      "schema": "ghostping/intervention-v1",
+      "schema_version": 1,
+      "id": "intervention-pricing-page",
+      "business_id": "business-acme",
+      "issue_ids": [
+        "claim-before"
+      ],
+      "type": "SOURCE_UPDATED",
+      "target": "https://acme.example/pricing",
+      "performed_at": "2026-10-01T12:00:00.000Z",
+      "actor": "HUMAN",
+      "actor_id": {
+        "state": "KNOWN",
+        "value": "operator-1"
+      },
+      "notes": "Pricing page now states $39/month.",
+      "evidence_before_digest": {
+        "state": "KNOWN",
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "evidence_after_digest": {
+        "state": "KNOWN",
+        "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "supersedes_id": null,
+      "correction_reason": null,
+      "created_at": "2026-10-01T12:00:00.000Z"
+    },
+    {
+      "schema": "ghostping/intervention-v1",
+      "schema_version": 1,
+      "id": "intervention-pricing-page-correction",
+      "business_id": "business-acme",
+      "issue_ids": [
+        "claim-before"
+      ],
+      "type": "STRUCTURED_DATA_UPDATED",
+      "target": "https://acme.example/pricing",
+      "performed_at": "2026-10-01T12:00:00.000Z",
+      "actor": "HUMAN",
+      "actor_id": {
+        "state": "KNOWN",
+        "value": "operator-1"
+      },
+      "notes": "Pricing page now states $39/month.",
+      "evidence_before_digest": {
+        "state": "KNOWN",
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "evidence_after_digest": {
+        "state": "KNOWN",
+        "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "supersedes_id": "intervention-pricing-page",
+      "correction_reason": "The change was to structured data, not page copy.",
+      "created_at": "2026-10-01T13:00:00.000Z"
+    },
+    {
+      "schema": "ghostping/intervention-v1",
+      "schema_version": 1,
+      "id": "intervention-fork",
+      "business_id": "business-acme",
+      "issue_ids": [
+        "claim-before"
+      ],
+      "type": "OTHER",
+      "target": "https://acme.example/pricing",
+      "performed_at": "2026-10-01T12:00:00.000Z",
+      "actor": "HUMAN",
+      "actor_id": {
+        "state": "KNOWN",
+        "value": "operator-1"
+      },
+      "notes": "Pricing page now states $39/month.",
+      "evidence_before_digest": {
+        "state": "KNOWN",
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "evidence_after_digest": {
+        "state": "KNOWN",
+        "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "supersedes_id": "intervention-pricing-page",
+      "correction_reason": "Competing correction.",
+      "created_at": "2026-10-01T14:00:00.000Z"
+    }
+  ],
   "reobservations": [
     {
       "schema": "ghostping/reobservation-v1",
@@ -199,7 +282,7 @@
       "business_id": "business-acme",
       "original_observation_id": "observation-before",
       "issue_id": "claim-before",
-      "intervention_id": null,
+      "intervention_id": "intervention-pricing-page",
       "observation_id": "observation-after",
       "before_signature": {
         "business_id": "business-acme",
@@ -326,13 +409,13 @@
         }
       },
       "match_classification": "EXACT_MATCH",
-      "before_judgment_id": "judgment-before",
+      "before_judgment_id": "judgment-before-2",
       "after_claim_id": "claim-after",
       "after_judgment_id": "judgment-after",
-      "before_verdict": "SUPPORTED",
+      "before_verdict": "CONTRADICTED",
       "after_verdict": "SUPPORTED",
       "observed_change": "CHANGED",
-      "outcome": "OBSERVED_DIFFERENCE",
+      "outcome": "OBSERVED_CORRECTION",
       "causal_attribution": "UNKNOWN",
       "created_at": "2026-10-02T00:00:00.000Z"
     }
@@ -466,13 +549,13 @@
       "verdict": "SUPPORTED",
       "notes": null,
       "fact_ids": [
-        "fact-acme-starter-price-v2"
+        "fact-acme-starter-price-v1"
       ],
       "supersedes_id": null,
       "created_at": "2026-10-02T00:00:00.000Z"
     }
   ],
-  "observed_outcome": "OBSERVED_DIFFERENCE",
+  "observed_outcome": "OBSERVED_CORRECTION",
   "causal_attribution": "UNKNOWN",
   "explicit_unknowns": [
     {
@@ -483,5 +566,5 @@
   "synthetic": true,
   "generated_at": "2026-10-02T01:00:00.000Z",
   "signatures": [],
-  "packet_digest": "b017b6c2286a8752a896df65787eaafd1d07e0e78b6fbd9ac965c16503d596e6"
+  "packet_digest": "18c7fdd97d543250a2443bdde1e33568b3255b30afb9f4e194284173b1e563f8"
 }

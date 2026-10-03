@@ -292,6 +292,66 @@ export const buildFixtures = (): Record<string, unknown> => {
     synthetic: false,
     original_observation: { ...mock.original_observation, synthetic: false },
   })
+  const corrective = packets["corrective-intervention"] as EvidencePacketV1
+  // Judgment fork: two children supersede the same judgment.
+  fixtures["malformed-judgment-fork"] = reseal({
+    ...corrected,
+    judgments: [
+      ...corrected.judgments,
+      {
+        ...corrected.judgments[1]!,
+        id: "judgment-before-fork",
+        created_at: "2026-10-01T00:06:00.000Z",
+      },
+    ],
+  })
+  // Judgment cycle: j1 supersedes j2 while j2 supersedes j1.
+  fixtures["malformed-judgment-cycle"] = reseal({
+    ...corrected,
+    judgments: corrected.judgments.map((j) =>
+      j.id === "judgment-before-1" ? { ...j, supersedes_id: "judgment-before-2" } : j,
+    ),
+  })
+  // Judgment self-supersession.
+  fixtures["malformed-judgment-self"] = reseal({
+    ...corrected,
+    judgments: corrected.judgments.map((j) =>
+      j.id === "judgment-before-2" ? { ...j, supersedes_id: j.id } : j,
+    ),
+  })
+  // Intervention fork: two corrections supersede the same intervention.
+  const interventionBase = corrective.interventions[0]!
+  fixtures["malformed-intervention-fork"] = reseal({
+    ...corrective,
+    interventions: [
+      interventionBase,
+      ...corrective.interventions.slice(1),
+      {
+        ...interventionBase,
+        id: "intervention-fork",
+        supersedes_id: interventionBase.id,
+        correction_reason: "Competing correction.",
+        type: "OTHER" as const,
+        created_at: "2026-10-01T14:00:00.000Z",
+      },
+    ],
+  })
+  // Intervention cycle.
+  fixtures["malformed-intervention-cycle"] = reseal({
+    ...corrective,
+    interventions: corrective.interventions.map((i, index, arr) =>
+      index === 0 ? { ...i, supersedes_id: arr[1]!.id, correction_reason: "Cycle." } : i,
+    ),
+  })
+  // Intervention self-supersession.
+  fixtures["malformed-intervention-self"] = reseal({
+    ...corrected,
+    interventions: corrected.interventions.map((i) => ({
+      ...i,
+      supersedes_id: i.id,
+      correction_reason: "Self.",
+    })),
+  })
   return fixtures
 }
 

@@ -277,6 +277,8 @@ export const MeasurementSignatureV1 = Schema.Struct({
   requested_model: KnowledgeString,
   observed_provider: KnowledgeString,
   observed_model: KnowledgeString,
+  account_state: KnowledgeString,
+  subscription_tier: KnowledgeString,
   search_mode: KnowledgeString,
   locale: KnowledgeString,
   region: KnowledgeString,

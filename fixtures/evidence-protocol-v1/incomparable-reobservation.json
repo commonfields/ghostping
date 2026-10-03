@@ -251,6 +251,12 @@
           "state": "KNOWN",
           "value": "router-model-a"
         },
+        "account_state": {
+          "state": "UNKNOWN"
+        },
+        "subscription_tier": {
+          "state": "UNKNOWN"
+        },
         "search_mode": {
           "state": "UNKNOWN"
         },
@@ -302,6 +308,13 @@
         "observed_model": {
           "state": "KNOWN",
           "value": "fixture-model-b"
+        },
+        "account_state": {
+          "state": "KNOWN",
+          "value": "SERVICE_ACCOUNT"
+        },
+        "subscription_tier": {
+          "state": "NOT_APPLICABLE"
         },
         "search_mode": {
           "state": "KNOWN",
@@ -517,5 +530,5 @@
   "synthetic": true,
   "generated_at": "2026-10-02T01:00:00.000Z",
   "signatures": [],
-  "packet_digest": "0beee6ecc638d899b19898199849d07dc20a07bf46c03390350809048ab1935a"
+  "packet_digest": "d3940621af5688f7be05be467ea010d176df342373554ff226c7cad4dea1f1da"
 }
