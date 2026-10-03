@@ -6,6 +6,7 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { applyArtifact, type ApplyIo } from "./apply.js"
+import { compileVerificationBindings, syncVerificationBindings } from "./bridge.js"
 import { compileProjection } from "./compiler.js"
 import { EMPTY_LOCK, planProjection, planStale, type ProjectionLock } from "./plan.js"
 import { parseManifest } from "./manifest.js"
@@ -76,7 +77,8 @@ const main = async (): Promise<void> => {
       console.error("sync requires DATABASE_URL")
       process.exit(2)
     }
-    const { pgSyncStore } = await import("@ghostping/db")
+    const { pgSyncStore, pgBridgeStore } = await import("@ghostping/db")
+    const { normalizeUrl } = await import("@ghostping/representation")
     const businessId = args("--business-id")
     if (!businessId) {
       console.error("sync requires --business-id")
@@ -86,6 +88,28 @@ const main = async (): Promise<void> => {
     try {
       const result = await syncManifestFacts(manifest, businessId, store, { sourceRevision: revision, now })
       console.log(`synced created=[${result.created}] superseded=[${result.superseded}] reactivated=[${result.reactivated}] retired=[${result.retired}] unchanged=[${result.unchanged}]`)
+      // Wire existing verification bindings into hosted representation
+      // storage: idempotent target/binding reconciliation reusing canonical
+      // URL semantics. Fact keys resolve to the just-synchronized real ids.
+      // A binding failure is reported honestly without claiming verification.
+      const bridge = pgBridgeStore(databaseUrl, businessId)
+      try {
+        const descriptors = compileVerificationBindings(manifest)
+        const factIds = new Map(
+          [...result.resolved.entries()].map(([key, r]) => {
+            const ref = r.ref
+            if (ref.kind !== "AUTHORITATIVE_FACT") throw new Error(`UnresolvedAuthorityRef: ${key}`)
+            return [key, ref.fact_id] as const
+          }),
+        )
+        const bound = await syncVerificationBindings(descriptors, factIds, normalizeUrl, bridge)
+        console.log(`verification bindings reconciled: ${bound.length} (targets/bindings reused or created)`)
+      } catch (e) {
+        console.error(`verification binding reconciliation failed (source verification NOT configured): ${e instanceof Error ? e.message : e}`)
+        process.exitCode = 1
+      } finally {
+        await bridge.close()
+      }
     } finally {
       await store.close()
     }

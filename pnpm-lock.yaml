@@ -238,6 +238,9 @@ importers:
       '@ghostping/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@ghostping/representation':
+        specifier: workspace:*
+        version: link:../representation
       '@ghostping/truth':
         specifier: workspace:*
         version: link:../truth
@@ -342,6 +345,9 @@ importers:
       '@ghostping/db':
         specifier: workspace:*
         version: link:../db
+      '@ghostping/representation':
+        specifier: workspace:*
+        version: link:../representation
       pg:
         specifier: 8.13.1
         version: 8.13.1
@@ -349,9 +355,6 @@ importers:
         specifier: 2.7.0
         version: 2.7.0
     devDependencies:
-      '@ghostping/representation':
-        specifier: workspace:*
-        version: link:../representation
       '@types/node':
         specifier: 24.10.1
         version: 24.10.1

@@ -14,11 +14,11 @@
   },
   "dependencies": {
     "@ghostping/db": "workspace:*",
+    "@ghostping/representation": "workspace:*",
     "pg": "8.13.1",
     "yaml": "2.7.0"
   },
   "devDependencies": {
-    "@ghostping/representation": "workspace:*",
     "@types/node": "24.10.1",
     "@types/pg": "8.11.0",
     "tsx": "4.19.2",
