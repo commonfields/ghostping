@@ -212,10 +212,11 @@ export const originOf = (raw: string): string | null => {
 }
 
 /**
- * Drain a body through a hard byte ceiling. Reads at most ceiling+1 bytes;
- * anything beyond is discarded and reported as truncated. The ceiling
- * applies uniformly to success, error, and unsupported-type bodies.
- * Aborts promptly on signal (slow/endless bodies become AbortError).
+ * Drain a body through a hard byte ceiling. At most `ceiling` bytes are
+ * accepted; any body longer than `ceiling` is cut off, discarded, and
+ * reported as truncated. The ceiling applies uniformly to success, error,
+ * and unsupported-type bodies. Aborts promptly on signal (slow/endless
+ * bodies become AbortError).
  */
 export const readCapped = async (
   source: ResponseBody,
@@ -408,8 +409,9 @@ export class NativeHttpCollector implements WebCollector {
           return this.failed(target, requestedUrl, current, started, res.status, null, "SECURITY_REJECTED")
         }
       // Stream through the hard ceiling first: the same limit guards
-      // success, error, and unsupported-type bodies alike.
-      const ceiling = this.limits.maxBytes + 1
+      // success, error, and unsupported-type bodies alike. Exactly
+      // maxBytes bytes are accepted; maxBytes + 1 already overflows.
+      const ceiling = this.limits.maxBytes
       let raw: Uint8Array
       try {
         const read = await readCapped(res.body, ceiling, controller.signal)

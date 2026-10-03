@@ -300,6 +300,34 @@ describe("readCapped", () => {
     expect(big.truncated).toBe(true)
     expect(big.bytes.length).toBe(10)
   })
+
+  it("enforces the exact boundary: maxBytes accepted, maxBytes+1 rejected", async () => {
+    const atMax = await readCapped(new Uint8Array(100), 100)
+    expect(atMax.truncated).toBe(false)
+    expect(atMax.bytes.length).toBe(100)
+    const overMax = await readCapped(new Uint8Array(101), 100)
+    expect(overMax.truncated).toBe(true)
+    const streamedAtMax = await readCapped(streamOf([new Uint8Array(60), new Uint8Array(40)]), 100)
+    expect(streamedAtMax.truncated).toBe(false)
+    const streamedOverMax = await readCapped(streamOf([new Uint8Array(60), new Uint8Array(41)]), 100)
+    expect(streamedOverMax.truncated).toBe(true)
+  })
+
+  it("collector accepts exactly maxBytes and rejects maxBytes+1", async () => {
+    const transport: HttpTransport = {
+      lookup: async () => ["93.184.216.34"],
+      fetch: async (url) => {
+        const n = Number(new URL(url).pathname.slice(1))
+        return { status: 200, headers: { "content-type": "text/html" }, body: new Uint8Array(n), peerIp: "93.184.216.34" }
+      },
+    }
+    const collector = new NativeHttpCollector({ transport, limits: { maxBytes: 64 } })
+    const ok = await collector.collect({ id: "t", business_id: "b", url: "http://example.test/64" }, null)
+    expect(ok.observation.collection_state).toBe("FETCHED")
+    const over = await collector.collect({ id: "t", business_id: "b", url: "http://example.test/65" }, null)
+    expect(over.observation.collection_state).toBe("FAILED")
+    expect(over.observation.failure).toBe("RESPONSE_TOO_LARGE")
+  })
 })
 
 describe("ssrf", () => {
