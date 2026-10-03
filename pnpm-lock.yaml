@@ -41,6 +41,9 @@ importers:
       '@ghostping/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@ghostping/discovery':
+        specifier: workspace:*
+        version: link:../../packages/discovery
       '@ghostping/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -163,12 +166,21 @@ importers:
       '@ghostping/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@ghostping/discovery':
+        specifier: workspace:*
+        version: link:../../packages/discovery
       '@ghostping/domain':
         specifier: workspace:*
         version: link:../../packages/domain
       '@ghostping/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@ghostping/representation':
+        specifier: workspace:*
+        version: link:../../packages/representation
+      cheerio:
+        specifier: 1.0.0
+        version: 1.0.0
       effect:
         specifier: 3.22.2
         version: 3.22.2
@@ -263,6 +275,28 @@ importers:
       tsx:
         specifier: 4.19.2
         version: 4.19.2
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@24.10.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.19.2)(yaml@2.7.0)
+
+  packages/discovery:
+    dependencies:
+      '@ghostping/representation':
+        specifier: workspace:*
+        version: link:../representation
+      cheerio:
+        specifier: 1.0.0
+        version: 1.0.0
+      effect:
+        specifier: 3.22.2
+        version: 3.22.2
+    devDependencies:
+      '@types/node':
+        specifier: 24.10.1
+        version: 24.10.1
       typescript:
         specifier: 5.9.3
         version: 5.9.3

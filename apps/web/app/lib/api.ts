@@ -224,6 +224,76 @@ export const Representations = {
     api<RepresentationDetail>(`/api/businesses/${businessId}/representations/${bindingId}`),
 }
 
+// Representation Discovery V1 read/scan contract. The backend serves these
+// under /api/businesses/:id/discovery/*; until it lands, calls surface the
+// server error and pages render honest empty states instead of guessing.
+export type DiscoveryScope = {
+  id: string
+  business_id: string
+  root_url: string
+  canonical_origin: string | null
+  path_prefix: string | null
+  enabled: boolean
+  ownership_assertion: string
+  created_at: string
+}
+
+export type DiscoveryRunState = "QUEUED" | "RUNNING" | "SUCCEEDED" | "PARTIAL" | "FAILED"
+
+export type DiscoveryRun = {
+  id: string
+  scope_id: string
+  state: DiscoveryRunState
+  queued_at: string
+  started_at: string | null
+  completed_at: string | null
+  partial_reason: string | null
+  failure_reason: string | null
+  pages_checked: number
+  pages_skipped: number
+  candidates_found: number
+}
+
+// Discovery-local match relation. Deliberately separate from the
+// representation finding states (IN_SYNC/DRIFT/UNKNOWN): a candidate is not
+// a tracked representation until it is explicitly configured.
+export type DiscoveryCandidateRelation = "CURRENT" | "HISTORICAL" | "MIXED"
+
+export type DiscoveryCandidate = {
+  id: string
+  run_id: string
+  fact_id: string
+  fact_predicate: string
+  approved_value: string
+  found_value: string
+  page_url: string
+  relation: DiscoveryCandidateRelation
+  found_via: string
+  scanned_at: string
+  truth_changed_since_scan: boolean
+}
+
+export const Discovery = {
+  listScopes: (businessId: string) => api<{ scopes: DiscoveryScope[] }>(`/api/businesses/${businessId}/discovery/scopes`),
+  createScope: (businessId: string, root_url: string) =>
+    api<{ scope: DiscoveryScope }>(`/api/businesses/${businessId}/discovery/scopes`, {
+      method: "POST",
+      body: JSON.stringify({ root_url }),
+    }),
+  listRuns: (businessId: string, scope_id: string) =>
+    api<{ runs: DiscoveryRun[] }>(`/api/businesses/${businessId}/discovery/runs?scope_id=${encodeURIComponent(scope_id)}`),
+  triggerRun: (businessId: string, scope_id: string) =>
+    api<{ run: DiscoveryRun }>(`/api/businesses/${businessId}/discovery/runs`, {
+      method: "POST",
+      body: JSON.stringify({ scope_id }),
+    }),
+  listCandidates: (businessId: string, query: { scope_id: string; run_id?: string }) => {
+    const params = new URLSearchParams({ scope_id: query.scope_id })
+    if (query.run_id) params.set("run_id", query.run_id)
+    return api<{ candidates: DiscoveryCandidate[] }>(`/api/businesses/${businessId}/discovery/candidates?${params.toString()}`)
+  },
+}
+
 export const Claims = {
   create: (observationId: string, text: string) =>
     api<{ claim: { id: string } }>("/api/claims", { method: "POST", body: JSON.stringify({ observationId, text }) }),
