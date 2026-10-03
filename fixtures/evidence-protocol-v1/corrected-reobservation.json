@@ -257,6 +257,13 @@
           "state": "KNOWN",
           "value": "fixture-model-a"
         },
+        "account_state": {
+          "state": "KNOWN",
+          "value": "SERVICE_ACCOUNT"
+        },
+        "subscription_tier": {
+          "state": "NOT_APPLICABLE"
+        },
         "search_mode": {
           "state": "KNOWN",
           "value": "DISABLED"
@@ -311,6 +318,13 @@
         "observed_model": {
           "state": "KNOWN",
           "value": "fixture-model-a"
+        },
+        "account_state": {
+          "state": "KNOWN",
+          "value": "SERVICE_ACCOUNT"
+        },
+        "subscription_tier": {
+          "state": "NOT_APPLICABLE"
         },
         "search_mode": {
           "state": "KNOWN",
@@ -494,5 +508,5 @@
   "synthetic": true,
   "generated_at": "2026-10-02T01:00:00.000Z",
   "signatures": [],
-  "packet_digest": "6e20cf373adc218a22d0254f21097f5976b2248a70f751fd63820a10555a8039"
+  "packet_digest": "c1165d9575d002d065214e4fa0dac5492c6128586682ee0237b9f4c9098cd576"
 }

@@ -575,6 +575,8 @@ pub struct MeasurementSignatureV1 {
     pub requested_model: KnowledgeString,
     pub observed_provider: KnowledgeString,
     pub observed_model: KnowledgeString,
+    pub account_state: KnowledgeString,
+    pub subscription_tier: KnowledgeString,
     pub search_mode: KnowledgeString,
     pub locale: KnowledgeString,
     pub region: KnowledgeString,
@@ -660,6 +662,8 @@ pub fn measurement_signature(context: &MeasurementContextV1) -> MeasurementSigna
         requested_model: s.requested_model.clone(),
         observed_provider: s.observed_provider.clone(),
         observed_model: s.observed_model.clone(),
+        account_state: s.account_state.clone(),
+        subscription_tier: s.subscription_tier.clone(),
         search_mode: s.search_mode.clone(),
         locale: s.locale.clone(),
         region: s.region.clone(),
@@ -700,6 +704,8 @@ pub fn compare_measurements(
         dimension(&a.gateway, &b.gateway),
         dimension(&a.requested_provider, &b.requested_provider),
         dimension(&a.requested_model, &b.requested_model),
+        dimension(&a.account_state, &b.account_state),
+        dimension(&a.subscription_tier, &b.subscription_tier),
         dimension(&a.search_mode, &b.search_mode),
         dimension(&a.personalization_state, &b.personalization_state),
         dimension(&a.generation_configuration, &b.generation_configuration),
@@ -1243,6 +1249,145 @@ fn unique<'a>(ids: impl Iterator<Item = &'a String>, what: &str) -> Result<(), P
     Ok(())
 }
 
+fn check_judgment_chain_linear(js: &[JudgmentV1]) -> Result<(), PacketError> {
+    if js.is_empty() {
+        return Ok(());
+    }
+    use std::collections::HashMap;
+    let by_id: HashMap<&str, &JudgmentV1> = js.iter().map(|j| (j.id.as_str(), j)).collect();
+    for j in js {
+        if let Some(s) = &j.supersedes_id {
+            if s == &j.id {
+                return Err(PacketError::new("InvalidJudgmentSupersession", &j.id));
+            }
+            let target = by_id.get(s.as_str());
+            match target {
+                None => return Err(PacketError::new("DanglingReference", &j.id)),
+                Some(t) if t.claim_id != j.claim_id => {
+                    return Err(PacketError::new("DanglingReference", &j.id))
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut children: HashMap<&str, usize> = HashMap::new();
+    for j in js {
+        if let Some(s) = &j.supersedes_id {
+            let n = children.get(s.as_str()).copied().unwrap_or(0) + 1;
+            children.insert(s.as_str(), n);
+            if n > 1 {
+                return Err(PacketError::new("InvalidJudgmentSupersession", s));
+            }
+        }
+    }
+    let superseded: HashSet<&str> = js
+        .iter()
+        .filter_map(|j| j.supersedes_id.as_deref())
+        .collect();
+    let heads: Vec<&JudgmentV1> = js
+        .iter()
+        .filter(|j| !superseded.contains(j.id.as_str()))
+        .collect();
+    if heads.len() != 1 {
+        return Err(PacketError::new(
+            "InvalidJudgmentSupersession",
+            format!("heads:{}", heads.len()),
+        ));
+    }
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut cur: Option<&JudgmentV1> = Some(heads[0]);
+    while let Some(c) = cur {
+        if !visited.insert(c.id.as_str()) {
+            return Err(PacketError::new("InvalidJudgmentSupersession", &c.id));
+        }
+        cur = c
+            .supersedes_id
+            .as_deref()
+            .and_then(|s| by_id.get(s).copied());
+    }
+    require(
+        visited.len() == js.len(),
+        "InvalidJudgmentSupersession",
+        "disconnected",
+    )?;
+    Ok(())
+}
+
+fn check_judgment_groups_linear(js: &[JudgmentV1]) -> Result<(), PacketError> {
+    use std::collections::HashMap;
+    let mut by_claim: HashMap<&str, Vec<&JudgmentV1>> = HashMap::new();
+    for j in js {
+        by_claim.entry(j.claim_id.as_str()).or_default().push(j);
+    }
+    for group in by_claim.values() {
+        let owned: Vec<JudgmentV1> = group.iter().map(|j| (*j).clone()).collect();
+        check_judgment_chain_linear(&owned)?;
+    }
+    Ok(())
+}
+
+fn check_intervention_chain_linear(items: &[InterventionV1]) -> Result<(), PacketError> {
+    if items.len() <= 1 {
+        if let Some(i) = items.first() {
+            if i.supersedes_id.as_deref() == Some(i.id.as_str()) {
+                return Err(PacketError::new("InvalidInterventionSupersession", &i.id));
+            }
+        }
+        return Ok(());
+    }
+    use std::collections::HashMap;
+    let by_id: HashMap<&str, &InterventionV1> = items.iter().map(|i| (i.id.as_str(), i)).collect();
+    for i in items {
+        if let Some(s) = &i.supersedes_id {
+            if s == &i.id {
+                return Err(PacketError::new("InvalidInterventionSupersession", &i.id));
+            }
+            require(by_id.contains_key(s.as_str()), "DanglingReference", &i.id)?;
+        }
+    }
+    let mut children: HashMap<&str, usize> = HashMap::new();
+    for i in items {
+        if let Some(s) = &i.supersedes_id {
+            let n = children.get(s.as_str()).copied().unwrap_or(0) + 1;
+            children.insert(s.as_str(), n);
+            if n > 1 {
+                return Err(PacketError::new("InvalidInterventionSupersession", s));
+            }
+        }
+    }
+    let superseded: HashSet<&str> = items
+        .iter()
+        .filter_map(|i| i.supersedes_id.as_deref())
+        .collect();
+    let heads: Vec<&InterventionV1> = items
+        .iter()
+        .filter(|i| !superseded.contains(i.id.as_str()))
+        .collect();
+    if heads.len() != 1 {
+        return Err(PacketError::new(
+            "InvalidInterventionSupersession",
+            format!("heads:{}", heads.len()),
+        ));
+    }
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut cur: Option<&InterventionV1> = Some(heads[0]);
+    while let Some(c) = cur {
+        if !visited.insert(c.id.as_str()) {
+            return Err(PacketError::new("InvalidInterventionSupersession", &c.id));
+        }
+        cur = c
+            .supersedes_id
+            .as_deref()
+            .and_then(|s| by_id.get(s).copied());
+    }
+    require(
+        visited.len() == items.len(),
+        "InvalidInterventionSupersession",
+        "disconnected",
+    )?;
+    Ok(())
+}
+
 fn check_references(p: &EvidencePacketV1) -> Result<(), PacketError> {
     let biz = &p.business.id;
     let observations: Vec<&ObservationV1> = std::iter::once(&p.original_observation)
@@ -1352,6 +1497,9 @@ fn check_references(p: &EvidencePacketV1) -> Result<(), PacketError> {
     };
     check_judgments(&p.judgments, &claim_ids)?;
     check_judgments(&p.reobservation_judgments, &re_claim_ids)?;
+    check_judgment_groups_linear(&p.judgments)?;
+    check_judgment_groups_linear(&p.reobservation_judgments)?;
+    check_intervention_chain_linear(&p.interventions)?;
     for f in &p.facts {
         if let Some(s) = &f.supersedes_id {
             require(fact_ids.contains(s.as_str()), "DanglingReference", &f.id)?;

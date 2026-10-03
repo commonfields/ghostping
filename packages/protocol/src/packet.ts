@@ -245,6 +245,91 @@ const requireAll = (cond: boolean, reason: string, detail?: string) => {
 const uniqueIds = (items: ReadonlyArray<{ id: string }>, what: string) =>
   requireAll(new Set(items.map((i) => i.id)).size === items.length, "DuplicateId", what)
 
+/**
+ * V1 linearity: one claim → one linear judgment supersession chain.
+ * Rejects self-supersession, cycles, forks (multiple children superseding
+ * the same judgment), multiple heads, and disconnected chains.
+ * Dangling / cross-claim targets remain DanglingReference.
+ */
+export const checkJudgmentChainLinear = (js: ReadonlyArray<JudgmentV1>): void => {
+  if (js.length === 0) return
+  const byId = new Map(js.map((j) => [j.id, j] as const))
+  for (const j of js) {
+    if (j.supersedes_id === null) continue
+    if (j.supersedes_id === j.id) throw new EvidencePacketInvalid("InvalidJudgmentSupersession", j.id)
+    const target = byId.get(j.supersedes_id)
+    requireAll(target !== undefined, "DanglingReference", `${j.id}.supersedes_id`)
+    requireAll(target!.claim_id === j.claim_id, "DanglingReference", `${j.id}.supersedes_id`)
+  }
+  const children = new Map<string, number>()
+  for (const j of js) {
+    if (j.supersedes_id === null) continue
+    const n = (children.get(j.supersedes_id) ?? 0) + 1
+    children.set(j.supersedes_id, n)
+    if (n > 1) throw new EvidencePacketInvalid("InvalidJudgmentSupersession", j.supersedes_id)
+  }
+  const superseded = new Set(js.flatMap((j) => (j.supersedes_id === null ? [] : [j.supersedes_id])))
+  const heads = js.filter((j) => !superseded.has(j.id))
+  if (heads.length !== 1) throw new EvidencePacketInvalid("InvalidJudgmentSupersession", `heads:${heads.length}`)
+  // Walk from the single head; any cycle or disconnected node fails.
+  const head = heads[0]!
+  const visited = new Set<string>()
+  let cur: JudgmentV1 | undefined = head
+  while (cur !== undefined) {
+    if (visited.has(cur.id)) throw new EvidencePacketInvalid("InvalidJudgmentSupersession", cur.id)
+    visited.add(cur.id)
+    cur = cur.supersedes_id === null ? undefined : byId.get(cur.supersedes_id)
+  }
+  requireAll(visited.size === js.length, "InvalidJudgmentSupersession", "disconnected")
+}
+
+const checkJudgmentGroupsLinear = (js: ReadonlyArray<JudgmentV1>): void => {
+  const byClaim = new Map<string, Array<JudgmentV1>>()
+  for (const j of js) {
+    const arr = byClaim.get(j.claim_id) ?? []
+    arr.push(j)
+    byClaim.set(j.claim_id, arr)
+  }
+  for (const group of byClaim.values()) checkJudgmentChainLinear(group)
+}
+
+/**
+ * V1 linearity: one linear intervention correction chain per packet.
+ * Rejects self-supersession, cycles, forks, multiple heads.
+ */
+export const checkInterventionChainLinear = (items: ReadonlyArray<InterventionV1>): void => {
+  if (items.length <= 1) {
+    if (items.length === 1 && items[0]!.supersedes_id === items[0]!.id) {
+      throw new EvidencePacketInvalid("InvalidInterventionSupersession", items[0]!.id)
+    }
+    return
+  }
+  const byId = new Map(items.map((i) => [i.id, i] as const))
+  for (const i of items) {
+    if (i.supersedes_id === null) continue
+    if (i.supersedes_id === i.id) throw new EvidencePacketInvalid("InvalidInterventionSupersession", i.id)
+    requireAll(byId.has(i.supersedes_id), "DanglingReference", `${i.id}.supersedes_id`)
+  }
+  const children = new Map<string, number>()
+  for (const i of items) {
+    if (i.supersedes_id === null) continue
+    const n = (children.get(i.supersedes_id) ?? 0) + 1
+    children.set(i.supersedes_id, n)
+    if (n > 1) throw new EvidencePacketInvalid("InvalidInterventionSupersession", i.supersedes_id)
+  }
+  const superseded = new Set(items.flatMap((i) => (i.supersedes_id === null ? [] : [i.supersedes_id])))
+  const heads = items.filter((i) => !superseded.has(i.id))
+  if (heads.length !== 1) throw new EvidencePacketInvalid("InvalidInterventionSupersession", `heads:${heads.length}`)
+  const visited = new Set<string>()
+  let cur: InterventionV1 | undefined = heads[0]
+  while (cur !== undefined) {
+    if (visited.has(cur.id)) throw new EvidencePacketInvalid("InvalidInterventionSupersession", cur.id)
+    visited.add(cur.id)
+    cur = cur.supersedes_id === null ? undefined : byId.get(cur.supersedes_id)
+  }
+  requireAll(visited.size === items.length, "InvalidInterventionSupersession", "disconnected")
+}
+
 const checkReferences = (p: EvidencePacketV1): void => {
   const biz = p.business.id
   const observations = [p.original_observation, ...p.reobservation_observations]
@@ -283,6 +368,9 @@ const checkReferences = (p: EvidencePacketV1): void => {
   }
   checkJudgments(p.judgments, claimIds)
   checkJudgments(p.reobservation_judgments, reClaimIds)
+  checkJudgmentGroupsLinear(p.judgments)
+  checkJudgmentGroupsLinear(p.reobservation_judgments)
+  checkInterventionChainLinear(p.interventions)
   for (const f of p.facts) {
     if (f.supersedes_id !== null) requireAll(factIds.has(f.supersedes_id), "DanglingReference", `${f.id}.supersedes_id`)
   }

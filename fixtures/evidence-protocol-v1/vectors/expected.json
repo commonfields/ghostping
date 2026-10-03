@@ -1,7 +1,7 @@
 {
   "changed-unjudged": {
     "valid": true,
-    "packet_digest": "5bf937bceae966417c9ed87c89f29c5825aa88a639d2249c26c9c59ac75db5b7",
+    "packet_digest": "59a353329f6fe5b81f27931854cb013b551e5493ce01efd091de6f9a57781b4a",
     "synthetic": true,
     "observed_outcome": "INDETERMINATE",
     "match_classifications": [
@@ -29,7 +29,7 @@
   },
   "corrected-reobservation": {
     "valid": true,
-    "packet_digest": "6e20cf373adc218a22d0254f21097f5976b2248a70f751fd63820a10555a8039",
+    "packet_digest": "c1165d9575d002d065214e4fa0dac5492c6128586682ee0237b9f4c9098cd576",
     "synthetic": true,
     "observed_outcome": "OBSERVED_CORRECTION",
     "match_classifications": [
@@ -41,7 +41,7 @@
   },
   "corrective-intervention": {
     "valid": true,
-    "packet_digest": "d024c747d6a1a693ce973ef820e00c980f0b5627bda5248299b10d491f12c01a",
+    "packet_digest": "4c19bf88ba1eda9f990ff118ba62870cb58105b2beeaf7306daf89dc98c16587",
     "synthetic": true,
     "observed_outcome": "OBSERVED_CORRECTION",
     "match_classifications": [
@@ -53,7 +53,7 @@
   },
   "incomparable-reobservation": {
     "valid": true,
-    "packet_digest": "0beee6ecc638d899b19898199849d07dc20a07bf46c03390350809048ab1935a",
+    "packet_digest": "d3940621af5688f7be05be467ea010d176df342373554ff226c7cad4dea1f1da",
     "synthetic": true,
     "observed_outcome": "INDETERMINATE",
     "match_classifications": [
@@ -65,7 +65,7 @@
   },
   "indeterminate-hidden-dimensions": {
     "valid": true,
-    "packet_digest": "c51941dd60989e9ff8042fc06d47126a9a3a23d49f92d6fd23f72a5c8eeb4661",
+    "packet_digest": "f57cba61211d75055088f17b494b43c5d0c4b56c62d085dd1c859a670ffbc661",
     "synthetic": true,
     "observed_outcome": "INDETERMINATE",
     "match_classifications": [
@@ -91,6 +91,30 @@
     "valid": false,
     "reason": "UnsupportedSchemaVersion"
   },
+  "malformed-intervention-cycle": {
+    "valid": false,
+    "reason": "InvalidInterventionSupersession"
+  },
+  "malformed-intervention-fork": {
+    "valid": false,
+    "reason": "InvalidInterventionSupersession"
+  },
+  "malformed-intervention-self": {
+    "valid": false,
+    "reason": "InvalidInterventionSupersession"
+  },
+  "malformed-judgment-cycle": {
+    "valid": false,
+    "reason": "InvalidJudgmentSupersession"
+  },
+  "malformed-judgment-fork": {
+    "valid": false,
+    "reason": "InvalidJudgmentSupersession"
+  },
+  "malformed-judgment-self": {
+    "valid": false,
+    "reason": "InvalidJudgmentSupersession"
+  },
   "malformed-missing-required": {
     "valid": false,
     "reason": "SchemaViolation"
@@ -113,7 +137,7 @@
   },
   "router-api-reobservation": {
     "valid": true,
-    "packet_digest": "6c9f6502e41ffb8b5694b2d20c44b4fd2f0b9fa6dc4a8c74f87a4a6cd16e1bf0",
+    "packet_digest": "9752f4dfb4f453b30190b70259156bb4e1926ef818e13cb4f8f61f0cd1e29104",
     "synthetic": true,
     "observed_outcome": "INDETERMINATE",
     "match_classifications": [
@@ -125,7 +149,7 @@
   },
   "superseded-fact": {
     "valid": true,
-    "packet_digest": "f004b3e161464d5e564ddd6ec427d3fb361858443c35ec4183d09bc258aef7b5",
+    "packet_digest": "b017b6c2286a8752a896df65787eaafd1d07e0e78b6fbd9ac965c16503d596e6",
     "synthetic": true,
     "observed_outcome": "OBSERVED_DIFFERENCE",
     "match_classifications": [
@@ -137,7 +161,7 @@
   },
   "unknown-attribution": {
     "valid": true,
-    "packet_digest": "b078c395cddaf357c44b3fde06adb5e9a1b7d2134088000371bd6f5108cb2638",
+    "packet_digest": "bf8ee11c6056f606a880b7066fe4014d4e392901169368e05dbf77a8250f9901",
     "synthetic": true,
     "observed_outcome": "OBSERVED_CORRECTION",
     "match_classifications": [
