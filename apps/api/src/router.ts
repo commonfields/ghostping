@@ -34,9 +34,22 @@ import {
   JudgmentRepositoryLive,
   ObservationRepository,
   ObservationRepositoryLive,
+  ProductReadRepository,
+  ProductReadRepositoryLive,
   QuestionRepository,
   QuestionRepositoryLive,
 } from "@ghostping/db"
+import { AuthorityError } from "@ghostping/db"
+import {
+  assertLinearLineage,
+  assembleCitationEvidence,
+  citationEvidenceForObservation,
+  FactLineageForked,
+  issueStateOf,
+  loadIssueDetail,
+  loadRepresentationDetail,
+  loadRepresentations,
+} from "./reads.js"
 import {
   clearedCookieHeader,
   hashPassword,
@@ -63,6 +76,13 @@ const decodeRequest = <A, I>(schema: Schema.Schema<A, I>, raw: unknown): A | nul
 }
 
 const malformed = { _tag: "InvalidFactValue", reason: "malformed request" } as const
+
+// Repository-managed businesses reject hosted fact writes with a typed
+// defect; surface it as 409 (expected authority conflict), never 500.
+const authorityConflict = (e: unknown) =>
+  e instanceof AuthorityError
+    ? json(409, { _tag: "FactAuthorityManagedByRepository", reason: e instanceof Error ? e.message : "repository-managed" })
+    : Effect.die(e)
 
 // Route identifiers are externally supplied: validate before any repository
 // operation so malformed ids become 4xx, never opaque SQL errors.
@@ -433,9 +453,20 @@ export const makeRouter = (pool: pg.Pool) => {
               }
             }
           }
-          return yield* json(200, { facts: rows, conflicts })
+          // Authority contract: absent mode row means HOSTED (engineering
+          // contract); provenance stays unknown (null) when never synced.
+          const reads = yield* ProductReadRepository
+          const mode = (yield* reads.authorityMode(businessId)) ?? "HOSTED"
+          const provenanceRows = yield* reads.factProvenance(businessId)
+          const provenance: Record<string, { manifestKey: string; manifestDigest: string; sourceRevision: string | null; syncedAt: string; sourceUrl: string | null } | null> = {}
+          for (const r of rows) provenance[r.id] = null
+          for (const p of provenanceRows) provenance[p.factId] = { manifestKey: p.manifestKey, manifestDigest: p.manifestDigest, sourceRevision: p.sourceRevision, syncedAt: p.syncedAt, sourceUrl: p.sourceUrl }
+          return yield* json(200, { facts: rows, conflicts, authority: { mode }, provenance })
         }),
-      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+      ).pipe(
+        Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown)),
+        Effect.catchAllDefect(authorityConflict),
+      ),
     ),
     HttpRouter.post(
       "/api/businesses/:id/facts",
@@ -517,7 +548,10 @@ export const makeRouter = (pool: pg.Pool) => {
           })
           return yield* json(200, { fact: row })
         }),
-      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+      ).pipe(
+        Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown)),
+        Effect.catchAllDefect(authorityConflict),
+      ),
     ),
     HttpRouter.post(
       "/api/businesses/:id/facts/:factId/retire",
@@ -537,7 +571,10 @@ export const makeRouter = (pool: pg.Pool) => {
           if (!row) return yield* json(404, { _tag: "FactNotFound" })
           return yield* json(200, { fact: row })
         }),
-      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+      ).pipe(
+        Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown)),
+        Effect.catchAllDefect(authorityConflict),
+      ),
     ),
     // ---- questions ----
     HttpRouter.get(
@@ -669,6 +706,7 @@ export const makeRouter = (pool: pg.Pool) => {
         })
         void obs
         void claims
+        const citations = yield* citationEvidenceForObservation(s.session.accountId, String(row.business_id), observationId)
         return yield* json(200, {
           observation: (yield* Effect.tryPromise({
             try: () =>
@@ -681,6 +719,9 @@ export const makeRouter = (pool: pg.Pool) => {
             catch: () => null,
           })) as unknown,
           claims: (allClaims as pg.QueryResult).rows,
+          // Provider-returned citations exactly as stored, with tracked
+          // representation matches where canonical URLs agree.
+          citations: citations ?? [],
         })
       }),
     ),
@@ -763,41 +804,35 @@ export const makeRouter = (pool: pg.Pool) => {
           if (!(yield* biz.getScoped(session.accountId, businessId))) {
             return yield* json(404, { _tag: "BusinessNotFound" })
           }
-          const data = yield* Effect.tryPromise({
-            try: () =>
-              pool.query(
-                `SELECT c.id AS claim_id, c.text AS claim_text, c.observation_id, o.answer_text, o.provider, o.observed_model, o.collected_at,
-                        q.prompt AS question_prompt,
-                        j.id AS judgment_id, j.verdict, j.notes,
-                        COALESCE((SELECT json_agg(json_build_object('id', f.id, 'predicate', f.predicate, 'valueText', f.value_text, 'status', f.status) ORDER BY f.predicate)
-                          FROM human_judgment_facts hjf JOIN authoritative_facts f ON f.id = hjf.fact_id WHERE hjf.judgment_id = j.id), '[]'::json) AS facts
-                 FROM candidate_claims c
-                 JOIN observations o ON o.id = c.observation_id
-                 LEFT JOIN check_runs cr ON cr.id = o.check_run_id
-                 LEFT JOIN buyer_questions q ON q.id = cr.question_id
-                 LEFT JOIN human_judgments j ON j.claim_id = c.id AND NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id)
-                 WHERE c.business_id = $1 ORDER BY c.created_at DESC`,
-                [businessId],
-              ),
-            catch: () => ({ rows: [] }) as unknown as pg.QueryResult,
-          })
-          const issues = ((data as pg.QueryResult).rows as Array<Record<string, unknown>>)
-            .map((r) => {
-              const verdict = r["verdict"] as string | null
-              const state =
-                verdict === "CONTRADICTED"
-                  ? "WRONG"
-                  : verdict === "PARTIAL"
-                    ? "PARTIAL"
-                    : verdict === "INSUFFICIENT_EVIDENCE"
-                      ? "UNKNOWN"
-                      : verdict === "SUPPORTED"
-                        ? "RESOLVED"
-                        : "NEEDS_REVIEW"
-              return { ...r, state }
-            })
+          const reads = yield* ProductReadRepository
+          const rows = yield* reads.issueList(businessId)
+          const issues: Array<Record<string, unknown>> = rows
+            .map((r) => ({ ...r, state: issueStateOf(r["verdict"] as string | null) }))
             .filter((r) => (r["state"] as string) !== "RESOLVED")
-          return yield* json(200, { issues })
+          // Batched citation evidence: one representation load for the whole
+          // inbox, matched per issue observation (never one query per issue).
+          const representations = (yield* loadRepresentations(session.accountId, businessId)) ?? []
+          const allCitations = yield* reads.aiCitations(businessId)
+          const byObservation = new Map<string, Array<Record<string, unknown>>>()
+          for (const c of allCitations) {
+            const key = String(c["observation_id"])
+            const arr = byObservation.get(key) ?? []
+            arr.push(c)
+            byObservation.set(key, arr)
+          }
+          const withEvidence = issues.map((issue) => ({
+            ...issue,
+            citation_evidence: assembleCitationEvidence(
+              (byObservation.get(String(issue["observation_id"])) ?? []).map((c) => ({
+                uri: (c["uri"] as string | null) ?? null,
+                title: (c["title"] as string | null) ?? null,
+                position: (c["position"] as number | null) ?? null,
+                attributed: Boolean(c["attributed"]),
+              })),
+              representations,
+            ),
+          }))
+          return yield* json(200, { issues: withEvidence })
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
@@ -857,7 +892,104 @@ export const makeRouter = (pool: pg.Pool) => {
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
   )
-  return api
+  // Product Surface V1 reads live in a second pipe: HttpRouter pipe
+  // overloads cap a single chain, so new routes concatenate instead of
+  // extending the original chain past its arity limit.
+  const productApi = router.pipe(
+    HttpRouter.get(
+      "/api/businesses/:id/representations",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          return yield* json(200, { representations: yield* loadRepresentations(session.accountId, businessId) })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    HttpRouter.get(
+      "/api/businesses/:id/representations/:bindingId",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const p = params.params as Record<string, string>
+          if (!isRouteId(p["id"] as string)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, p["id"] as string))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          const detail = yield* loadRepresentationDetail(session.accountId, p["id"] as string, p["bindingId"] as string)
+          if (!detail) return yield* json(404, { _tag: "RepresentationNotFound" })
+          return yield* json(200, detail)
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    HttpRouter.get(
+      "/api/businesses/:id/issues/:claimId",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const p = params.params as Record<string, string>
+          if (!isRouteId(p["id"] as string)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, p["id"] as string))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          const detail = yield* loadIssueDetail(session.accountId, p["id"] as string, p["claimId"] as string)
+          if (!detail) return yield* json(404, { _tag: "IssueNotFound" })
+          return yield* json(200, detail)
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    HttpRouter.get(
+      "/api/businesses/:id/facts/:factId/history",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const p = params.params as Record<string, string>
+          if (!isRouteId(p["id"] as string) || !isRouteId(p["factId"] as string)) {
+            return yield* json(422, malformed)
+          }
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, p["id"] as string))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          const facts = yield* FactRepository
+          const fact = yield* facts.getScoped(p["id"] as string, p["factId"] as string)
+          if (!fact) return yield* json(404, { _tag: "FactNotFound" })
+          const reads = yield* ProductReadRepository
+          // Authority history follows supersedes_id lineage, not mutable
+          // subject/predicate metadata. Forks fail closed, never flattened.
+          const lineage = yield* reads.factLineage(p["id"] as string, p["factId"] as string)
+          let ordered: ReadonlyArray<Record<string, unknown>>
+          try {
+            const checked = assertLinearLineage(
+              lineage.map((r) => ({ id: String(r["id"]), supersedes_id: (r["supersedes_id"] as string | null) ?? null, version: Number(r["version"]) })),
+            )
+            const byId = new Map(checked.map((c) => [c.id, c]))
+            ordered = lineage
+              .filter((r) => byId.has(String(r["id"])))
+              .sort((a, b) => Number(a["version"]) - Number(b["version"]))
+          } catch (e) {
+            if (e instanceof FactLineageForked) return yield* json(500, { _tag: "FactLineageForked", reason: e.message })
+            throw e
+          }
+          // Each version keeps its own provenance; never retrofitted.
+          const provenance = yield* reads.factProvenance(p["id"] as string)
+          const provenanceByFact = new Map(provenance.map((r) => [r.factId, r] as const))
+          return yield* json(200, {
+            fact,
+            history: ordered.map((r) => ({ ...(r as Record<string, unknown>), provenance: provenanceByFact.get(String(r["id"])) ?? null })),
+          })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+  )
+  return HttpRouter.concat(api, productApi)
 }
 
 export const RepoLayers = {
@@ -868,4 +1000,5 @@ export const RepoLayers = {
   ObservationRepositoryLive,
   ClaimRepositoryLive,
   JudgmentRepositoryLive,
+  ProductReadRepositoryLive,
 }

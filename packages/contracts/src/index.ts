@@ -70,7 +70,15 @@ export const Routes = {
   createClaim: { method: "POST", path: "/api/claims" },
   createJudgment: { method: "POST", path: "/api/judgments" },
   listIssues: (businessId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/issues` }),
+  getIssue: (businessId: string, claimId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/issues/${claimId}` }),
   overview: (businessId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/overview` }),
+  analytics: (businessId: string, days: number) => ({ method: "GET", path: `/api/businesses/${businessId}/analytics?days=${days}` }),
+  factHistory: (businessId: string, factId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/facts/${factId}/history` }),
+  listRepresentations: (businessId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/representations` }),
+  getRepresentation: (businessId: string, bindingId: string) => ({
+    method: "GET",
+    path: `/api/businesses/${businessId}/representations/${bindingId}`,
+  }),
 } as const
 
 export const decodeWorkerJob = Schema.decodeUnknownSync(WorkerJobV1)

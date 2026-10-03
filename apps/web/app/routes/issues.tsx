@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react"
 import { Link, useParams } from "react-router"
-import { ArrowUpRightIcon, BookCheckIcon, InboxIcon, MessageSquareQuoteIcon, PenLineIcon } from "lucide-react"
+import { ArrowUpRightIcon, BookCheckIcon, InboxIcon, LinkIcon, MessageSquareQuoteIcon, PenLineIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EmptyState, PageHeader } from "@/components/page"
-import { IssueStateBadge, issueStateMeta } from "@/components/status"
-import { Issues, type Issue, type IssueState } from "@/lib/api"
+import { IssueStateBadge, issueStateMeta, RepresentationStateBadge } from "@/components/status"
+import { Issues, type IssueState, type IssueWithEvidence } from "@/lib/api"
 import { formatDate, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
 
@@ -83,8 +83,11 @@ export function IssuesPage() {
   )
 }
 
-function IssueCard({ issue }: { issue: Issue }) {
+function IssueCard({ issue }: { issue: IssueWithEvidence }) {
+  const { id = "" } = useParams()
   const reviewed = issue.state !== "NEEDS_REVIEW"
+  const tracked = issue.citation_evidence.filter((c) => c.tracked !== null)
+  const untracked = issue.citation_evidence.filter((c) => c.tracked === null)
   return (
     <Card className="gap-0 overflow-hidden py-0">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-5 py-3">
@@ -95,10 +98,17 @@ function IssueCard({ issue }: { issue: Issue }) {
           <span> on {formatDate(issue.collected_at)}</span>
         </span>
         <Button asChild variant={reviewed ? "ghost" : "default"} size="sm" className="ml-auto">
-          <Link to={`/observations/${issue.observation_id}`}>
-            {reviewed ? <ArrowUpRightIcon /> : <PenLineIcon />}
-            {reviewed ? "Open answer" : "Review claim"}
-          </Link>
+          {reviewed ? (
+            <Link to={`/businesses/${id}/issues/${issue.claim_id}`}>
+              <ArrowUpRightIcon />
+              View issue
+            </Link>
+          ) : (
+            <Link to={`/observations/${issue.observation_id}`}>
+              <PenLineIcon />
+              Review claim
+            </Link>
+          )}
         </Button>
       </div>
 
@@ -128,6 +138,7 @@ function IssueCard({ issue }: { issue: Issue }) {
                   <div key={f.id} className="flex flex-wrap items-baseline gap-x-2">
                     <dt className="text-sm text-muted-foreground">{sentenceCase(f.predicate)}</dt>
                     <dd className="text-[15px] font-medium">{f.valueText}</dd>
+                    <dd className="text-xs text-muted-foreground tabular-nums">v{f.version}</dd>
                   </div>
                 ))}
               </dl>
@@ -145,8 +156,50 @@ function IssueCard({ issue }: { issue: Issue }) {
             {issue.notes}
           </p>
         ) : null}
+
+        {tracked.length > 0 ? (
+          <div className="space-y-2 rounded-lg border p-4">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <LinkIcon className="size-3.5" />
+              Cited source evidence
+            </div>
+            {tracked.map((c) => (
+              <div key={c.uri} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                <span className="font-medium">{domainOf(c.uri)}</span>
+                {c.tracked?.observed_value ? <span className="text-muted-foreground">Observed there {c.tracked.observed_value}</span> : null}
+                {c.tracked ? <RepresentationStateBadge state={c.tracked.finding} /> : null}
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground">Citation shows the source was referenced; it does not prove the source caused the answer.</p>
+          </div>
+        ) : null}
+        {untracked.length > 0 ? (
+          <div className="space-y-1 rounded-lg border p-4">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <LinkIcon className="size-3.5" />
+              Cited source
+            </div>
+            {untracked.map((c) => (
+              <p key={c.uri} className="text-sm">
+                <span className="font-medium">{domainOf(c.uri)}</span>{" "}
+                <span className="text-muted-foreground">— representation not tracked</span>
+              </p>
+            ))}
+          </div>
+        ) : null}
+        {issue.citation_evidence.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No source citation returned.</p>
+        ) : null}
       </CardContent>
 
     </Card>
   )
+}
+
+function domainOf(url: string) {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
 }

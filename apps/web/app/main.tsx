@@ -12,10 +12,13 @@ import { WorkspaceProvider } from "@/lib/workspace"
 import { SignIn, SignUp } from "./routes/auth"
 import { Home } from "./routes/home"
 import { BusinessLayout, Overview } from "./routes/business"
-import { FactsPage } from "./routes/facts"
 import { ChecksPage } from "./routes/checks"
+import { IssueDetailPage } from "./routes/issue"
 import { IssuesPage } from "./routes/issues"
 import { ObservationPage } from "./routes/observation"
+import { RepresentationDetailPage } from "./routes/representation"
+import { RepresentationsPage } from "./routes/representations"
+import { TruthPage } from "./routes/truth"
 
 function App() {
   return (
@@ -40,9 +43,13 @@ function App() {
             <Route path="/businesses/:id" element={<BusinessLayout />}>
               <Route index element={<Navigate to="overview" replace />} />
               <Route path="overview" element={<Overview />} />
-              <Route path="facts" element={<FactsPage />} />
+              <Route path="truth" element={<TruthPage />} />
+              <Route path="facts" element={<Navigate to="../truth" replace />} />
               <Route path="checks" element={<ChecksPage />} />
               <Route path="issues" element={<IssuesPage />} />
+              <Route path="issues/:claimId" element={<IssueDetailPage />} />
+              <Route path="representations" element={<RepresentationsPage />} />
+              <Route path="representations/:bindingId" element={<RepresentationDetailPage />} />
             </Route>
             <Route path="/observations/:observationId" element={<ObservationPage />} />
           </Route>

@@ -6,6 +6,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
+  GlobeIcon,
   InboxIcon,
   KeyboardIcon,
   LayoutGridIcon,
@@ -17,6 +18,7 @@ import {
   UserRoundIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { sectionTitles } from "@/lib/nav"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -167,8 +169,9 @@ function SidebarBody() {
           <SidebarGroup label="Workspace">
             <SidebarLink to={`${base}/overview`} icon={<LayoutGridIcon />} label="Overview" />
             <SidebarLink to={`${base}/issues`} icon={<InboxIcon />} label="Issues" count={attention} />
+            <SidebarLink to={`${base}/representations`} icon={<GlobeIcon />} label="Representations" />
+            <SidebarLink to={`${base}/truth`} icon={<BookCheckIcon />} label="Truth" />
             <SidebarLink to={`${base}/checks`} icon={<RadarIcon />} label="Checks" />
-            <SidebarLink to={`${base}/facts`} icon={<BookCheckIcon />} label="Approved facts" />
           </SidebarGroup>
         ) : null}
         <SidebarGroup label="Account">
@@ -371,13 +374,6 @@ function AccountMenu() {
   )
 }
 
-const sectionTitles: Record<string, string> = {
-  overview: "Overview",
-  issues: "Issues",
-  checks: "Checks",
-  facts: "Approved facts",
-}
-
 function Breadcrumbs() {
   const location = useLocation()
   const { activeBusiness } = useWorkspace()
@@ -385,8 +381,18 @@ function Breadcrumbs() {
   const crumbs: Array<{ label: string; to?: string }> = []
 
   if (parts[0] === "businesses" && activeBusiness) {
-    crumbs.push({ label: activeBusiness.name, to: `/businesses/${activeBusiness.id}/overview` })
-    crumbs.push({ label: sectionTitles[parts[2] ?? ""] ?? "Overview" })
+    const base = `/businesses/${activeBusiness.id}`
+    crumbs.push({ label: activeBusiness.name, to: `${base}/overview` })
+    const section = parts[2] ?? ""
+    const detail = parts[3]
+    if ((section === "issues" || section === "representations") && detail) {
+      const parent = section === "issues" ? "Issues" : "Representations"
+      const child = section === "issues" ? "Issue" : "Representation"
+      crumbs.push({ label: parent, to: `${base}/${section}` })
+      crumbs.push({ label: child })
+    } else {
+      crumbs.push({ label: sectionTitles[section] ?? "Overview" })
+    }
   } else if (parts[0] === "observations") {
     if (activeBusiness) {
       crumbs.push({ label: activeBusiness.name, to: `/businesses/${activeBusiness.id}/overview` })

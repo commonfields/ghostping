@@ -17,6 +17,8 @@ import {
   parseBoolean,
   parseMoney,
   readCapped,
+  resolveEffectiveEvidence,
+  resolveHistory,
   sameCanonicalUrl,
   shouldReuseExtraction,
   type FetchResponse,
@@ -527,6 +529,128 @@ describe("graph", () => {
     expect(g.citation_edges).toHaveLength(1)
     expect(g.citation_edges[0]).toMatchObject({ edge: "CITED", source_target_id: "t-docs" })
     expect(JSON.stringify(g)).not.toMatch(/CAUSED_BY|caused/i)
+  })
+
+  it("a later failed collection never erases prior valid evidence", () => {
+    const target = { id: "t", business_id: "b", url: "https://acme.example/pricing", control: "OWNED" as const, enabled: true, created_at: "2026-10-03T10:00:00.000Z" }
+    const binding = { id: "b1", business_id: "b", fact_id: "f", source_target_id: "t", extractor: { kind: "JSON_LD" as const, selector: "offers.price" }, comparator: "MONEY" as const, created_at: "2026-10-03T10:00:00.000Z" }
+    const good = { id: "o1", business_id: "b", source_target_id: "t", collector: "NATIVE_HTTP" as const, collector_version: "native-http/1", requested_url: target.url, final_url: target.url, started_at: "2026-10-03T10:00:00.000Z", completed_at: "2026-10-03T10:00:00.000Z", http_status: 200, content_type: "text/html", etag: null, last_modified: null, body_digest: "aa", body_bytes: 10, collection_state: "FETCHED" as const, failure: null, raw_evidence_id: null }
+    const failed = { ...good, id: "o2", started_at: "2026-10-03T11:00:00.000Z", completed_at: "2026-10-03T11:00:00.000Z", http_status: null, content_type: null, body_digest: null, body_bytes: 0, collection_state: "FAILED" as const, failure: "TIMEOUT" as const }
+    const value = { id: "v1", business_id: "b", source_observation_id: "o1", source_binding_id: "b1", fact_id: "f", extracted_value: "49.00 USD", extraction_state: "OBSERVED" as const, evidence_locator: { selector: "offers.price", source_observation_id: "o1", node_identity: "json-ld:offers.price" }, extractor_version: "extractors/1", created_at: "2026-10-03T10:00:00.000Z" }
+    const g = buildGraph({
+      fact: { id: "f", value_text: "49.00 USD", value_type: "CURRENCY" },
+      targets: [target],
+      bindings: [binding],
+      observations: [good, failed],
+      values: [value],
+      aiCitations: [],
+    })
+    expect(g.findings).toHaveLength(1)
+    expect(g.findings[0]).toMatchObject({ state: "IN_SYNC", source_observation_id: "o1", observed_value_id: "v1" })
+    // Full history preserved: the failed attempt is still visible.
+    expect(g.observations.map((o) => o.id).sort()).toEqual(["o1", "o2"])
+  })
+
+  it("a binding with no successful observation is UNKNOWN, not drift", () => {
+    const target = { id: "t", business_id: "b", url: "https://acme.example/x", control: "OWNED" as const, enabled: true, created_at: "2026-10-03T10:00:00.000Z" }
+    const binding = { id: "b1", business_id: "b", fact_id: "f", source_target_id: "t", extractor: { kind: "CSS_TEXT" as const, selector: ".price" }, comparator: "MONEY" as const, created_at: "2026-10-03T10:00:00.000Z" }
+    const g = buildGraph({
+      fact: { id: "f", value_text: "49.00 USD", value_type: "CURRENCY" },
+      targets: [target],
+      bindings: [binding],
+      observations: [],
+      values: [],
+      aiCitations: [],
+    })
+    expect(g.findings).toEqual([{ fact_id: "f", source_binding_id: "b1", source_observation_id: "", observed_value_id: null, state: "UNKNOWN", reason: "no observation yet" }])
+  })
+})
+
+describe("effective evidence across 304 and reuse", () => {
+  const fact = { id: "f", value_text: "49 USD" }
+  const binding = {
+    id: "b1", business_id: "b", fact_id: "f", source_target_id: "t",
+    extractor: { kind: "JSON_LD" as const, selector: "offers.price" },
+    comparator: "MONEY" as const, created_at: "2026-10-03T00:00:00.000Z",
+  }
+  const obs = (id: string, at: string, state: "FETCHED" | "NOT_MODIFIED" | "FAILED", failure: string | null = null) => ({
+    id, business_id: "b", source_target_id: "t", collector: "NATIVE_HTTP" as const, collector_version: "native-http/1",
+    requested_url: "https://acme.example/pricing", final_url: "https://acme.example/pricing",
+    started_at: at, completed_at: at, http_status: state === "FAILED" ? null : 200, content_type: "text/html",
+    etag: null, last_modified: null, body_digest: "aa", body_bytes: 10,
+    collection_state: state, failure: failure as "TIMEOUT" | null, raw_evidence_id: null,
+  })
+  const val = (id: string, obsId: string, extracted: string | null, state: "OBSERVED" | "AMBIGUOUS" | "NOT_FOUND" = "OBSERVED") => ({
+    id, business_id: "b", source_observation_id: obsId, source_binding_id: "b1", fact_id: "f",
+    extracted_value: extracted, extraction_state: state,
+    evidence_locator: { selector: "offers.price", source_observation_id: obsId, node_identity: "json-ld:offers.price" },
+    extractor_version: "extractors/1", created_at: "2026-10-03T10:00:00.000Z",
+  })
+
+  it("A. FETCHED with value is IN_SYNC", () => {
+    const r = resolveEffectiveEvidence(fact, binding, [obs("o1", "2026-10-03T10:00:00.000Z", "FETCHED")], [val("v1", "o1", "49 USD")])
+    expect(r.finding).toMatchObject({ state: "IN_SYNC" })
+    expect(r.latestAttempt?.id).toBe("o1")
+    expect(r.latestSuccessfulCheck?.id).toBe("o1")
+    expect(r.effectiveValueObservation?.id).toBe("o1")
+  })
+
+  it("B. FETCHED then NOT_MODIFIED without a value row stays IN_SYNC", () => {
+    const r = resolveEffectiveEvidence(
+      fact, binding,
+      [obs("o1", "2026-10-03T10:00:00.000Z", "FETCHED"), obs("o2", "2026-10-03T11:00:00.000Z", "NOT_MODIFIED")],
+      [val("v1", "o1", "49 USD")],
+    )
+    expect(r.finding).toMatchObject({ state: "IN_SYNC", source_observation_id: "o1", observed_value_id: "v1" })
+    expect(r.latestAttempt?.id).toBe("o2")
+    expect(r.latestSuccessfulCheck?.id).toBe("o2")
+    expect(r.effectiveValueObservation?.id).toBe("o1")
+    expect(r.effectiveValue?.extracted_value).toBe("49 USD")
+  })
+
+  it("C. FETCHED then unchanged-digest FETCHED without a new value stays IN_SYNC", () => {
+    const r = resolveEffectiveEvidence(
+      fact, binding,
+      [obs("o1", "2026-10-03T10:00:00.000Z", "FETCHED"), obs("o2", "2026-10-03T11:00:00.000Z", "FETCHED")],
+      [val("v1", "o1", "49 USD")],
+    )
+    expect(r.finding).toMatchObject({ state: "IN_SYNC" })
+    expect(r.latestSuccessfulCheck?.id).toBe("o2")
+    expect(r.effectiveValueObservation?.id).toBe("o1")
+  })
+
+  it("D. FETCHED, NOT_MODIFIED, then FAILED stays IN_SYNC with failure visible", () => {
+    const observations = [
+      obs("o1", "2026-10-03T10:00:00.000Z", "FETCHED"),
+      obs("o2", "2026-10-03T11:00:00.000Z", "NOT_MODIFIED"),
+      obs("o3", "2026-10-03T12:00:00.000Z", "FAILED", "TIMEOUT"),
+    ]
+    const r = resolveEffectiveEvidence(fact, binding, observations, [val("v1", "o1", "49 USD")])
+    expect(r.finding).toMatchObject({ state: "IN_SYNC" })
+    expect(r.latestAttempt).toMatchObject({ id: "o3", collection_state: "FAILED" })
+    expect(r.latestSuccessfulCheck?.id).toBe("o2")
+    const history = resolveHistory(fact, binding, observations, [val("v1", "o1", "49 USD")])
+    expect(history.map((h) => [h.observation_id, h.state])).toEqual([["o1", "IN_SYNC"], ["o2", "IN_SYNC"], ["o3", "UNKNOWN"]])
+  })
+
+  it("E. no successful or value-bearing evidence is UNKNOWN", () => {
+    const failedOnly = resolveEffectiveEvidence(fact, binding, [obs("o1", "2026-10-03T10:00:00.000Z", "FAILED", "TIMEOUT")], [])
+    expect(failedOnly.finding.state).toBe("UNKNOWN")
+    expect(failedOnly.effectiveValue).toBeNull()
+    const noValue = resolveEffectiveEvidence(fact, binding, [obs("o1", "2026-10-03T10:00:00.000Z", "FETCHED")], [])
+    expect(noValue.finding.state).toBe("UNKNOWN")
+  })
+
+  it("F. ambiguous/not-found values preserve UNKNOWN semantics", () => {
+    const ambiguous = resolveEffectiveEvidence(
+      fact, binding,
+      [obs("o1", "2026-10-03T10:00:00.000Z", "FETCHED"), obs("o2", "2026-10-03T11:00:00.000Z", "NOT_MODIFIED")],
+      [val("v1", "o1", null, "AMBIGUOUS")],
+    )
+    expect(ambiguous.finding).toMatchObject({ state: "UNKNOWN", reason: "multiple conflicting values" })
+    expect(ambiguous.effectiveValueObservation?.id).toBe("o1")
+    const missing = resolveEffectiveEvidence(fact, binding, [obs("o1", "2026-10-03T10:00:00.000Z", "FETCHED")], [val("v1", "o1", null, "NOT_FOUND")])
+    expect(missing.finding).toMatchObject({ state: "UNKNOWN", reason: "selector found no value" })
   })
 })
 

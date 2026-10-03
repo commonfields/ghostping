@@ -60,3 +60,31 @@ export function FactStatusBadge({ status }: { status: string }) {
   if (status === "ACTIVE") return <Badge variant="supported">Active</Badge>
   return <Badge variant="secondary">{sentenceCase(status)}</Badge>
 }
+
+export type RepresentationState = "IN_SYNC" | "DRIFT" | "UNKNOWN"
+
+export const representationStateMeta: Record<RepresentationState, { label: string; variant: "supported" | "wrong" | "unknown"; icon: typeof CircleXIcon }> = {
+  IN_SYNC: { label: "In sync", variant: "supported", icon: CircleCheckIcon },
+  DRIFT: { label: "Drift", variant: "wrong", icon: CircleXIcon },
+  UNKNOWN: { label: "Unknown", variant: "unknown", icon: CircleHelpIcon },
+}
+
+export function RepresentationStateBadge({ state }: { state: string }) {
+  const meta = (representationStateMeta as Record<string, (typeof representationStateMeta)[RepresentationState] | undefined>)[state] ?? {
+    label: sentenceCase(state),
+    variant: "unknown" as const,
+    icon: CircleHelpIcon,
+  }
+  const Icon = meta.icon
+  return (
+    <Badge variant={meta.variant}>
+      <Icon />
+      {meta.label}
+    </Badge>
+  )
+}
+
+export function ControlBadge({ control }: { control: string }) {
+  const label = control === "OWNED" ? "Owned" : control === "THIRD_PARTY" ? "Third party" : "Unknown control"
+  return <Badge variant="secondary">{label}</Badge>
+}

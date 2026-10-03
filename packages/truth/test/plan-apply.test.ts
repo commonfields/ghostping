@@ -349,34 +349,135 @@ describe("bridge", () => {
       binding: { fact_key: "starter-price", extractor: { kind: "JSON_LD", selector: "offers.price" }, comparator: "MONEY" },
     })
     expect(JSON.stringify(compiled)).not.toMatch(/49\.00/)
-    const targets = new Map<string, { id: string; url: string }>()
-    const bindings = new Map<string, { id: string; target_id: string; fact_id: string }>()
-    let n = 0
-    const store = {
-      findTargetByUrl: async (c: string) => targets.get(c) ?? null,
-      createTarget: async (url: string) => {
-        n += 1
-        const t = { id: `t${n}`, url }
-        targets.set(url, t)
-        return t
-      },
-      findBinding: async (tid: string, fid: string) => bindings.get(`${tid}|${fid}`) ?? null,
-      createBinding: async (tid: string, fid: string) => {
-        n += 1
-        const b = { id: `b${n}`, target_id: tid, fact_id: fid }
-        bindings.set(`${tid}|${fid}`, b)
-        return b
-      },
-    }
+    const store = memBridgeStore()
     const canon = (u: string) => u
     const factIds = new Map([["starter-price", "fact-9"]])
     const once = await syncVerificationBindings(compiled, factIds, canon, store)
     const twice = await syncVerificationBindings(compiled, factIds, canon, store)
     expect(once.map((b) => b.id)).toEqual(twice.map((b) => b.id))
-    expect(targets.size).toBe(1)
-    expect(bindings.size).toBe(1)
+    expect(store.targets.size).toBe(1)
+    expect(store.bindings.size).toBe(1)
+  })
+
+  it("fact v1→v2→v3 advances the same logical binding without duplicates", async () => {
+    const manifest = parseManifest(VALID_MANIFEST_TEXT)
+    const compiled = compileVerificationBindings(manifest)
+    const store = memBridgeStore()
+    const canon = (u: string) => u
+    const v1 = await syncVerificationBindings(compiled, new Map([["starter-price", "uuid-a"]]), canon, store)
+    expect(v1).toHaveLength(1)
+    expect(v1[0]).toMatchObject({ fact_id: "uuid-a" })
+    const v2 = await syncVerificationBindings(compiled, new Map([["starter-price", "uuid-b"]]), canon, store)
+    expect(v2.map((b) => b.id)).toEqual(v1.map((b) => b.id))
+    expect(v2[0]).toMatchObject({ fact_id: "uuid-b" })
+    const v3 = await syncVerificationBindings(compiled, new Map([["starter-price", "uuid-c"]]), canon, store)
+    expect(v3.map((b) => b.id)).toEqual(v1.map((b) => b.id))
+    expect(store.bindings.size).toBe(1)
+  })
+
+  it("reactivated keys reuse the logical binding; extractor/target changes are explicit", async () => {
+    const manifest = parseManifest(VALID_MANIFEST_TEXT)
+    const compiled = compileVerificationBindings(manifest)
+    const store = memBridgeStore()
+    const canon = (u: string) => u
+    const first = await syncVerificationBindings(compiled, new Map([["starter-price", "uuid-a"]]), canon, store)
+    const reactivated = await syncVerificationBindings(compiled, new Map([["starter-price", "uuid-d"]]), canon, store)
+    expect(reactivated.map((b) => b.id)).toEqual(first.map((b) => b.id))
+    // A different extractor is a different verification identity.
+    const other = compiled.map((vb) => ({ ...vb, binding: { ...vb.binding, extractor: { kind: "CSS_TEXT" as const, selector: ".price" } } }))
+    const branched = await syncVerificationBindings(other, new Map([["starter-price", "uuid-d"]]), canon, store)
+    expect(branched.map((b) => b.id)).not.toEqual(first.map((b) => b.id))
+    expect(store.bindings.size).toBe(2)
+    // A different target URL is a different verification identity.
+    const moved = compiled.map((vb) => ({ ...vb, target: { ...vb.target, url: "https://acme.example/pricing-v2" } }))
+    const relocated = await syncVerificationBindings(moved, new Map([["starter-price", "uuid-d"]]), canon, store)
+    expect(store.targets.size).toBe(2)
+    expect(store.bindings.size).toBe(3)
+    expect(relocated[0]?.fact_id).toBe("uuid-d")
+  })
+
+  it("adopts one legacy unmanaged binding instead of duplicating", async () => {
+    const manifest = parseManifest(VALID_MANIFEST_TEXT)
+    const compiled = compileVerificationBindings(manifest)
+    const store = memBridgeStore()
+    const canon = (u: string) => u
+    // Pre-lineage rows: two unmanaged bindings accumulated per version.
+    const target = await store.createTarget("https://acme.example/pricing")
+    store.seedUnmanaged(target.id, "uuid-a", "starter-price")
+    store.seedUnmanaged(target.id, "uuid-b", "starter-price")
+    const synced = await syncVerificationBindings(compiled, new Map([["starter-price", "uuid-c"]]), canon, store)
+    expect(store.bindings.size).toBe(2)
+    expect(synced).toHaveLength(1)
+    expect(synced[0]?.fact_id).toBe("uuid-c")
+    // Hosted/manual bindings (no provenance key) are never adopted.
+    const manual = await store.createBinding(target.id, "fact-manual", "JSON_LD", "offers.price", "MONEY")
+    expect(manual.managed_key).toBeNull()
+    const again = await syncVerificationBindings(compiled, new Map([["starter-price", "uuid-c"]]), canon, store)
+    expect(again.map((b) => b.id)).toEqual(synced.map((b) => b.id))
+    expect(store.bindings.size).toBe(3)
   })
 })
+
+const memBridgeStore = () => {
+  const targets = new Map<string, { id: string; url: string }>()
+  const bindings = new Map<string, { id: string; target_id: string; fact_id: string; managed_key: string | null; created_at: string; manifestKey: string | null; extractorKind: string; extractorSelector: string; comparator: string }>()
+  let n = 0
+  const stamp = () => `2026-10-03T00:00:${String(n).padStart(2, "0")}.000Z`
+  const store = {
+    targets,
+    bindings,
+    findTargetByUrl: async (c: string) => targets.get(c) ?? null,
+    createTarget: async (url: string) => {
+      n += 1
+      const t = { id: `t${n}`, url }
+      targets.set(url, t)
+      return t
+    },
+    findBinding: async (tid: string, fid: string) => {
+      for (const b of bindings.values()) {
+        if (b.target_id === tid && b.fact_id === fid) return b
+      }
+      return null
+    },
+    createBinding: async (tid: string, fid: string, kind: string, selector: string, comparator: string, managedKey: string | null = null) => {
+      n += 1
+      const b = { id: `b${n}`, target_id: tid, fact_id: fid, managed_key: managedKey, created_at: stamp(), manifestKey: null as string | null, extractorKind: kind, extractorSelector: selector, comparator }
+      bindings.set(b.id, b)
+      return b
+    },
+    findManagedBinding: async (managedKey: string, tid: string, kind: string, selector: string, comparator: string) => {
+      for (const b of bindings.values()) {
+        const row = b
+        if (row.managed_key === managedKey && row.target_id === tid && row.extractorKind === kind && row.extractorSelector === selector && row.comparator === comparator) return b
+      }
+      return null
+    },
+    advanceBinding: async (id: string, fid: string) => {
+      const b = bindings.get(id)!
+      const next = { ...b, fact_id: fid }
+      bindings.set(id, next)
+      return next
+    },
+    adoptBinding: async (id: string, managedKey: string, fid: string) => {
+      const b = bindings.get(id)!
+      const next = { ...b, managed_key: managedKey, fact_id: fid }
+      bindings.set(id, next)
+      return next
+    },
+    listUnmanagedByDims: async (tid: string, kind: string, selector: string, comparator: string) =>
+      [...bindings.values()].filter((b) => {
+        const row = b
+        return row.target_id === tid && row.managed_key === null && row.extractorKind === kind && row.extractorSelector === selector && row.comparator === comparator
+      }).sort((a, b) => (a.created_at < b.created_at ? -1 : 1)),
+    seedUnmanaged: (tid: string, fid: string, manifestKey: string | null) => {
+      n += 1
+      const b = { id: `b${n}`, target_id: tid, fact_id: fid, managed_key: null as string | null, created_at: stamp(), manifestKey, extractorKind: "JSON_LD", extractorSelector: "offers.price", comparator: "MONEY" }
+      bindings.set(b.id, b)
+      return b
+    },
+  }
+  return store
+}
 
 describe("live verification has no causal edge", () => {
   it("DRIFT before deploy, IN_SYNC after, citation is not causality", () => {

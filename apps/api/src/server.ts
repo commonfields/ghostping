@@ -11,6 +11,7 @@ import {
   FactRepositoryLive,
   JudgmentRepositoryLive,
   ObservationRepositoryLive,
+  ProductReadRepositoryLive,
   QuestionRepositoryLive,
 } from "@ghostping/db"
 import { makeRouter } from "./router.js"
@@ -32,6 +33,7 @@ const Repos = Layer.mergeAll(
   ObservationRepositoryLive,
   ClaimRepositoryLive,
   JudgmentRepositoryLive,
+  ProductReadRepositoryLive,
 )
 // Wire Postgres into the repositories (sequential), then serve.
 const ReposProvided = Layer.provideMerge(Repos, PgLive)

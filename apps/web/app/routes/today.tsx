@@ -8,7 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Legend, StackedDailyChart, Swatch, VerdictBar, totalClaims, verdictSeries } from "@/components/charts"
 import { EmptyState } from "@/components/page"
-import { AnalyticsApi, type Analytics, type VerdictCounts } from "@/lib/api"
+import { ControlBadge, IssueStateBadge, RepresentationStateBadge } from "@/components/status"
+import { AnalyticsApi, Facts, Issues, Representations, type Analytics, type VerdictCounts } from "@/lib/api"
 import { errorMessage, relativeTime, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
 import { cn } from "@/lib/utils"
@@ -43,9 +44,9 @@ export function Today() {
     <div className="space-y-6 pb-4">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">How AI describes {activeBusiness?.name ?? "this business"}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{activeBusiness?.name ?? "Overview"}</h1>
           <p className="max-w-prose text-sm text-muted-foreground">
-            What AI assistants said in collected answers, and how each claim compares with your approved facts.
+            Review what AI and tracked sources currently say, and where they disagree with approved truth.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -75,6 +76,7 @@ export function Today() {
         <EmptyState icon={<BarChart3Icon />} title="Analytics could not load" description={errorMessage(error)} />
       ) : (
         <>
+          <OperationalSummary businessId={id} />
           <KpiStrip a={a} loading={loading} />
 
           <div className="grid gap-6 lg:grid-cols-3">
@@ -300,6 +302,149 @@ export function Today() {
           </Card>
         </>
       )}
+    </div>
+  )
+}
+
+function OperationalSummary({ businessId }: { businessId: string }) {
+  const issues = useApi(`issues:${businessId}`, () => Issues.list(businessId))
+  const representations = useApi(`representations:${businessId}`, () => Representations.list(businessId))
+  const facts = useApi(`facts:${businessId}`, () => Facts.list(businessId))
+  const loading = issues.loading || representations.loading || facts.loading
+
+  const counts = useMemo(() => {
+    const list = issues.data?.issues ?? []
+    const reps = representations.data?.representations ?? []
+    return {
+      wrong: list.filter((i) => i.state === "WRONG").length,
+      partial: list.filter((i) => i.state === "PARTIAL").length,
+      drift: reps.filter((r) => r.finding.state === "DRIFT").length,
+      review: list.filter((i) => i.state === "NEEDS_REVIEW").length,
+      unknown: reps.filter((r) => r.finding.state === "UNKNOWN").length,
+      inSync: reps.filter((r) => r.finding.state === "IN_SYNC").length,
+      activeFacts: (facts.data?.facts ?? []).filter((f) => f.status === "ACTIVE").length,
+      recent: [...list].slice(0, 3),
+      topDrift: reps.filter((r) => r.finding.state === "DRIFT").slice(0, 3),
+    }
+  }, [issues.data, representations.data, facts.data])
+  const mode = facts.data?.authority?.mode ?? "HOSTED"
+
+  if (loading) {
+    return <Skeleton className="h-48 rounded-xl" />
+  }
+
+  const attention: Array<{ label: string; value: number; to: string }> = [
+    { label: "Wrong AI claims", value: counts.wrong, to: `/businesses/${businessId}/issues` },
+    { label: "Partial AI claims", value: counts.partial, to: `/businesses/${businessId}/issues` },
+    { label: "Source drift", value: counts.drift, to: `/businesses/${businessId}/representations` },
+    { label: "Needs review", value: counts.review, to: `/businesses/${businessId}/issues` },
+    { label: "Unknown source state", value: counts.unknown, to: `/businesses/${businessId}/representations` },
+  ]
+
+  return (
+    <div className="space-y-6">
+      <Card className="gap-0 py-0 shadow-(--float-shadow)">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+          {attention.map((a) => (
+            <Link
+              key={a.label}
+              to={a.to}
+              className="border-b border-border p-5 outline-none transition-colors last:border-r-0 hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring lg:border-b-0 [&:not(:last-child)]:border-r max-sm:[&:nth-child(2n)]:border-r-0 sm:max-lg:[&:nth-child(3n)]:border-r-0"
+            >
+              <div className="text-sm text-muted-foreground">{a.label}</div>
+              <div className="mt-2 text-[28px] leading-none font-semibold tracking-tight tabular-nums">{a.value}</div>
+            </Link>
+          ))}
+        </div>
+      </Card>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card className="shadow-(--float-shadow)">
+          <CardHeader>
+            <CardTitle>Needs a look</CardTitle>
+            <CardDescription>The most recent issues and drifting sources.</CardDescription>
+            <CardAction>
+              <Button asChild variant="ghost" size="sm">
+                <Link to={`/businesses/${businessId}/issues`}>
+                  All issues
+                  <ArrowRightIcon />
+                </Link>
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {counts.recent.length === 0 && counts.topDrift.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nothing disagrees with your approved truth right now.</p>
+            ) : (
+              <>
+                {counts.recent.map((i) => (
+                  <Link
+                    key={i.claim_id}
+                    to={`/businesses/${businessId}/issues/${i.claim_id}`}
+                    className="flex items-center gap-3 rounded-lg border px-4 py-3 outline-none transition-colors hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring"
+                  >
+                    <IssueStateBadge state={i.state} />
+                    <span className="min-w-0 flex-1 truncate text-sm">{i.claim_text}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(i.collected_at)}</span>
+                  </Link>
+                ))}
+                {counts.topDrift.map((r) => (
+                  <Link
+                    key={r.binding_id}
+                    to={`/businesses/${businessId}/representations/${r.binding_id}`}
+                    className="flex items-center gap-3 rounded-lg border px-4 py-3 outline-none transition-colors hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring"
+                  >
+                    <RepresentationStateBadge state={r.finding.state} />
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {sentenceCase(r.fact.predicate)} · {r.effective_observation?.extracted_value ?? "—"}
+                    </span>
+                    <ControlBadge control={r.source.control} />
+                  </Link>
+                ))}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-(--float-shadow)">
+          <CardHeader>
+            <CardTitle>Truth & representations</CardTitle>
+            <CardDescription>What you stand behind, and where it is observed.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+              <span className="text-muted-foreground">Approved facts</span>
+              <Link to={`/businesses/${businessId}/truth`} className="font-medium tabular-nums hover:underline">
+                {counts.activeFacts} active
+              </Link>
+              <span className="text-muted-foreground">{mode === "REPOSITORY_MANIFEST" ? "Managed by repository manifest" : "Managed in Ghostping"}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Sources</span>
+              <span className="font-medium tabular-nums">{counts.inSync} in sync</span>
+              <span aria-hidden className="text-muted-foreground">
+                ·
+              </span>
+              <span className="font-medium tabular-nums">{counts.drift} drift</span>
+              <span aria-hidden className="text-muted-foreground">
+                ·
+              </span>
+              <span className="font-medium tabular-nums">{counts.unknown} unknown</span>
+              <Button asChild variant="ghost" size="sm" className="ml-auto">
+                <Link to={`/businesses/${businessId}/representations`}>
+                  All representations
+                  <ArrowRightIcon />
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="space-y-1 pt-2">
+        <h2 className="text-lg font-semibold tracking-tight">AI analytics</h2>
+        <p className="text-sm text-muted-foreground">Collection volume and verdict mix. Operational state is above; these charts describe measurement, not health.</p>
+      </div>
     </div>
   )
 }
