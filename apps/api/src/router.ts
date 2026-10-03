@@ -28,6 +28,13 @@ import {
   CheckRunRepositoryLive,
   ClaimRepository,
   ClaimRepositoryLive,
+  DiscoveryActiveRunConflict,
+  DiscoveryFrontierRepository,
+  DiscoveryFrontierRepositoryLive,
+  DiscoveryRunRepository,
+  DiscoveryRunRepositoryLive,
+  DiscoveryScopeRepository,
+  DiscoveryScopeRepositoryLive,
   FactRepository,
   FactRepositoryLive,
   JudgmentRepository,
@@ -38,7 +45,9 @@ import {
   ProductReadRepositoryLive,
   QuestionRepository,
   QuestionRepositoryLive,
+  type DiscoveryRunRow,
 } from "@ghostping/db"
+import { MATCHER_VERSION, POLICY_VERSION } from "@ghostping/discovery"
 import { AuthorityError } from "@ghostping/db"
 import {
   assertLinearLineage,
@@ -58,6 +67,13 @@ import {
   sessionCookieHeader,
   verifyPassword,
 } from "./auth.js"
+import {
+  isDuplicateActiveRun,
+  loadDiscoveryCandidates,
+  loadDiscoveryRuns,
+  loadDiscoveryScopes,
+  validateDiscoveryScopeRoot,
+} from "./discovery-reads.js"
 
 const json = (status: number, body: unknown, headers?: Record<string, string>) =>
   HttpServerResponse.json(body, { status, headers })
@@ -989,7 +1005,184 @@ export const makeRouter = (pool: pg.Pool) => {
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
   )
-  return HttpRouter.concat(api, productApi)
+  // Discovery V1 lives in a third chain for the same HttpRouter arity
+  // reason: scopes, runs (QUEUED immediately, 409 on duplicate active),
+  // and candidate summaries grouped per page + lineage.
+  const toDiscoveryRunDto = (
+    r: DiscoveryRunRow,
+    skippedByReason: ReadonlyArray<{ reason: string; count: number }>,
+  ) => {
+    // pages_skipped_robots already counts every robots-denied page (seed and
+    // crawl time); frontier SKIPPED rows with other reasons add the rest, so
+    // robots-denied pages are never double-counted.
+    const otherSkipped = skippedByReason
+      .filter((s) => s.reason !== "ROBOTS_DISALLOWED")
+      .reduce((n, s) => n + s.count, 0)
+    return {
+      id: r.id,
+      scope_id: r.scopeId,
+      state: r.state,
+      queued_at: r.queuedAt,
+      started_at: r.startedAt,
+      completed_at: r.completedAt,
+      partial_reason: r.state === "PARTIAL" ? (r.failureDetailSafe ?? r.failureClass) : null,
+      failure_reason: r.state === "FAILED" ? (r.failureDetailSafe ?? r.failureClass) : null,
+      pages_checked: r.pagesFetched + r.pagesNotModified + r.pagesFailed,
+      pages_skipped: r.pagesSkippedRobots + otherSkipped,
+      candidates_found: r.candidatesFound,
+    }
+  }
+
+  const discoveryApi = router.pipe(
+    HttpRouter.get(
+      "/api/businesses/:id/discovery/scopes",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const found = yield* loadDiscoveryScopes(session.accountId, businessId)
+          if (!found) return yield* json(404, { _tag: "BusinessNotFound" })
+          return yield* json(200, {
+            scopes: found.map((s) => ({
+              id: s.id,
+              business_id: s.businessId,
+              root_url: s.rootUrl,
+              canonical_origin: s.canonicalOrigin,
+              path_prefix: s.pathPrefix,
+              enabled: s.enabled,
+              ownership_assertion: s.ownershipAssertion,
+              created_at: s.createdAt,
+            })),
+          })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    HttpRouter.post(
+      "/api/businesses/:id/discovery/scopes",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          const raw = (yield* readJson) as unknown as { root_url?: unknown } | null
+          const checked = validateDiscoveryScopeRoot(raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>)["root_url"] : null)
+          if (!checked.ok) return yield* json(422, { _tag: "InvalidFactValue", reason: checked.reason })
+          const scopes = yield* DiscoveryScopeRepository
+          const dup = (yield* scopes.listByBusiness(businessId)).find(
+            (s) => s.canonicalOrigin === checked.canonicalOrigin && s.pathPrefix === checked.pathPrefix,
+          )
+          if (dup) return yield* json(409, { _tag: "Conflict", message: "scope exists" })
+          const created = yield* scopes
+            .create({ businessId, rootUrl: checked.rootUrl, canonicalOrigin: checked.canonicalOrigin, pathPrefix: checked.pathPrefix })
+            .pipe(
+              Effect.catchAll((e) =>
+                /duplicate/i.test(String(e)) ? Effect.succeed(null) : Effect.fail(e),
+              ),
+            )
+          if (!created) return yield* json(409, { _tag: "Conflict", message: "scope exists" })
+          return yield* json(200, {
+            scope: {
+              id: created.id,
+              business_id: created.businessId,
+              root_url: created.rootUrl,
+              canonical_origin: created.canonicalOrigin,
+              path_prefix: created.pathPrefix,
+              enabled: created.enabled,
+              ownership_assertion: created.ownershipAssertion,
+              created_at: created.createdAt,
+            },
+          })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    HttpRouter.get(
+      "/api/businesses/:id/discovery/runs",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const req = yield* HttpServerRequest.HttpServerRequest
+          const scopeId = new URL(req.url, "http://localhost").searchParams.get("scope_id")
+          if (scopeId !== null && !isRouteId(scopeId)) return yield* json(422, malformed)
+          const found = yield* loadDiscoveryRuns(session.accountId, businessId, scopeId ?? undefined)
+          if (!found) return yield* json(404, { _tag: "BusinessNotFound" })
+          const frontier = yield* DiscoveryFrontierRepository
+          const dtos = yield* Effect.forEach(found, (r) =>
+            Effect.map(frontier.skippedByReason(businessId, r.id), (reasons) => toDiscoveryRunDto(r, reasons)),
+          )
+          return yield* json(200, { runs: dtos })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    HttpRouter.post(
+      "/api/businesses/:id/discovery/runs",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          const raw = (yield* readJson) as unknown as { scope_id?: unknown } | null
+          const scopeId = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>)["scope_id"] : null
+          if (typeof scopeId !== "string" || !isRouteId(scopeId)) {
+            return yield* json(422, { _tag: "InvalidFactValue", reason: "scope_id required" })
+          }
+          const scopes = yield* DiscoveryScopeRepository
+          if (!(yield* scopes.getScoped(businessId, scopeId))) {
+            // Unknown or cross-account scope: 404 without leaking existence.
+            return yield* json(404, { _tag: "ScopeNotFound" })
+          }
+          const runs = yield* DiscoveryRunRepository
+          if (isDuplicateActiveRun(yield* runs.listByScope(businessId, scopeId), scopeId)) {
+            return yield* json(409, { _tag: "Conflict", message: "scope already has an active run" })
+          }
+          // QUEUED immediately; the DiscoveryRunner claims it. No sync scan.
+          const created = yield* runs
+            .enqueue({ businessId, scopeId, matcherVersion: MATCHER_VERSION, policyVersion: POLICY_VERSION })
+            .pipe(
+              Effect.catchAll((e) =>
+                e instanceof DiscoveryActiveRunConflict ? Effect.succeed(null) : Effect.fail(e),
+              ),
+            )
+          if (!created) return yield* json(409, { _tag: "Conflict", message: "scope already has an active run" })
+          return yield* json(200, { run: toDiscoveryRunDto(created, []) })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    HttpRouter.get(
+      "/api/businesses/:id/discovery/candidates",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const req = yield* HttpServerRequest.HttpServerRequest
+          const query = new URL(req.url, "http://localhost").searchParams
+          const scopeId = query.get("scope_id")
+          const runId = query.get("run_id")
+          if (scopeId === null && runId === null) return yield* json(422, malformed)
+          if (scopeId !== null && !isRouteId(scopeId)) return yield* json(422, malformed)
+          if (runId !== null && !isRouteId(runId)) return yield* json(422, malformed)
+          const found = yield* loadDiscoveryCandidates(session.accountId, businessId, {
+            ...(scopeId !== null ? { scopeId } : {}),
+            ...(runId !== null ? { runId } : {}),
+          })
+          if (!found) return yield* json(404, { _tag: "BusinessNotFound" })
+          return yield* json(200, found)
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+  )
+  return HttpRouter.concat(HttpRouter.concat(api, productApi), discoveryApi)
 }
 
 export const RepoLayers = {
@@ -1001,4 +1194,7 @@ export const RepoLayers = {
   ClaimRepositoryLive,
   JudgmentRepositoryLive,
   ProductReadRepositoryLive,
+  DiscoveryScopeRepositoryLive,
+  DiscoveryRunRepositoryLive,
+  DiscoveryFrontierRepositoryLive,
 }

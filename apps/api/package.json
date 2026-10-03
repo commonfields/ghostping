@@ -19,6 +19,7 @@
     "@ghostping/config": "workspace:*",
     "@ghostping/contracts": "workspace:*",
     "@ghostping/db": "workspace:*",
+    "@ghostping/discovery": "workspace:*",
     "@ghostping/domain": "workspace:*",
     "@ghostping/representation": "workspace:*",
     "effect": "3.22.2",

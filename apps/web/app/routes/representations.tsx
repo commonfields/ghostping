@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react"
 import { Link, useParams } from "react-router"
-import { ExternalLinkIcon, GlobeIcon, TriangleAlertIcon } from "lucide-react"
+import { ExternalLinkIcon, GlobeIcon, ScanSearchIcon, TriangleAlertIcon } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -38,7 +39,18 @@ export function RepresentationsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Representations" description="Where approved facts have been observed on websites and other known sources." />
+      <PageHeader
+        title="Representations"
+        description="Where approved facts have been observed on websites and other known sources."
+        actions={
+          <Button asChild variant="outline">
+            <Link to={`/businesses/${id}/representations/discovery`}>
+              <ScanSearchIcon />
+              Discover sources
+            </Link>
+          </Button>
+        }
+      />
 
       <Tabs value={filter} onValueChange={(v) => setFilter(v as RepresentationFilter)}>
         <TabsList>

@@ -1,5 +1,6 @@
 export * from "./repositories.js"
 export * from "./seed-helpers.js"
+export * from "./discovery.js"
 export * from "./evidence.js"
 export * from "./representation.js"
 export * from "./product.js"
