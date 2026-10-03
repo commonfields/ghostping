@@ -41,6 +41,10 @@ export function ObservationPage() {
 
   const facts = useApi(businessId ? `facts:${businessId}` : null, () => Facts.list(businessId ?? ""))
   const issues = useApi(businessId ? `issues:${businessId}` : null, () => Issues.list(businessId ?? ""))
+  const representations = useApi(businessId ? `representations:${businessId}` : null, () =>
+    Representations.list(businessId ?? ""),
+  )
+  const trackedRows = useMemo(() => representations.data?.representations ?? [], [representations.data])
   const activeFacts = useMemo(() => (facts.data?.facts ?? []).filter((f) => f.status === "ACTIVE"), [facts.data])
   const stateByClaim = useMemo(() => new Map((issues.data?.issues ?? []).map((i) => [i.claim_id, i.state])), [issues.data])
 
@@ -73,14 +77,7 @@ export function ObservationPage() {
   }
 
   const claims = obs.data?.claims ?? []
-  const citations = useMemo(() => obs.data?.citations ?? [], [obs.data])
-  const representations = useApi(businessId ? `representations:${businessId}` : null, () =>
-    Representations.list(businessId ?? ""),
-  )
-  const trackedByUrl = useMemo(() => {
-    const rows = representations.data?.representations ?? []
-    return { rows }
-  }, [representations.data])
+  const citations = obs.data?.citations ?? []
   const meta: Array<{ label: string; value: string }> = [
     { label: "Provider", value: observation.provider === "9router" ? "9Router" : sentenceCase(observation.provider) },
     { label: "Model", value: observation.observed_model ?? "Not reported" },
@@ -151,7 +148,7 @@ export function ObservationPage() {
             <CardContent>
               <ul className="divide-y">
                 {citations.map((c, i) => (
-                  <CitationRow key={`${c.uri ?? "null"}-${i}`} citation={c} businessId={observation.business_id} representations={trackedByUrl.rows} />
+                  <CitationRow key={`${c.uri ?? "null"}-${i}`} citation={c} businessId={observation.business_id} representations={trackedRows} />
                 ))}
               </ul>
             </CardContent>

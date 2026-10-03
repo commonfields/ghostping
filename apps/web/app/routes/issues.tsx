@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { EmptyState, PageHeader } from "@/components/page"
 import { IssueStateBadge, issueStateMeta, RepresentationStateBadge } from "@/components/status"
-import { Issues, type Issue, type IssueState, type IssueWithEvidence } from "@/lib/api"
+import { Issues, type IssueState, type IssueWithEvidence } from "@/lib/api"
 import { formatDate, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
 
