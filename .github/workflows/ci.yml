@@ -150,6 +150,9 @@ jobs:
       - name: Evidence protocol schemas and fixtures (TypeScript side)
         run: pnpm --filter @ghostping/protocol test
 
+      - name: Representation graph fixtures (local HTTP, no network)
+        run: pnpm --filter @ghostping/representation test
+
       - name: Provider boundary guard (mock only, enforced by tests)
         run: |
           pnpm --filter @ghostping/providers test
