@@ -41,7 +41,56 @@ describe("assembleRepresentationList", () => {
       expect(row.finding.state).toBe("UNKNOWN")
       expect(row.effective_observation).toBeNull()
       expect(row.latest_attempt).toBeNull()
+      expect(row.latest_successful_check).toBeNull()
     }
+  })
+
+  it("exposes latest successful check distinctly from effective evidence", () => {
+    // A: single FETCHED check — successful and effective coincide.
+    const single = assembleRepresentationList({
+      ...rows(),
+      observations: [{ id: "o1", sourceTargetId: "t1", completedAt: "2026-10-03T10:00:00.000Z", collectionState: "FETCHED", failure: null }],
+      values: [{ id: "v1", sourceObservationId: "o1", sourceBindingId: "b1", factId: "f", extractedValue: "49 USD", extractionState: "OBSERVED" }],
+    }).find((r) => r.binding_id === "b1")!
+    expect(single.latest_successful_check).toMatchObject({ observation_id: "o1", completed_at: "2026-10-03T10:00:00.000Z", collection_state: "FETCHED" })
+    expect(single.effective_observation).toMatchObject({ observation_id: "o1" })
+    // B: FETCHED then NOT_MODIFIED without a new value row.
+    const reused = assembleRepresentationList({
+      ...rows(),
+      observations: [
+        { id: "o1", sourceTargetId: "t1", completedAt: "2026-10-03T10:00:00.000Z", collectionState: "FETCHED", failure: null },
+        { id: "o2", sourceTargetId: "t1", completedAt: "2026-10-03T11:00:00.000Z", collectionState: "NOT_MODIFIED", failure: null },
+      ],
+      values: [{ id: "v1", sourceObservationId: "o1", sourceBindingId: "b1", factId: "f", extractedValue: "49 USD", extractionState: "OBSERVED" }],
+    }).find((r) => r.binding_id === "b1")!
+    expect(reused.finding.state).toBe("IN_SYNC")
+    expect(reused.latest_successful_check).toMatchObject({ observation_id: "o2", collection_state: "NOT_MODIFIED" })
+    expect(reused.effective_observation).toMatchObject({ observation_id: "o1", extracted_value: "49 USD" })
+    // C: FETCHED then unchanged-digest FETCHED without a new value row.
+    const redone = assembleRepresentationList({
+      ...rows(),
+      observations: [
+        { id: "o1", sourceTargetId: "t1", completedAt: "2026-10-03T10:00:00.000Z", collectionState: "FETCHED", failure: null },
+        { id: "o2", sourceTargetId: "t1", completedAt: "2026-10-03T11:00:00.000Z", collectionState: "FETCHED", failure: null },
+      ],
+      values: [{ id: "v1", sourceObservationId: "o1", sourceBindingId: "b1", factId: "f", extractedValue: "49 USD", extractionState: "OBSERVED" }],
+    }).find((r) => r.binding_id === "b1")!
+    expect(redone.finding.state).toBe("IN_SYNC")
+    expect(redone.latest_successful_check).toMatchObject({ observation_id: "o2", collection_state: "FETCHED" })
+    expect(redone.effective_observation).toMatchObject({ observation_id: "o1" })
+    // D: FETCHED, NOT_MODIFIED, then FAILED.
+    const failed = assembleRepresentationList({
+      ...rows(),
+      observations: [
+        { id: "o1", sourceTargetId: "t1", completedAt: "2026-10-03T10:00:00.000Z", collectionState: "FETCHED", failure: null },
+        { id: "o2", sourceTargetId: "t1", completedAt: "2026-10-03T11:00:00.000Z", collectionState: "NOT_MODIFIED", failure: null },
+        { id: "o9", sourceTargetId: "t1", completedAt: "2026-10-03T12:00:00.000Z", collectionState: "FAILED", failure: "TIMEOUT" },
+      ],
+    }).find((r) => r.binding_id === "b1")!
+    expect(failed.finding.state).toBe("IN_SYNC")
+    expect(failed.latest_attempt).toMatchObject({ collection_state: "FAILED" })
+    expect(failed.latest_successful_check).toMatchObject({ observation_id: "o2", collection_state: "NOT_MODIFIED" })
+    expect(failed.effective_observation).toMatchObject({ observation_id: "o1", extracted_value: "49 USD" })
   })
 })
 

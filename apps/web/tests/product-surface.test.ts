@@ -90,6 +90,15 @@ describe("representations", () => {
     expect(detail.replace(/\s+/g, " ")).toContain("does not prove the source caused the answer")
     expect(detail).not.toMatch(/CAUSED_BY/)
   })
+
+  it("never labels the effective-value timestamp as the last successful check", async () => {
+    const fs = await import("node:fs")
+    const detail = fs.readFileSync(new URL("../app/routes/representation.tsx", import.meta.url), "utf8")
+    expect(detail).toContain("Last checked")
+    expect(detail).toContain("Last successful check")
+    expect(detail).toContain("Value evidence observed")
+    expect(detail).not.toContain("Last successful observation")
+  })
 })
 
 describe("issues", () => {

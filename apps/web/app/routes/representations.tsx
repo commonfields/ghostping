@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react"
 import { Link, useParams } from "react-router"
 import { ExternalLinkIcon, GlobeIcon, TriangleAlertIcon } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -143,18 +142,4 @@ function RepresentationTableRow({ businessId, row: r }: { businessId: string; ro
 
 export function domainLabel(url: string): string {
   return domainOf(url)
-}
-
-export function LatestFailureNote({ row }: { row: RepresentationRow }) {
-  if (row.latest_attempt?.collection_state !== "FAILED" || !row.effective_observation) return null
-  return (
-    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-      <TriangleAlertIcon className="size-3.5" />
-      Latest check failed at {formatDateTime(row.latest_attempt.completed_at)}
-      {row.latest_attempt.failure ? <span>({sentenceCase(row.latest_attempt.failure)})</span> : null}. Showing the last good observation instead.
-      <Badge variant="secondary" className="ml-1">
-        Last successful observation {formatDateTime(row.effective_observation.completed_at)}
-      </Badge>
-    </p>
-  )
 }

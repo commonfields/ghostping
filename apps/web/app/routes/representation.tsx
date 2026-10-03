@@ -30,6 +30,7 @@ export function RepresentationDetailPage() {
 
   const effective = d.current?.effective_observation ?? null
   const latest = d.current?.latest_attempt ?? null
+  const successful = d.current?.latest_successful_check ?? null
   const failedLatest = latest?.collection_state === "FAILED" && effective !== null
 
   return (
@@ -93,8 +94,18 @@ export function RepresentationDetailPage() {
                 <span className="text-[15px] font-medium">{effective?.extracted_value ?? "Not observed yet"}</span>
               </div>
               <p className="text-sm text-muted-foreground">{d.current.finding.reason}</p>
+              {latest ? (
+                <p className="text-xs text-muted-foreground">
+                  Last checked {formatDateTime(latest.completed_at)} — {sentenceCase(latest.collection_state)}
+                </p>
+              ) : null}
+              {successful ? (
+                <p className="text-xs text-muted-foreground">
+                  Last successful check {formatDateTime(successful.completed_at)} — {sentenceCase(successful.collection_state)}
+                </p>
+              ) : null}
               {effective ? (
-                <p className="text-xs text-muted-foreground">Last successful observation {formatDateTime(effective.completed_at)}</p>
+                <p className="text-xs text-muted-foreground">Value evidence observed {formatDateTime(effective.completed_at)}</p>
               ) : null}
               {failedLatest && latest ? (
                 <Alert>

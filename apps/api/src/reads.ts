@@ -37,6 +37,12 @@ export interface RepresentationRowDto {
     readonly extraction_state: string
   } | null
   readonly latest_attempt: { readonly completed_at: string; readonly collection_state: string; readonly failure: string | null } | null
+  /**
+   * Newest FETCHED/NOT_MODIFIED check. May differ from both latest_attempt
+   * (a later FAILED check) and effective_observation (a 304/unchanged
+   * reuse carries no value row, so evidence comes from an older check).
+   */
+  readonly latest_successful_check: { readonly observation_id: string; readonly completed_at: string; readonly collection_state: string } | null
 }
 
 interface RowTarget {
@@ -151,6 +157,7 @@ export const assembleRepresentationList = (rows: RepresentationRows): Representa
     const effective = evidence.effectiveValueObservation
     const value = evidence.effectiveValue
     const latest = evidence.latestAttempt
+    const successful = evidence.latestSuccessfulCheck
     out.push({
       binding_id: b.id,
       fact,
@@ -168,6 +175,9 @@ export const assembleRepresentationList = (rows: RepresentationRows): Representa
           : null,
       latest_attempt: latest
         ? { completed_at: latest.completed_at, collection_state: latest.collection_state, failure: latest.failure }
+        : null,
+      latest_successful_check: successful
+        ? { observation_id: successful.id, completed_at: successful.completed_at, collection_state: successful.collection_state }
         : null,
     })
   }

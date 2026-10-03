@@ -125,6 +125,7 @@ export type RepresentationRow = {
     extraction_state: string
   } | null
   latest_attempt: { completed_at: string; collection_state: string; failure: string | null } | null
+  latest_successful_check: { observation_id: string; completed_at: string; collection_state: string } | null
 }
 
 export type RepresentationHistoryEntry = {
