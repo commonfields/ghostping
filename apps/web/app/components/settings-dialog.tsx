@@ -157,7 +157,7 @@ function SettingsDialog({
           </nav>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-sidebar-border bg-background shadow-(--panel-shadow)">
-            <header className="flex shrink-0 items-start justify-between gap-4 border-b px-6 py-4">
+            <header className="flex shrink-0 items-start justify-between gap-4 px-6 py-4">
               <div className="space-y-0.5">
                 <DialogPrimitive.Title className="text-base font-semibold">{meta.title}</DialogPrimitive.Title>
                 <p className="text-sm text-muted-foreground">{meta.description}</p>
