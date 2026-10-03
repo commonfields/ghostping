@@ -78,7 +78,7 @@ export function Today() {
           <KpiStrip a={a} loading={loading} />
 
           <div className="grid gap-6 lg:grid-cols-3">
-            <Card className="lg:col-span-2">
+            <Card className="shadow-(--float-shadow) lg:col-span-2">
               <CardHeader>
                 <CardTitle>Claims by day</CardTitle>
                 <CardDescription>Statements transcribed from AI answers, by the verdict they received.</CardDescription>
@@ -97,7 +97,7 @@ export function Today() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="shadow-(--float-shadow)">
               <CardHeader>
                 <CardTitle>Verdict mix</CardTitle>
                 <CardDescription>All claims from the last {days} days.</CardDescription>
@@ -109,7 +109,7 @@ export function Today() {
           </div>
 
           <div className="grid gap-6 lg:grid-cols-3">
-            <Card className="lg:col-span-2">
+            <Card className="shadow-(--float-shadow) lg:col-span-2">
               <CardHeader>
                 <CardTitle>By AI provider</CardTitle>
                 <CardDescription>Where answers came from and how their claims were judged.</CardDescription>
@@ -154,7 +154,7 @@ export function Today() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="shadow-(--float-shadow)">
               <CardHeader>
                 <CardTitle>Checks per day</CardTitle>
                 <CardDescription>
@@ -189,7 +189,7 @@ export function Today() {
             </Card>
           </div>
 
-          <Card>
+          <Card className="shadow-(--float-shadow)">
             <CardHeader>
               <CardTitle>Buyer questions</CardTitle>
               <CardDescription>Which questions lead AI assistants to say something wrong about you. Sorted by wrong claims.</CardDescription>
@@ -252,7 +252,7 @@ export function Today() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="shadow-(--float-shadow)">
             <CardHeader>
               <CardTitle>Facts AI gets wrong</CardTitle>
               <CardDescription>Approved facts linked to reviewed claims. Start corrections and content updates here.</CardDescription>
@@ -319,7 +319,7 @@ function KpiStrip({ a, loading }: { a: Analytics | null; loading: boolean }) {
   }, [a])
 
   return (
-    <Card className="gap-0 py-0">
+    <Card className="gap-0 py-0 shadow-(--float-shadow)">
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
         {(items ?? Array.from({ length: 5 }, () => null)).map((i, idx) => (
           <div key={idx} className="border-b border-border p-5 lg:border-b-0 [&:not(:last-child)]:border-r max-sm:[&:nth-child(2n)]:border-r-0 sm:max-lg:[&:nth-child(3n)]:border-r-0">
