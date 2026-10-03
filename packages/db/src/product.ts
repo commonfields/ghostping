@@ -63,11 +63,20 @@ const mapSourceValue = (r: Record<string, unknown>) => ({
   createdAt: iso(r["created_at"]),
 })
 
+export interface FactProvenanceRow {
+  readonly factId: string
+  readonly manifestKey: string
+  readonly manifestDigest: string
+  readonly sourceRevision: string | null
+  readonly syncedAt: string
+  readonly sourceUrl: string | null
+}
+
 export class ProductReadRepository extends Context.Tag("ProductReadRepository")<
   ProductReadRepository,
   {
     readonly authorityMode: (businessId: string) => Effect.Effect<string | null, unknown>
-    readonly factProvenance: (businessId: string) => Effect.Effect<ReadonlyArray<Record<string, string | null>>, unknown>
+    readonly factProvenance: (businessId: string) => Effect.Effect<ReadonlyArray<FactProvenanceRow>, unknown>
     readonly factHistory: (businessId: string, subject: string, predicate: string) => Effect.Effect<ReadonlyArray<Record<string, unknown>>, unknown>
     readonly targets: (businessId: string) => Effect.Effect<ReadonlyArray<ReturnType<typeof mapTarget>>, unknown>
     readonly bindings: (businessId: string) => Effect.Effect<ReadonlyArray<ReturnType<typeof mapBinding>>, unknown>
@@ -92,14 +101,16 @@ export const ProductReadRepositoryLive = Layer.effect(
     factProvenance: (businessId: string) =>
       Effect.gen(function*() {
         const rows = (yield* sql`SELECT fact_id, manifest_key, manifest_digest, source_revision, synced_at, source_url FROM repository_fact_provenance WHERE business_id = ${businessId}`) as Array<Record<string, unknown>>
-        return rows.map((r) => ({
-          factId: String(r["fact_id"]),
-          manifestKey: String(r["manifest_key"]),
-          manifestDigest: String(r["manifest_digest"]),
-          sourceRevision: (r["source_revision"] as string | null) ?? null,
-          syncedAt: iso(r["synced_at"]),
-          sourceUrl: (r["source_url"] as string | null) ?? null,
-        }))
+        return rows.map(
+          (r): FactProvenanceRow => ({
+            factId: String(r["fact_id"]),
+            manifestKey: String(r["manifest_key"]),
+            manifestDigest: String(r["manifest_digest"]),
+            sourceRevision: (r["source_revision"] as string | null) ?? null,
+            syncedAt: iso(r["synced_at"]),
+            sourceUrl: (r["source_url"] as string | null) ?? null,
+          }),
+        )
       }),
     factHistory: (businessId: string, subject: string, predicate: string) =>
       Effect.gen(function*() {
