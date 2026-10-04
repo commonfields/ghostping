@@ -222,6 +222,20 @@ export const Representations = {
   list: (businessId: string) => api<{ representations: RepresentationRow[] }>(`/api/businesses/${businessId}/representations`),
   get: (businessId: string, bindingId: string) =>
     api<RepresentationDetail>(`/api/businesses/${businessId}/representations/${bindingId}`),
+  createTarget: (businessId: string, input: { url: string; control: string }) =>
+    api<{ target: { id: string } }>(`/api/businesses/${businessId}/representations/targets`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  createBinding: (
+    businessId: string,
+    targetId: string,
+    input: { factId: string; extractorKind: string; extractorSelector: string; comparator: string },
+  ) =>
+    api<{ binding: { id: string } }>(`/api/businesses/${businessId}/representations/targets/${targetId}/bindings`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 }
 
 // Representation Discovery V1 read/scan contract. The backend serves these

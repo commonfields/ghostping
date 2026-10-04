@@ -156,6 +156,20 @@ export const RunCheckRequest = Schema.Struct({
 })
 export type RunCheckRequest = typeof RunCheckRequest.Type
 
+export const CreateSourceTargetRequest = Schema.Struct({
+  url: NonEmptyTrimmed,
+  control: Schema.Literal("OWNED", "THIRD_PARTY", "UNKNOWN"),
+})
+export type CreateSourceTargetRequest = typeof CreateSourceTargetRequest.Type
+
+export const CreateSourceBindingRequest = Schema.Struct({
+  factId: Schema.UUID,
+  extractorKind: Schema.Literal("JSON_LD", "CSS_TEXT", "META_CONTENT"),
+  extractorSelector: NonEmptyTrimmed,
+  comparator: Schema.Literal("EXACT_TEXT", "BOOLEAN", "MONEY"),
+})
+export type CreateSourceBindingRequest = typeof CreateSourceBindingRequest.Type
+
 export const CreateClaimRequest = Schema.Struct({
   observationId: Schema.UUID,
   text: NonEmptyTrimmed,

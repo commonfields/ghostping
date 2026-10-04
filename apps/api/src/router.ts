@@ -17,6 +17,8 @@ import {
   CreateJudgmentRequest,
   CreateQuestionRequest,
   CreateReobservationRequest,
+  CreateSourceBindingRequest,
+  CreateSourceTargetRequest,
   decodeRouteId,
   RunCheckRequest,
   SignInRequest,
@@ -68,6 +70,7 @@ import {
   loadRepresentations,
 } from "./reads.js"
 import { loadInterventions, recordIntervention } from "./interventions.js"
+import { createBinding, createTarget } from "./tracking.js"
 import { loadIssueLoop } from "./issue-loop.js"
 import { listRecheckAttempts, requestRecheck } from "./reobservations.js"
 import {
@@ -821,6 +824,54 @@ export const makeRouter = () => {
   // overloads cap a single chain, so new routes concatenate instead of
   // extending the original chain past its arity limit.
   const productApi = router.pipe(
+    // Operator-driven source tracking: deliberate user action only.
+    // Discovery never auto-creates targets or bindings.
+    HttpRouter.post(
+      "/api/businesses/:id/representations/targets",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          const body = decodeRequest(CreateSourceTargetRequest, (yield* readJson) as unknown)
+          if (!body) return yield* json(422, malformed)
+          const target = yield* createTarget(businessId, { url: body.url, control: body.control })
+          if (!target) return yield* json(422, { _tag: "InvalidFactValue", reason: "URL must be an http(s) URL" })
+          return yield* json(200, { target })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    HttpRouter.post(
+      "/api/businesses/:id/representations/targets/:targetId/bindings",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const p = params.params as Record<string, string>
+          const businessId = p["id"] as string
+          const targetId = p["targetId"] as string
+          if (!isRouteId(businessId) || !isRouteId(targetId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          const body = decodeRequest(CreateSourceBindingRequest, (yield* readJson) as unknown)
+          if (!body) return yield* json(422, malformed)
+          if (!body.extractorSelector.trim()) return yield* json(422, { _tag: "InvalidFactValue", reason: "selector required" })
+          const binding = yield* createBinding(businessId, targetId, {
+            factId: body.factId,
+            extractorKind: body.extractorKind,
+            extractorSelector: body.extractorSelector,
+            comparator: body.comparator,
+          })
+          if (!binding) return yield* json(404, { _tag: "RepresentationNotFound" })
+          return yield* json(200, { binding })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
     HttpRouter.get(
       "/api/businesses/:id/representations",
       withSession((session) =>
