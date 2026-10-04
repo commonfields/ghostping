@@ -114,6 +114,7 @@ const RunStub = (runs: Array<{ id: string; scopeId: string; state: "QUEUED" | "R
 const EmptyMatchStub = Layer.succeed(DiscoveryMatchRepository, {
   insertMany: () => Effect.succeed([]),
   listByRun: () => Effect.succeed([]),
+  latestEffectiveMatches: () => Effect.succeed([]),
 })
 
 const EmptyObsStub = Layer.succeed(DiscoveryObservationRepository, {
@@ -246,6 +247,46 @@ describe("groupDiscoveryCandidates", () => {
       currentDigest: "digest-1",
     })
     expect(missing).toEqual([])
+  })
+
+  it("304-reused rows (explicit provenance) group exactly like fresh rows", () => {
+    // Reuse rows share the new 304 observation id and carry provenance in
+    // the DB layer only; grouping sees identical page+lineage keys, so the
+    // second run's candidate list equals the first run's.
+    const reused = groupDiscoveryCandidates({
+      matches: [
+        { ...match("CURRENT_VALUE", "59 USD"), pageObservationId: "o2" },
+        { ...match("HISTORICAL_VALUE", "49 USD"), pageObservationId: "o2", matchSurface: "META" },
+      ],
+      observations: new Map([["o2", { finalUrl: "https://acme.example/pricing", discoveredVia: "SITEMAP", completedAt: "2026-10-03T11:00:00.000Z" }]]),
+      runs,
+      facts,
+      currentDigest: "digest-1",
+    })
+    expect(reused).toHaveLength(1)
+    expect(reused[0]?.relation).toBe("MIXED")
+    expect(reused[0]?.observation_id).toBe("o2")
+    expect(reused[0]?.match_count).toBe(2)
+  })
+
+  it("candidate count equals distinct page+lineage groups", () => {
+    const matches = [
+      match("CURRENT_VALUE", "59 USD"),
+      { ...match("CURRENT_VALUE", "59 USD"), matchSurface: "META" },
+      { ...match("HISTORICAL_VALUE", "49 USD"), lineageRootFactId: "f-root-2" },
+    ]
+    const grouped = groupDiscoveryCandidates({
+      matches,
+      observations: obs,
+      runs,
+      facts: new Map([
+        ["f-root", { predicate: "monthly price", approvedValue: "59 USD" }],
+        ["f-root-2", { predicate: "seat limit", approvedValue: "10 seats" }],
+      ]),
+      currentDigest: "digest-1",
+    })
+    // Two logical candidates (one per lineage) regardless of event count.
+    expect(grouped).toHaveLength(2)
   })
 })
 

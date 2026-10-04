@@ -304,4 +304,172 @@ run("postgres discovery v1", () => {
     expect((await pool.query(`SELECT failure FROM discovery_observations WHERE id = $1`, [obs.id])).rows[0]["failure"]).toBeNull()
     expect((await pool.query(`SELECT evidence_snippet FROM discovery_matches WHERE id = $1`, [match!.id])).rows[0]["evidence_snippet"]).not.toBe("x")
   })
+
+  describe("304 carry-forward with explicit provenance", () => {
+    const DIGEST_A = "digest-a".padEnd(64, "0")
+    const DIGEST_B = "digest-b".padEnd(64, "0")
+    const MATCHER = "discovery-matcher/1"
+    const PAGE = "https://reuse.example/pricing"
+
+    const finishRun = (businessId: string, runId: string, state: "SUCCEEDED" | "PARTIAL" | "FAILED" = "SUCCEEDED") =>
+      runFx(Effect.flatMap(DiscoveryRunRepository, (r) => r.markFinished(businessId, runId, state, null, null)))
+
+    const stampDigest = (businessId: string, runId: string, digest: string) =>
+      runFx(Effect.flatMap(DiscoveryRunRepository, (r) => r.setAuthorityDigest(businessId, runId, digest)))
+
+    const claimRun = (businessId: string, scopeId: string) =>
+      runFx(Effect.flatMap(DiscoveryRunRepository, (r) => r.claimOne(businessId, scopeId)))
+
+    const seedValueBearingRun = async (businessId: string, scopeId: string, page: string, digest: string) => {
+      const r = await setupRun(businessId, scopeId)
+      await claimRun(businessId, scopeId)
+      await stampDigest(businessId, r.id, digest)
+      const factId = await setupFact(businessId)
+      const obs = await setupObservation(businessId, scopeId, r.id, page)
+      const matches = await runFx(
+        Effect.flatMap(DiscoveryMatchRepository, (m) =>
+          m.insertMany({
+            businessId, runId: r.id,
+            matches: [
+              {
+                pageObservationId: obs.id, lineageRootFactId: factId, matchedFactId: factId, matchedFactVersion: 2,
+                matchedValue: "59 USD", matchSurface: "JSON_LD",
+                evidenceLocator: "json-ld:offers.price", evidenceSnippet: "59",
+                relationAtScan: "CURRENT_VALUE", matcherVersion: MATCHER,
+              },
+              {
+                pageObservationId: obs.id, lineageRootFactId: factId, matchedFactId: factId, matchedFactVersion: 1,
+                matchedValue: "49 USD", matchSurface: "VISIBLE_TEXT",
+                evidenceLocator: "body.main", evidenceSnippet: "was 49 USD",
+                relationAtScan: "HISTORICAL_VALUE", matcherVersion: MATCHER,
+              },
+            ],
+          })),
+      )
+      await finishRun(businessId, r.id)
+      return { run: r, factId, obs, matches }
+    }
+
+    const effective = (businessId: string, scopeId: string, digest: string, matcher = MATCHER, page = PAGE) =>
+      runFx(
+        Effect.flatMap(DiscoveryMatchRepository, (m) =>
+          m.latestEffectiveMatches({ businessId, scopeId, canonicalUrl: page, authorityDigest: digest, matcherVersion: matcher })),
+      )
+
+    it("200 -> 304: current + historical evidence is reusable with ids", async () => {
+      const { businessId } = await setupBusiness()
+      const s = await setupScope(businessId)
+      const first = await seedValueBearingRun(businessId, s.id, PAGE, DIGEST_A)
+      const rows = await effective(businessId, s.id, DIGEST_A)
+      expect(rows.map((r) => r.id).sort()).toEqual(first.matches.map((m) => m.id).sort())
+      expect(rows).toHaveLength(2)
+    })
+
+    it("reuse rows carry explicit provenance and group into one candidate", async () => {
+      const { businessId } = await setupBusiness()
+      const s = await setupScope(businessId)
+      await seedValueBearingRun(businessId, s.id, PAGE, DIGEST_A)
+      const r2 = await setupRun(businessId, s.id)
+      await stampDigest(businessId, r2.id, DIGEST_A)
+      const obs2 = await setupObservation(businessId, s.id, r2.id, PAGE)
+      const prior = await effective(businessId, s.id, DIGEST_A)
+      const reused = await runFx(
+        Effect.flatMap(DiscoveryMatchRepository, (m) =>
+          m.insertMany({
+            businessId, runId: r2.id,
+            matches: prior.map((p) => ({
+              pageObservationId: obs2.id,
+              lineageRootFactId: p.lineageRootFactId,
+              matchedFactId: p.matchedFactId,
+              matchedFactVersion: p.matchedFactVersion,
+              matchedValue: p.matchedValue,
+              matchSurface: p.matchSurface as "JSON_LD" | "META" | "VISIBLE_TEXT",
+              evidenceLocator: p.evidenceLocator,
+              evidenceSnippet: p.evidenceSnippet,
+              relationAtScan: p.relationAtScan as "CURRENT_VALUE" | "HISTORICAL_VALUE",
+              matcherVersion: p.matcherVersion,
+              reusedFromMatchId: p.id,
+            })),
+          })),
+      )
+      expect(reused).toHaveLength(2)
+      expect(reused.every((m) => m.reusedFromMatchId !== null)).toBe(true)
+      expect(reused.map((m) => m.pageObservationId)).toEqual([obs2.id, obs2.id])
+      // Same page + lineage groups into a single MIXED candidate upstream.
+      expect(new Set(reused.map((m) => `${m.pageObservationId} ${m.lineageRootFactId}`)).size).toBe(1)
+      await claimRun(businessId, s.id)
+      await finishRun(businessId, r2.id)
+    })
+
+    it("200 -> 304 -> 304: chained reuse references the immediate prior", async () => {
+      const { businessId } = await setupBusiness()
+      const s = await setupScope(businessId)
+      const first = await seedValueBearingRun(businessId, s.id, PAGE, DIGEST_A)
+      const r2 = await setupRun(businessId, s.id)
+      await stampDigest(businessId, r2.id, DIGEST_A)
+      const obs2 = await setupObservation(businessId, s.id, r2.id, PAGE)
+      const prior2 = await effective(businessId, s.id, DIGEST_A)
+      const reused2 = await runFx(
+        Effect.flatMap(DiscoveryMatchRepository, (m) =>
+          m.insertMany({
+            businessId, runId: r2.id,
+            matches: prior2.slice(0, 1).map((p) => ({
+              pageObservationId: obs2.id,
+              lineageRootFactId: p.lineageRootFactId,
+              matchedFactId: p.matchedFactId,
+              matchedFactVersion: p.matchedFactVersion,
+              matchedValue: p.matchedValue,
+              matchSurface: p.matchSurface as "JSON_LD" | "META" | "VISIBLE_TEXT",
+              evidenceLocator: p.evidenceLocator,
+              evidenceSnippet: p.evidenceSnippet,
+              relationAtScan: p.relationAtScan as "CURRENT_VALUE" | "HISTORICAL_VALUE",
+              matcherVersion: p.matcherVersion,
+              reusedFromMatchId: p.id,
+            })),
+          })),
+      )
+      await claimRun(businessId, s.id)
+      await finishRun(businessId, r2.id)
+      // Run 3 resolves to run 2's reused row (newest compatible run only),
+      // keeping the chain traceable hop by hop.
+      const prior3 = await effective(businessId, s.id, DIGEST_A)
+      expect(prior3.map((m) => m.id)).toEqual(reused2.map((m) => m.id))
+      expect(prior3[0]!.reusedFromMatchId).toBe(first.matches[0]!.id)
+    })
+
+    it("authority change forbids reuse; matcher change forbids reuse; unknown page has none", async () => {
+      const { businessId } = await setupBusiness()
+      const s = await setupScope(businessId)
+      await seedValueBearingRun(businessId, s.id, PAGE, DIGEST_A)
+      expect(await effective(businessId, s.id, DIGEST_B)).toEqual([])
+      expect(await effective(businessId, s.id, DIGEST_A, "discovery-matcher/2")).toEqual([])
+      expect(await effective(businessId, s.id, DIGEST_A, MATCHER, "https://reuse.example/other")).toEqual([])
+    })
+
+    it("non-terminal runs never supply reuse evidence", async () => {
+      const { businessId } = await setupBusiness()
+      const s = await setupScope(businessId)
+      const r = await setupRun(businessId, s.id)
+      await stampDigest(businessId, r.id, DIGEST_A)
+      const factId = await setupFact(businessId)
+      const obs = await setupObservation(businessId, s.id, r.id, PAGE)
+      await runFx(
+        Effect.flatMap(DiscoveryMatchRepository, (m) =>
+          m.insertMany({
+            businessId, runId: r.id,
+            matches: [{
+              pageObservationId: obs.id, lineageRootFactId: factId, matchedFactId: factId, matchedFactVersion: 1,
+              matchedValue: "49 USD", matchSurface: "VISIBLE_TEXT",
+              evidenceLocator: "body", evidenceSnippet: "49 USD",
+              relationAtScan: "CURRENT_VALUE", matcherVersion: MATCHER,
+            }],
+          })),
+      )
+      // Still QUEUED: invisible to carry-forward.
+      expect(await effective(businessId, s.id, DIGEST_A)).toEqual([])
+      await claimRun(businessId, s.id)
+      await finishRun(businessId, r.id)
+      expect((await effective(businessId, s.id, DIGEST_A)).length).toBeGreaterThan(0)
+    })
+  })
 })

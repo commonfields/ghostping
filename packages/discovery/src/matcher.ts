@@ -6,6 +6,7 @@
 // from visible text.
 
 import { load } from "cheerio"
+import { compareMoney, normalizeExactText, parseBoolean, parseMoney } from "@ghostping/representation"
 import { MATCHER_VERSION, type CandidateSummary, type DiscoveryMatch } from "./types.js"
 
 export { MATCHER_VERSION }
@@ -47,67 +48,27 @@ export interface DiscoveryMatchEvent {
 
 const SNIPPET_MAX = 512
 
-const normalizeExact = (s: string): string =>
-  s.normalize("NFC").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim()
+// Structured TEXT normalization composes the shared representation primitive.
+// Discovery keeps its historical trim (padded whitespace ignored on structured
+// surfaces); the NFC + CRLF/CR→LF core is owned by @ghostping/representation.
+const normalizeExact = (s: string): string => normalizeExactText(s).trim()
 
-const normalizeVisible = (s: string): string =>
-  s.normalize("NFC").replace(/\s+/g, " ").trim()
+// Visible-text collapsing is discovery-specific (prose scanning) but reuses
+// the shared NFC + newline core so both packages interpret text identically.
+const normalizeVisible = (s: string): string => normalizeExactText(s).replace(/\s+/g, " ").trim()
 
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
-// --- Money: identical semantics to representation comparators ---------------
+// --- Money: shared representation comparator semantics ----------------------
+// Parsing and equality are owned by @ghostping/representation (known currency
+// required, JPY 0 decimals else 2, minor-unit equality). Discovery composes
+// visible-text scanning, JSON-LD object-local pairing, and snippet bounds
+// around those primitives.
+const moneyEqual = (a: string, b: string): boolean => compareMoney(a, b) === "IN_SYNC"
 
-interface MoneyValue {
-  readonly amountMinor: number
-  readonly currency: string | null
-}
-
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  $: "USD",
-  "€": "EUR",
-  "£": "GBP",
-  "¥": "JPY",
-}
-
-const parseMoney = (s: string): MoneyValue | null => {
-  const text = s.trim()
-  const m = text.match(/^(?<pre>[A-Z]{3}|[$€£¥])?\s*(?<num>-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?)\s*(?<post>[A-Z]{3})?$/)
-  if (!m || !m.groups) return null
-  const pre = (m.groups["pre"] ?? "").trim()
-  const post = (m.groups["post"] ?? "").trim()
-  let currency: string | null = null
-  if (pre.length === 3 && /^[A-Z]{3}$/.test(pre)) currency = pre
-  else if (pre.length === 1 && CURRENCY_SYMBOLS[pre] !== undefined) currency = CURRENCY_SYMBOLS[pre]!
-  if (post.length === 3 && /^[A-Z]{3}$/.test(post)) {
-    if (currency !== null && currency !== post) return null
-    currency = post
-  } else if (post.length > 0) return null
-  const numeric = (m.groups["num"] ?? "").replace(/,/g, "")
-  const amount = Number(numeric)
-  if (!Number.isFinite(amount)) return null
-  const decimals = currency === "JPY" ? 0 : 2
-  return { amountMinor: Math.round(amount * 10 ** decimals), currency }
-}
-
-const moneyEqual = (a: string, b: string): boolean => {
-  const pa = parseMoney(a)
-  const pb = parseMoney(b)
-  if (pa === null || pb === null) return false
-  if (pa.currency === null || pb.currency === null) return false
-  return pa.currency === pb.currency && pa.amountMinor === pb.amountMinor
-}
-
-// --- Booleans: same token sets as representation comparators ---------------
-
-const TRUE_TOKENS = new Set(["true", "yes", "1", "on", "enabled"])
-const FALSE_TOKENS = new Set(["false", "no", "0", "off", "disabled"])
-
-const parseBoolean = (s: string): boolean | null => {
-  const t = s.trim().toLowerCase()
-  if (TRUE_TOKENS.has(t)) return true
-  if (FALSE_TOKENS.has(t)) return false
-  return null
-}
+// --- Booleans: shared representation token sets ----------------------------
+// parseBoolean is owned by @ghostping/representation; discovery only decides
+// *where* booleans may match (structured surfaces, never visible prose).
 
 // --- Value comparison per surface ------------------------------------------
 

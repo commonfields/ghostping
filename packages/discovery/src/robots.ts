@@ -9,6 +9,7 @@ export const DISCOVERY_USER_AGENT = "GhostpingDiscovery/1.0"
 
 export interface RobotsRules {
   readonly disallows: ReadonlyArray<string>
+  readonly allows?: ReadonlyArray<string>
   readonly crawlDelayMs: number | null
   readonly sitemaps: ReadonlyArray<string>
 }
@@ -30,19 +31,66 @@ export interface SafeHttpFetcher {
   }>
 }
 
+export interface FetchRobotsOptions {
+  readonly scopeOrigin?: string | null
+  readonly allowCrossOrigin?: boolean
+}
+
 export type RobotsOutcome =
   | { readonly state: "PARSED"; readonly rules: RobotsRules }
   | { readonly state: "NO_FILE"; readonly rules: RobotsRules }
   | { readonly state: "DENIED" }
   | { readonly state: "UNAVAILABLE"; readonly detail: string }
 
-const ALLOW_ALL: RobotsRules = { disallows: [], crawlDelayMs: null, sitemaps: [] }
+const ALLOW_ALL: RobotsRules = { disallows: [], allows: [], crawlDelayMs: null, sitemaps: [] }
+
+const originOf = (u: string): string | null => {
+  try {
+    return new URL(u).origin
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Google-style robots path matching with `*` wildcard and `$` end anchor.
+ * Returns true when the pattern matches the target path.
+ * Unparseable patterns never match (conservative: never allow-all, never
+ * deny-all by accident).
+ */
+const robotsPatternMatches = (pattern: string, target: string): boolean => {
+  if (pattern === "") return false
+  if (!pattern.startsWith("/") && !pattern.startsWith("*")) return false
+  const anchored = pattern.endsWith("$")
+  const core = anchored ? pattern.slice(0, -1) : pattern
+  if (core === "") return false
+  if (core.includes("$")) return false
+  let src = "^"
+  for (const ch of core) {
+    if (ch === "*") {
+      src += ".*"
+    } else if (ch === "/") {
+      src += "/"
+    } else if ("\\^.+?()[]{}|".includes(ch)) {
+      src += `\\${ch}`
+    } else {
+      src += ch
+    }
+  }
+  if (anchored) src += "$"
+  try {
+    return new RegExp(src).test(target)
+  } catch {
+    return false
+  }
+}
 
 /** Parse robots.txt for our user agents. Pure and deterministic. */
 export const parseRobots = (txt: string, userAgents: ReadonlyArray<string> = ["GhostpingDiscovery", "*"]): RobotsRules => {
   const ours = userAgents.map((a) => a.toLowerCase())
   interface Group {
     agents: string[]
+    allows: string[]
     disallows: string[]
     crawlDelayMs: number | null
   }
@@ -50,13 +98,6 @@ export const parseRobots = (txt: string, userAgents: ReadonlyArray<string> = ["G
   let current: Group | null = null
   let sawRuleInGroup = false
   const sitemaps: string[] = []
-
-  const matchesUs = (agents: ReadonlyArray<string>): boolean =>
-    agents.some((g) => {
-      const gl = g.toLowerCase()
-      if (gl === "*") return true
-      return ours.some((o) => o === gl || o.startsWith(gl))
-    })
 
   for (const rawLine of txt.split(/\r?\n/)) {
     const noComment = rawLine.split("#")[0] ?? ""
@@ -72,7 +113,7 @@ export const parseRobots = (txt: string, userAgents: ReadonlyArray<string> = ["G
         sawRuleInGroup = false
       }
       if (current === null) {
-        current = { agents: [], disallows: [], crawlDelayMs: null }
+        current = { agents: [], allows: [], disallows: [], crawlDelayMs: null }
         groups.push(current)
       }
       current.agents.push(value.toLowerCase())
@@ -80,7 +121,18 @@ export const parseRobots = (txt: string, userAgents: ReadonlyArray<string> = ["G
       if (current === null) continue
       sawRuleInGroup = true
       // Empty Disallow means allow-all: record nothing.
-      if (value !== "") current.disallows.push(value.split(/\s/)[0] ?? "")
+      if (value !== "") {
+        const token = value.split(/\s/)[0] ?? ""
+        if (token !== "") current.disallows.push(token)
+      }
+    } else if (field === "allow") {
+      if (current === null) continue
+      sawRuleInGroup = true
+      // Empty Allow matches nothing: record nothing.
+      if (value !== "") {
+        const token = value.split(/\s/)[0] ?? ""
+        if (token !== "") current.allows.push(token)
+      }
     } else if (field === "crawl-delay") {
       if (current === null) continue
       sawRuleInGroup = true
@@ -91,36 +143,93 @@ export const parseRobots = (txt: string, userAgents: ReadonlyArray<string> = ["G
       }
     } else if (field === "sitemap") {
       // Sitemap directives are global, independent of user-agent groups.
-      if (value !== "") sitemaps.push(value.split(/\s/)[0] ?? "")
+      if (value !== "") {
+        const token = value.split(/\s/)[0] ?? ""
+        if (token !== "") sitemaps.push(token)
+      }
     }
-    // Allow and all other directives are ignored in V1 (fail-closed via Disallow only).
+  }
+
+  // UA group selection: most-specific applicable specific group wins (no union
+  // with `*`); otherwise fall back to `*` groups. Crawl-delay comes from the
+  // selected group(s) only.
+  interface Selected {
+    group: Group
+    specificity: number
+  }
+  const specific: Selected[] = []
+  const wildcard: Group[] = []
+  for (const g of groups) {
+    const hasStar = g.agents.includes("*")
+    let best: number | null = null
+    for (const gl of g.agents) {
+      if (gl === "*") continue
+      for (const o of ours) {
+        if (o === "*") continue
+        if (o === gl || o.startsWith(gl)) {
+          best = best === null ? gl.length : Math.max(best, gl.length)
+        }
+      }
+    }
+    if (best !== null) {
+      specific.push({ group: g, specificity: best })
+    } else if (hasStar) {
+      wildcard.push(g)
+    }
+  }
+
+  let selectedGroups: Group[]
+  if (specific.length > 0) {
+    const maxSpec = Math.max(...specific.map((s) => s.specificity))
+    selectedGroups = specific.filter((s) => s.specificity === maxSpec).map((s) => s.group)
+  } else {
+    selectedGroups = wildcard
   }
 
   const disallows: string[] = []
+  const allows: string[] = []
   let crawlDelayMs: number | null = null
-  for (const g of groups) {
-    if (!matchesUs(g.agents)) continue
+  for (const g of selectedGroups) {
     for (const d of g.disallows) {
       if (!disallows.includes(d)) disallows.push(d)
+    }
+    for (const a of g.allows) {
+      if (!allows.includes(a)) allows.push(a)
     }
     if (g.crawlDelayMs !== null) {
       crawlDelayMs = crawlDelayMs === null ? g.crawlDelayMs : Math.max(crawlDelayMs, g.crawlDelayMs)
     }
   }
   disallows.sort()
+  allows.sort()
   const dedupedSitemaps = [...new Set(sitemaps)].sort()
-  return { disallows, crawlDelayMs, sitemaps: dedupedSitemaps }
+  return { disallows, allows, crawlDelayMs, sitemaps: dedupedSitemaps }
 }
 
-/** Path allow-check: any matching Disallow prefix denies. Empty rules allow all. */
+/**
+ * Path allow-check with Allow + Disallow, `*` wildcard, `$` end anchor,
+ * longest-match-wins, Allow-wins-ties. Empty rules allow all.
+ */
 export const isAllowed = (path: string, rules: RobotsRules): boolean => {
-  const target = path === "" ? "/" : path
+  let target = path === "" ? "/" : path
+  if (!target.startsWith("/")) target = `/${target}`
+  const allows = rules.allows ?? []
+  let bestAllow = -1
+  let bestDisallow = -1
+  for (const a of allows) {
+    if (a === "") continue
+    if (!robotsPatternMatches(a, target)) continue
+    if (a.length > bestAllow) bestAllow = a.length
+  }
   for (const d of rules.disallows) {
     if (d === "") continue
-    if (d === "/") return false
-    if (target.startsWith(d)) return false
+    if (!robotsPatternMatches(d, target)) continue
+    if (d.length > bestDisallow) bestDisallow = d.length
   }
-  return true
+  if (bestAllow === -1 && bestDisallow === -1) return true
+  if (bestAllow === -1) return false
+  if (bestDisallow === -1) return true
+  return bestAllow >= bestDisallow
 }
 
 /** Effective per-request delay: robots crawl-delay when present, else the V1 floor. */
@@ -137,8 +246,10 @@ export const fetchAndParseRobots = async (
   origin: string,
   fetcher: SafeHttpFetcher,
   userAgents: ReadonlyArray<string> = ["GhostpingDiscovery", "*"],
+  opts?: FetchRobotsOptions,
 ): Promise<RobotsOutcome> => {
-  const url = `${origin}/robots.txt`
+  const normalizedOrigin = origin.replace(/\/+$/, "")
+  const url = `${normalizedOrigin}/robots.txt`
   let res: Awaited<ReturnType<SafeHttpFetcher["fetch"]>>
   try {
     res = await fetcher.fetch(url, {
@@ -149,6 +260,17 @@ export const fetchAndParseRobots = async (
     })
   } catch {
     return { state: "UNAVAILABLE", detail: "NETWORK_ERROR" }
+  }
+  if (opts?.allowCrossOrigin === false) {
+    const finalUrl = res.finalUrl
+    if (typeof finalUrl === "string" && finalUrl !== "") {
+      const expectedRaw = opts?.scopeOrigin ?? origin
+      const expectedOrigin = originOf(expectedRaw) ?? originOf(url)
+      const finalOrigin = originOf(finalUrl)
+      if (expectedOrigin !== null && finalOrigin !== null && finalOrigin !== expectedOrigin) {
+        return { state: "UNAVAILABLE", detail: "OUT_OF_SCOPE_REDIRECT" }
+      }
+    }
   }
   if (res.status === 404 || res.status === 410) return { state: "NO_FILE", rules: ALLOW_ALL }
   if (res.status === 401 || res.status === 403) return { state: "DENIED" }

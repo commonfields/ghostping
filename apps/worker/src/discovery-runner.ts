@@ -22,22 +22,24 @@
 // bodies and secrets are never logged.
 import { Context, Duration, Effect, Fiber, Layer } from "effect"
 import type { SqlError } from "@effect/sql/SqlError"
-import { gunzipSync } from "node:zlib"
 import { load } from "cheerio"
 import {
   DiscoveryFrontierRepository,
+  DiscoveryMatchRepository,
   DiscoveryObservationRepository,
   DiscoveryRunRepository,
   DiscoveryScopeRepository,
   FactRepository,
   ProductReadRepository,
   type DiscoveryFrontierRow,
+  type DiscoveryMatchWrite,
   type DiscoveryRunRow,
 } from "@ghostping/db"
 import { normalizeUrl, safeFetch, type SafeFetchEvidence } from "@ghostping/representation"
 import {
   buildAuthoritySnapshot,
   buildFrontier,
+  countCandidateGroups,
   DISCOVERY_BUDGETS_V1,
   DISCOVERY_USER_AGENT,
   effectiveCrawlDelayMs,
@@ -59,8 +61,6 @@ const HEARTBEAT_MS = 30_000
 const MAX_LINKS_PER_PAGE = 1000
 const MAX_FRONTIER_ROWS = 2000
 const SITEMAP_FETCH_BYTES = DISCOVERY_BUDGETS_V1.sitemapDecompressedBytes
-const GZIP_MAGIC_0 = 0x1f
-const GZIP_MAGIC_1 = 0x8b
 
 // ---------------------------------------------------------------------------
 // Pure page-link extraction (link fallback only). Same cheerio reader family
@@ -92,10 +92,6 @@ export const extractPageLinks = (html: string, baseUrl: string): string[] => {
   return out
 }
 
-const looksGzipped = (bytes: Uint8Array, url: string): boolean =>
-  url.toLowerCase().endsWith(".gz") ||
-  (bytes.length >= 2 && bytes[0] === GZIP_MAGIC_0 && bytes[1] === GZIP_MAGIC_1)
-
 // ---------------------------------------------------------------------------
 // Runner service
 // ---------------------------------------------------------------------------
@@ -112,7 +108,8 @@ interface CrawlCounters {
   failed: number
   skippedRobots: number
   bytes: number
-  matches: number
+  /** Logical candidate groups (page + lineage), never raw match events. */
+  candidates: number
 }
 
 export const makeDiscoveryRunnerLive = () =>
@@ -123,6 +120,7 @@ export const makeDiscoveryRunnerLive = () =>
       const scopes = yield* DiscoveryScopeRepository
       const frontier = yield* DiscoveryFrontierRepository
       const observations = yield* DiscoveryObservationRepository
+      const matchesRepo = yield* DiscoveryMatchRepository
       const facts = yield* FactRepository
       const reads = yield* ProductReadRepository
 
@@ -152,9 +150,12 @@ export const makeDiscoveryRunnerLive = () =>
         })
 
       // Adapter from the shared SafeHttpFetcher to the discovery robots
-      // seam. Transport/security/size failures throw (robots UNAVAILABLE,
-      // fail closed); HTTP error statuses flow through for status handling.
-      const robotsFetcher = {
+      // seam. Scope-bound: cross-origin redirects are never followed as
+      // policy (OUT_OF_SCOPE_REDIRECT -> robots UNAVAILABLE, fail closed);
+      // a foreign origin must never supply this scope's crawl policy.
+      // Transport/security/size failures throw (robots UNAVAILABLE, fail
+      // closed); HTTP error statuses flow through for status handling.
+      const makeRobotsFetcher = (scopeOrigin: string) => ({
         fetch: async (
           url: string,
           opts: { byteCeiling: number; acceptedContentTypes: ReadonlyArray<string>; userAgent: string; timeoutMs: number },
@@ -162,15 +163,16 @@ export const makeDiscoveryRunnerLive = () =>
           const ev = await safeFetch(url, {
             limits: { maxBytes: opts.byteCeiling, acceptedContentTypes: null, timeoutMs: opts.timeoutMs },
             userAgent: opts.userAgent,
-            redirectPolicy: { maxRedirects: 5, allowCrossOrigin: true },
+            redirectPolicy: { maxRedirects: 5, allowCrossOrigin: false, scopeOrigin },
           })
+          if (ev.failure === "OUT_OF_SCOPE_REDIRECT") throw new Error("robots fetch failed: OUT_OF_SCOPE_REDIRECT")
           if (ev.status === null) throw new Error(`robots fetch failed: ${ev.failure ?? "unknown"}`)
           if (ev.failure !== null && ev.failure !== "NETWORK_ERROR") {
             throw new Error(`robots fetch failed: ${ev.failure}`)
           }
           return { status: ev.status, headers: ev.headers, body: ev.body ?? new Uint8Array(0), finalUrl: ev.finalUrl }
         },
-      }
+      })
 
       const fetchPageEvidence = (
         url: string,
@@ -247,18 +249,30 @@ export const makeDiscoveryRunnerLive = () =>
           )
           return yield* scanRun(claimed).pipe(
             Effect.ensuring(Fiber.interrupt(beat)),
+            // Caught deterministic runner error while the process is alive:
+            // mark the run FAILED (typed RUNNER_ERROR) instead of silently
+            // leaving it RUNNING. Guarded terminal transition; if the DB
+            // itself is down the mark fails and lease recovery stays the
+            // fallback. A real process crash never reaches here, so lease
+            // recovery remains valid for that case.
             Effect.catchAll((e) =>
-              Effect.sync(() => {
-                console.error(
-                  JSON.stringify({
-                    level: "error",
-                    discovery_run_id: claimed.id,
-                    business_id: claimed.businessId,
-                    scope_id: claimed.scopeId,
-                    error: String(e).slice(0, 500),
-                    msg: "runner error",
-                  }),
-                )
+              Effect.gen(function*() {
+                const detail = String(e).slice(0, 500)
+                yield* runs
+                  .markFinished(claimed.businessId, claimed.id, "FAILED", "RUNNER_ERROR", detail)
+                  .pipe(Effect.catchAll(() => Effect.void))
+                yield* Effect.sync(() => {
+                  console.error(
+                    JSON.stringify({
+                      level: "error",
+                      discovery_run_id: claimed.id,
+                      business_id: claimed.businessId,
+                      scope_id: claimed.scopeId,
+                      error: detail,
+                      msg: "runner error",
+                    }),
+                  )
+                })
                 return false as boolean
               }),
             ),
@@ -300,10 +314,16 @@ export const makeDiscoveryRunnerLive = () =>
               // Resume work left by a crashed attempt; DONE rows repeat never.
               yield* frontier.requeueStale(run.businessId, run.id)
 
-              // 2. robots.txt via the shared fetcher (256KB cap).
+              // 2. robots.txt via the shared fetcher (256KB cap), scope-bound
+              // at both layers: the fetcher never follows a cross-origin
+              // redirect, and the parser is told the scope origin so a
+              // foreign policy can never apply to this scope.
               const robotsOutcome = yield* Effect.promise(async () => {
                 try {
-                  return await fetchAndParseRobots(sc.canonicalOrigin, robotsFetcher)
+                  return await fetchAndParseRobots(sc.canonicalOrigin, makeRobotsFetcher(sc.canonicalOrigin), undefined, {
+                    scopeOrigin: sc.canonicalOrigin,
+                    allowCrossOrigin: false,
+                  })
                 } catch {
                   return { state: "UNAVAILABLE", detail: "NETWORK_ERROR" } as const
                 }
@@ -364,21 +384,17 @@ export const makeDiscoveryRunnerLive = () =>
               }
 
               // 3. Sitemap-first seeding (robots sitemaps -> /sitemap.xml ->
-              // indexes -> urlsets; 20 docs / 10k entries / 5MB caps).
-              const counters: CrawlCounters = { attempted: 0, fetched: 0, notModified: 0, failed: 0, skippedRobots: 0, bytes: 0, matches: 0 }
+              // indexes -> urlsets; 20 docs / 10k entries caps, 5MB
+              // decompressed PER DOCUMENT enforced inside parseSitemapBytes).
+              const counters: CrawlCounters = { attempted: 0, fetched: 0, notModified: 0, failed: 0, skippedRobots: 0, bytes: 0, candidates: 0 }
               let budgetHit: string | null = null
               let orderCounter = 0
               const pad = (n: number): string => String(n).padStart(6, "0")
               const deadlineExceeded = (): boolean => Date.now() - startedMs > DISCOVERY_BUDGETS_V1.wallClockMs
-              let decompressedTotal = 0
               let sitemapTruncated = false
 
               const fetchSitemapDoc = (url: string, via: DiscoveredVia): Effect.Effect<{ urls: string[]; nested: string[] } | null, SqlError> =>
                 Effect.gen(function*() {
-                  if (decompressedTotal >= DISCOVERY_BUDGETS_V1.sitemapDecompressedBytes) {
-                    sitemapTruncated = true
-                    return null
-                  }
                   yield* pace()
                   const ev = yield* Effect.promise(async () => {
                     try {
@@ -392,21 +408,10 @@ export const makeDiscoveryRunnerLive = () =>
                     }
                   })
                   if (ev === null || ev.failure !== null || ev.body === null) return null
-                  // Enforce the decompressed-total cap before parsing: gzip
-                  // is expanded here so the budget counts inflated bytes.
-                  let payload: Uint8Array = ev.body
-                  if (looksGzipped(payload, url)) {
-                    try {
-                      payload = gunzipSync(payload)
-                    } catch {
-                      return null
-                    }
-                  }
-                  if (decompressedTotal + payload.length > DISCOVERY_BUDGETS_V1.sitemapDecompressedBytes) {
-                    sitemapTruncated = true
-                    return null
-                  }
-                  decompressedTotal += payload.length
+                  // No runner-side gunzip: parseSitemapBytes is the single
+                  // canonical gzip path (magic bytes decide; bounded output).
+                  // The fetch byte cap bounds the compressed input.
+                  const payload: Uint8Array = ev.body
                   try {
                     const parsed = parseSitemapBytes(payload, { url, origin: sc.canonicalOrigin })
                     if (parsed.truncated) sitemapTruncated = true
@@ -632,9 +637,34 @@ export const makeDiscoveryRunnerLive = () =>
                   continue
                 }
                 if (ev.notModified) {
-                  // Reuse is valid only because validators were sent under an
-                  // identical authority digest + matcher version; prior
-                  // conclusions stand, no new match rows are guessed.
+                  // Compatible 304: carry prior effective candidate evidence
+                  // into this run with explicit reuse provenance. Valid ONLY
+                  // under identical authority digest + matcher version (the
+                  // repo query enforces it); otherwise no candidate is
+                  // created. Chained 304s reference the immediate prior, so
+                  // ancestry stays traceable hop by hop.
+                  const priorMatches = yield* matchesRepo.latestEffectiveMatches({
+                    businessId: run.businessId,
+                    scopeId: sc.id,
+                    canonicalUrl: item.canonicalUrl,
+                    authorityDigest: snapshot.digest,
+                    matcherVersion: MATCHER_VERSION,
+                  })
+                  const reuseWrites: Omit<DiscoveryMatchWrite, "pageObservationId">[] = priorMatches.map((p) => ({
+                    lineageRootFactId: p.lineageRootFactId,
+                    matchedFactId: p.matchedFactId,
+                    matchedFactVersion: p.matchedFactVersion,
+                    matchedValue: p.matchedValue,
+                    matchSurface: p.matchSurface as "JSON_LD" | "META" | "VISIBLE_TEXT",
+                    evidenceLocator: p.evidenceLocator,
+                    evidenceSnippet: p.evidenceSnippet,
+                    relationAtScan: p.relationAtScan as "CURRENT_VALUE" | "HISTORICAL_VALUE",
+                    matcherVersion: MATCHER_VERSION,
+                    reusedFromMatchId: p.id,
+                  }))
+                  const reusedGroups = countCandidateGroups(
+                    reuseWrites.map((m) => ({ pageKey: item.canonicalUrl, lineageRootFactId: m.lineageRootFactId })),
+                  )
                   yield* frontier.persistPageFetch({
                     businessId: run.businessId,
                     frontierId: item.id,
@@ -655,10 +685,11 @@ export const makeDiscoveryRunnerLive = () =>
                       lastModified: ev.lastModified,
                       collectionState: "NOT_MODIFIED",
                     },
-                    matches: [],
+                    matches: reuseWrites,
                   })
                   counters.notModified += 1
-                  yield* runs.incrementCounters(run.businessId, run.id, { pagesNotModified: 1 })
+                  counters.candidates += reusedGroups
+                  yield* runs.incrementCounters(run.businessId, run.id, { pagesNotModified: 1, candidatesFound: reusedGroups })
                   continue
                 }
                 // Fresh body: match against the frozen snapshot (never live truth).
@@ -695,11 +726,14 @@ export const makeDiscoveryRunnerLive = () =>
                 })
                 counters.fetched += 1
                 counters.bytes += ev.bodyBytes
-                counters.matches += matched.length
+                const pageGroups = countCandidateGroups(
+                  matched.map((m) => ({ pageKey: item.canonicalUrl, lineageRootFactId: m.lineageRootFactId })),
+                )
+                counters.candidates += pageGroups
                 yield* runs.incrementCounters(run.businessId, run.id, {
                   pagesFetched: 1,
                   bytesDownloaded: ev.bodyBytes,
-                  candidatesFound: matched.length,
+                  candidatesFound: pageGroups,
                 })
                 // Link fallback expansion: depth-bounded, scope/query gated
                 // via buildFrontier, deduped by the DB unique identity.
@@ -876,7 +910,7 @@ export const makeDiscoveryRunnerLive = () =>
                 yield* log(run, "partial:budget", {
                   pages_fetched: counters.fetched,
                   bytes: counters.bytes,
-                  candidates: counters.matches,
+                  candidates: counters.candidates,
                   elapsed_ms: elapsedMs,
                 })
                 return true
@@ -889,7 +923,7 @@ export const makeDiscoveryRunnerLive = () =>
                 yield* log(run, "partial:failures", {
                   pages_fetched: counters.fetched,
                   bytes: counters.bytes,
-                  candidates: counters.matches,
+                  candidates: counters.candidates,
                   elapsed_ms: elapsedMs,
                 })
                 return true
@@ -898,7 +932,7 @@ export const makeDiscoveryRunnerLive = () =>
               yield* log(run, "succeeded", {
                 pages_fetched: counters.fetched,
                 bytes: counters.bytes,
-                candidates: counters.matches,
+                candidates: counters.candidates,
                 elapsed_ms: elapsedMs,
               })
               return true

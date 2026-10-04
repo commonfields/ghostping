@@ -352,6 +352,8 @@ export interface DiscoveryMatchWrite {
   readonly evidenceSnippet: string
   readonly relationAtScan: "CURRENT_VALUE" | "HISTORICAL_VALUE"
   readonly matcherVersion: string
+  /** Explicit reuse provenance: prior effective match this row reuses (304 carry-forward). */
+  readonly reusedFromMatchId?: string | null
 }
 
 export class DiscoveryFrontierRepository extends Context.Tag("DiscoveryFrontierRepository")<
@@ -451,7 +453,7 @@ export const DiscoveryFrontierRepositoryLive = Layer.effect(
           const obsRows = (yield* sql`INSERT INTO discovery_observations (business_id, scope_id, run_id, resource_kind, requested_url, canonical_url, final_url, discovered_via, parent_url, depth, started_at, completed_at, http_status, content_type, etag, last_modified, body_digest, body_bytes, collection_state, failure) VALUES (${input.businessId}, ${o.scopeId}, ${o.runId}, ${o.resourceKind}, ${o.requestedUrl}, ${o.canonicalUrl}, ${o.finalUrl}, ${o.discoveredVia}, ${o.parentUrl ?? null}, ${o.depth ?? 0}, ${o.startedAt}::timestamptz, ${o.completedAt}::timestamptz, ${o.httpStatus ?? null}, ${o.contentType ?? null}, ${o.etag ?? null}, ${o.lastModified ?? null}, ${o.bodyDigest ?? null}, ${o.bodyBytes ?? 0}, ${o.collectionState}, ${o.failure ?? null}) RETURNING id`) as Array<Record<string, unknown>>
           const observationId = String((obsRows[0] as Record<string, unknown>)["id"])
           for (const m of input.matches) {
-            yield* sql`INSERT INTO discovery_matches (business_id, run_id, page_observation_id, lineage_root_fact_id, matched_fact_id, matched_fact_version, matched_value, match_surface, evidence_locator, evidence_snippet, relation_at_scan, matcher_version) VALUES (${input.businessId}, ${o.runId}, ${observationId}, ${m.lineageRootFactId}, ${m.matchedFactId}, ${m.matchedFactVersion}, ${m.matchedValue}, ${m.matchSurface}, ${m.evidenceLocator}, ${m.evidenceSnippet.slice(0, 512)}, ${m.relationAtScan}, ${m.matcherVersion})`
+            yield* sql`INSERT INTO discovery_matches (business_id, run_id, page_observation_id, lineage_root_fact_id, matched_fact_id, matched_fact_version, matched_value, match_surface, evidence_locator, evidence_snippet, relation_at_scan, matcher_version, reused_from_match_id) VALUES (${input.businessId}, ${o.runId}, ${observationId}, ${m.lineageRootFactId}, ${m.matchedFactId}, ${m.matchedFactVersion}, ${m.matchedValue}, ${m.matchSurface}, ${m.evidenceLocator}, ${m.evidenceSnippet.slice(0, 512)}, ${m.relationAtScan}, ${m.matcherVersion}, ${m.reusedFromMatchId ?? null})`
           }
           yield* sql`UPDATE discovery_frontier SET state = 'DONE' WHERE id = ${input.frontierId} AND business_id = ${input.businessId} AND state = 'IN_PROGRESS'`
           return observationId
@@ -588,6 +590,7 @@ export interface DiscoveryMatchRow {
   readonly evidenceSnippet: string
   readonly relationAtScan: string
   readonly matcherVersion: string
+  readonly reusedFromMatchId: string | null
   readonly createdAt: string
 }
 
@@ -605,6 +608,7 @@ const mapMatch = (r: Record<string, unknown>): DiscoveryMatchRow => ({
   evidenceSnippet: String(r["evidence_snippet"]),
   relationAtScan: String(r["relation_at_scan"]),
   matcherVersion: String(r["matcher_version"]),
+  reusedFromMatchId: (r["reused_from_match_id"] as string | null) ?? null,
   createdAt: iso(r["created_at"]),
 })
 
@@ -613,6 +617,21 @@ export class DiscoveryMatchRepository extends Context.Tag("DiscoveryMatchReposit
   {
     readonly insertMany: (input: { businessId: string; runId: string; matches: ReadonlyArray<DiscoveryMatchWrite> }) => DbEffect<ReadonlyArray<DiscoveryMatchRow>>
     readonly listByRun: (businessId: string, runId: string) => DbEffect<ReadonlyArray<DiscoveryMatchRow>>
+    /**
+     * Previous effective (value-bearing) matches for one canonical page that
+     * are compatible with a 304 carry-forward: same scope + URL, identical
+     * authority digest + matcher version, from a terminal run. Newest run
+     * first, so chained 304s reference the immediate prior (traceable hop
+     * by hop). Empty when no compatible evidence exists: a 304 must never
+     * invent a candidate.
+     */
+    readonly latestEffectiveMatches: (input: {
+      businessId: string
+      scopeId: string
+      canonicalUrl: string
+      authorityDigest: string
+      matcherVersion: string
+    }) => DbEffect<ReadonlyArray<DiscoveryMatchRow>>
   }
 >() {}
 
@@ -623,7 +642,7 @@ export const DiscoveryMatchRepositoryLive = Layer.effect(
       Effect.gen(function*() {
         const out: DiscoveryMatchRow[] = []
         for (const m of input.matches) {
-          const rows = (yield* sql`INSERT INTO discovery_matches (business_id, run_id, page_observation_id, lineage_root_fact_id, matched_fact_id, matched_fact_version, matched_value, match_surface, evidence_locator, evidence_snippet, relation_at_scan, matcher_version) VALUES (${input.businessId}, ${input.runId}, ${m.pageObservationId}, ${m.lineageRootFactId}, ${m.matchedFactId}, ${m.matchedFactVersion}, ${m.matchedValue}, ${m.matchSurface}, ${m.evidenceLocator}, ${m.evidenceSnippet.slice(0, 512)}, ${m.relationAtScan}, ${m.matcherVersion}) RETURNING *`) as Array<Record<string, unknown>>
+          const rows = (yield* sql`INSERT INTO discovery_matches (business_id, run_id, page_observation_id, lineage_root_fact_id, matched_fact_id, matched_fact_version, matched_value, match_surface, evidence_locator, evidence_snippet, relation_at_scan, matcher_version, reused_from_match_id) VALUES (${input.businessId}, ${input.runId}, ${m.pageObservationId}, ${m.lineageRootFactId}, ${m.matchedFactId}, ${m.matchedFactVersion}, ${m.matchedValue}, ${m.matchSurface}, ${m.evidenceLocator}, ${m.evidenceSnippet.slice(0, 512)}, ${m.relationAtScan}, ${m.matcherVersion}, ${m.reusedFromMatchId ?? null}) RETURNING *`) as Array<Record<string, unknown>>
           out.push(mapMatch(rows[0] as Record<string, unknown>))
         }
         return out
@@ -632,5 +651,23 @@ export const DiscoveryMatchRepositoryLive = Layer.effect(
       sql`SELECT * FROM discovery_matches WHERE business_id = ${businessId} AND run_id = ${runId} ORDER BY created_at ASC`.pipe(
         Effect.map((rows) => (rows as Array<Record<string, unknown>>).map(mapMatch)),
       ),
+    latestEffectiveMatches: (input) =>
+      Effect.gen(function*() {
+        const rows = (yield* sql`
+          SELECT m.* FROM discovery_matches m
+          JOIN discovery_observations o ON o.id = m.page_observation_id
+          JOIN discovery_runs r ON r.id = m.run_id
+          WHERE m.business_id = ${input.businessId}
+            AND o.scope_id = ${input.scopeId}
+            AND o.canonical_url = ${input.canonicalUrl}
+            AND r.authority_snapshot_digest = ${input.authorityDigest}
+            AND m.matcher_version = ${input.matcherVersion}
+            AND r.state IN ('SUCCEEDED','PARTIAL')
+          ORDER BY r.completed_at DESC, m.created_at ASC`) as Array<Record<string, unknown>>
+        if (rows.length === 0) return [] as ReadonlyArray<DiscoveryMatchRow>
+        // Newest compatible run only: matches belong to one effective scan.
+        const newestRun = String((rows[0] as Record<string, unknown>)["run_id"])
+        return rows.filter((r) => String(r["run_id"]) === newestRun).map(mapMatch)
+      }),
   })),
 )

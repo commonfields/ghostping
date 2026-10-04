@@ -201,3 +201,34 @@ reviews must hold them:
   no Drift/In-sync on candidates, bounded-claim copy, truth-changed
   warning, client surface, language guards). `typecheck`, `lint`, and
   `vitest` all pass for `@ghostping/web`.
+
+## 15. Closeout amendments (review fixes, 2026-10-04)
+
+- 304 carry-forward: a compatible 304 (same scope+URL+digest+matcher,
+  value-bearing prior from a terminal run) writes current-run match rows
+  with `reused_from_match_id` pointing at the immediate prior match
+  (migration `0010_discovery_reuse_v1`). Chained 304s resolve hop by hop.
+  Authority/matcher change or missing prior evidence yields no candidate.
+  Candidate reads need no change: reuse rows carry the new observation id.
+- Worker fairness: `apps/worker/src/runner.ts` runs two independent bounded
+  loops (`startRunnerLoops`, Effect fibers, per-iteration error containment)
+  so multi-minute scans never starve CheckRunner polling. Shutdown
+  interrupts both via structured concurrency; no detached loops.
+- Gzip: `decodeSitemapBytes` in `packages/discovery/src/sitemap.ts` is the
+  single canonical path (magic bytes decide; bounded `maxOutputLength`
+  during inflation; per-document 5MB cap). The runner performs no gunzip.
+- Robots: fetches are scope-bound at two layers (fetcher
+  `allowCrossOrigin:false` + parser `scopeOrigin` option); cross-origin
+  robots content is never applied (UNAVAILABLE, fail closed). Rule matching
+  supports Allow, `*`, `$`, longest-wins, Allow-ties, and
+  most-specific-GhostpingDiscovery-group selection.
+- Counters: `candidates_found` counts distinct page+lineage groups
+  (`countCandidateGroups`), never raw match events; 304-reused groups count
+  identically. Counter equals candidate read-model row count for the run.
+- Comparators: discovery money/boolean/text parsing reuses
+  `@ghostping/representation` primitives (`parseMoney`, `parseBoolean`,
+  `normalizeExactText`, `compareMoney`); contract tests in
+  `packages/discovery/test/comparator-parity.test.ts`.
+- Failure handling: a caught deterministic runner error marks the run
+  FAILED with typed `RUNNER_ERROR` (best effort); lease recovery remains
+  the fallback when the DB itself is unreachable or the process dies.
