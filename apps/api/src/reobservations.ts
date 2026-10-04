@@ -17,8 +17,8 @@ import type { SqlError } from "@effect/sql/SqlError"
 import {
   CheckRunRepository,
   ClaimRepository,
-  InterventionRepository,
   ObservationRepository,
+  ReobservationAlreadyActive,
   ReobservationIntentRepository,
   ReobservationInterventionMismatch,
   ReobservationOriginalObservationMismatch,
@@ -84,11 +84,14 @@ export const listRecheckAttempts = (
 
 /**
  * Queue one recheck for an issue, or null when the claim is unknown here.
- * Enqueues a QUEUED check run with the issue's own question, provider, and
- * requested model, then records the durable intent pointing at it. The
- * authenticated user id is supplied explicitly by the route (never request
- * JSON). An unrelated intervention fails with
- * ReobservationInterventionMismatch (422 at the route), never 500.
+ * Creation is atomic: the QUEUED check run and its durable intent commit in
+ * one transaction (ReobservationIntentRepository.enqueueReobservation), so a
+ * re-observation run can never exist without its intent. Question, provider,
+ * and requested model are derived from the issue lineage inside that
+ * transaction, never taken from the client. The authenticated user id is
+ * supplied explicitly by the route. An unrelated intervention fails with
+ * ReobservationInterventionMismatch and a duplicate active attempt with
+ * ReobservationAlreadyActive (409 at the route), never 500.
  */
 export const requestRecheck = (
   businessId: string,
@@ -97,8 +100,8 @@ export const requestRecheck = (
   input: RequestRecheckInput,
 ): Effect.Effect<
   { readonly intent: ReobservationIntentRow; readonly checkRun: CheckRunRow } | null,
-  SqlError | RowDecodeError | ReobservationInterventionMismatch | ReobservationOriginalObservationMismatch,
-  ClaimRepository | CheckRunRepository | ObservationRepository | InterventionRepository | ReobservationIntentRepository
+  SqlError | RowDecodeError | ReobservationInterventionMismatch | ReobservationOriginalObservationMismatch | ReobservationAlreadyActive,
+  ClaimRepository | ObservationRepository | ReobservationIntentRepository
 > =>
   Effect.gen(function*() {
     const claim = yield* scopedClaim(businessId, claimId)
@@ -106,35 +109,12 @@ export const requestRecheck = (
     const observations = yield* ObservationRepository
     const original = yield* observations.getScoped(businessId, claim.observationId)
     if (!original) return null
-    const runs = yield* CheckRunRepository
-    const prior = yield* runs.getScoped(businessId, original.checkRunId)
-    if (!prior) return null
-    if (input.interventionId !== null) {
-      const recorded = yield* InterventionRepository
-      const linked = yield* recorded.listByIssue(businessId, claimId)
-      if (!linked.some((r) => r.id === input.interventionId)) {
-        return yield* Effect.fail(
-          new ReobservationInterventionMismatch({ reason: "intervention is not linked to the issue" }),
-        )
-      }
-    }
-    // Same question, provider, and requested model as the original check:
-    // derived, never taken from the client.
-    const checkRun = yield* runs.enqueue({
-      businessId,
-      questionId: prior.questionId,
-      provider: prior.provider,
-      requestedModel: prior.requestedModel,
-    })
     const intents = yield* ReobservationIntentRepository
-    const intent = yield* intents.createIntent({
+    return yield* intents.enqueueReobservation({
       businessId,
       issueId: claimId,
       originalObservationId: claim.observationId,
       interventionId: input.interventionId,
-      checkRunId: checkRun.id,
       createdByUserId: userId,
     })
-    if (!intent) return null
-    return { intent, checkRun }
   })

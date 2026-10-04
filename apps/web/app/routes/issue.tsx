@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { EmptyState, PageHeader } from "@/components/page"
 import { Spinner } from "@/components/spinner"
 import { ControlBadge, IssueStateBadge, RepresentationStateBadge } from "@/components/status"
-import { Interventions, Issues, Rechecks, type CitationEvidence, type Intervention, type IssueLoop } from "@/lib/api"
+import { Interventions, Issues, Rechecks, Sources, type CitationEvidence, type Intervention, type IssueLoop } from "@/lib/api"
 import { errorMessage, formatDateTime, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
 
@@ -197,6 +197,9 @@ function RecordedActionsCard({ businessId, claimId }: { businessId: string; clai
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="secondary">{sentenceCase(a.type)}</Badge>
                   <span className="text-sm font-medium break-words">{a.target}</span>
+                  {a.supersedesId ? (
+                    <span className="text-xs text-muted-foreground">superseded — history only</span>
+                  ) : null}
                 </div>
                 <p className="text-xs text-muted-foreground">{formatDateTime(a.performedAt)}</p>
                 {a.notes ? <p className="text-sm">{a.notes}</p> : null}
@@ -276,12 +279,33 @@ function RecordedActionsCard({ businessId, claimId }: { businessId: string; clai
   )
 }
 
-const sourceVerificationCopy: Record<string, string> = {
+const sourceChangeCopy: Record<string, string> = {
   SOURCE_NOT_CHECKED: "Source not checked",
-  SOURCE_OBSERVED_UNCHANGED: "Source observed unchanged",
-  SOURCE_OBSERVED_CHANGED: "Source observed changed",
-  SOURCE_OBSERVATION_FAILED: "Source observation failed",
-  SOURCE_UNKNOWN: "Source unknown",
+  SOURCE_CHANGED: "Source changed",
+  SOURCE_UNCHANGED: "Source unchanged",
+  SOURCE_OBSERVATION_FAILED: "Source check failed",
+  SOURCE_UNKNOWN: "Source change unknown",
+}
+
+const sourceAlignmentCopy: Record<string, string> = {
+  IN_SYNC: "Current source state: in sync",
+  DRIFT: "Current source state: drift",
+  UNKNOWN: "Current source state: unknown",
+}
+
+const attemptStateCopy: Record<string, string> = {
+  QUEUED: "Recheck queued",
+  RUNNING: "Recheck in progress",
+  FAILED: "Recheck failed",
+  COMPLETED: "Recheck observed",
+  FINALIZING: "Finalizing recheck",
+}
+
+/** Interventions superseded by a correction stay listed (history) but are
+ * marked so new rechecks link the current head, not an old row. */
+const interventionHeadIds = (list: Array<{ id: string; supersedesId: string | null }>): Set<string> => {
+  const superseded = new Set(list.flatMap((a) => (a.supersedesId ? [a.supersedesId] : [])))
+  return new Set(list.filter((a) => !superseded.has(a.id)).map((a) => a.id))
 }
 
 function IssueLoopSection({ businessId, claimId }: { businessId: string; claimId: string }) {
@@ -294,8 +318,10 @@ function IssueLoopSection({ businessId, claimId }: { businessId: string; claimId
   const comparison = loop?.latestComparison ?? null
   const completed = loop?.completedReobservations ?? []
   const attempts = loop?.reobservationAttempts ?? []
-  const queued = attempts.filter((a) => a.status !== "COMPLETED")
+  const activeAttempt = attempts.find((a) => a.state === "QUEUED" || a.state === "RUNNING" || a.state === "FINALIZING") ?? null
+  const failedAttempts = attempts.filter((a) => a.state === "FAILED")
   const latestAfter = completed.at(-1)?.after ?? null
+  const headIds = interventionHeadIds(loop?.interventions ?? [])
 
   // Chronological stages: AI observed → reviewed → issue → action →
   // source check → AI recheck → review → outcome.
@@ -319,16 +345,20 @@ function IssueLoopSection({ businessId, claimId }: { businessId: string; claimId
         },
         {
           label: "Source check",
-          detail: `${sourceVerificationCopy[loop.sourceVerification.state] ?? loop.sourceVerification.state}. ${loop.sourceVerification.detail}`,
+          detail: `${sourceChangeCopy[loop.sourceVerification.change] ?? loop.sourceVerification.change}. ${
+            sourceAlignmentCopy[loop.sourceVerification.alignment] ?? loop.sourceVerification.alignment
+          }. ${loop.sourceVerification.detail}`,
         },
         {
           label: "AI recheck",
           detail:
-            completed.length === 0
-              ? queued.length > 0
-                ? "Recheck queued"
-                : "Not rechecked yet"
-              : `${completed.length} recheck${completed.length === 1 ? "" : "s"} observed`,
+            activeAttempt !== null
+              ? (attemptStateCopy[activeAttempt.state] ?? activeAttempt.state)
+              : completed.length === 0
+                ? failedAttempts.length > 0
+                  ? `Recheck failed${failedAttempts.length === 1 && failedAttempts[0]?.failureClass ? ` (${failedAttempts[0].failureClass})` : ""}. A new recheck starts a fresh attempt; failures are never re-observed outcomes.`
+                  : "Not rechecked yet"
+                : `${completed.length} recheck${completed.length === 1 ? "" : "s"} observed`,
         },
         {
           label: "Review",
@@ -407,6 +437,7 @@ function IssueLoopSection({ businessId, claimId }: { businessId: string; claimId
                   {(loop?.interventions ?? []).map((a) => (
                     <SelectItem key={a.id} value={a.id}>
                       {sentenceCase(a.type)} — {a.target}
+                      {headIds.has(a.id) ? "" : " (superseded)"}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -431,7 +462,80 @@ function IssueLoopSection({ businessId, claimId }: { businessId: string; claimId
           </p>
         </CardContent>
       </Card>
+
+      <VerifySourceCard
+        businessId={businessId}
+        bindingId={loop?.sourceVerification.bindingId ?? null}
+        onChecked={() => void reload()}
+      />
     </>
+  )
+}
+
+function VerifySourceCard({ businessId, bindingId, onChecked }: { businessId: string; bindingId: string | null; onChecked: () => void }) {
+  const [checking, setChecking] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+  const [checkError, setCheckError] = useState<string | null>(null)
+  if (bindingId === null) {
+    return (
+      <Card className="shadow-(--float-shadow)">
+        <CardHeader>
+          <CardTitle>Verify source</CardTitle>
+          <CardDescription>
+            This action is not linked to a tracked representation, so Ghostping cannot verify the source automatically.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    )
+  }
+  return (
+    <Card className="shadow-(--float-shadow)">
+      <CardHeader>
+        <CardTitle>Verify source</CardTitle>
+        <CardDescription>
+          Fetch the linked tracked representation again using the same safe collector. The new observation is preserved;
+          nothing is rewritten.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {result ? <p className="text-sm text-muted-foreground">{result}</p> : null}
+        {checkError ? (
+          <Alert variant="destructive">
+            <TriangleAlertIcon />
+            <AlertTitle className="font-normal">{checkError}</AlertTitle>
+          </Alert>
+        ) : null}
+        <div className="flex items-center justify-end gap-3">
+          {checking ? <p className="text-sm text-muted-foreground">Checking source…</p> : null}
+          <Button
+            size="sm"
+            disabled={checking}
+            onClick={() => {
+              setChecking(true)
+              setCheckError(null)
+              setResult(null)
+              Sources.check(businessId, bindingId)
+                .then((r) => {
+                  const state = r.finding.state
+                  setResult(
+                    state === "IN_SYNC"
+                      ? "Source check finished: the observed value matches the approved value."
+                      : state === "DRIFT"
+                        ? "Source check finished: the observed value differs from the approved value."
+                        : "Source check finished: the observation could not be compared.",
+                  )
+                  onChecked()
+                })
+                .catch((err: unknown) => setCheckError(errorMessage(err)))
+                .finally(() => setChecking(false))
+            }}
+          >
+            {checking ? <Spinner /> : null}
+            Verify source
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

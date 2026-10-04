@@ -37,6 +37,7 @@ import {
   decodeRow,
   type RowDecodeError,
 } from "./row-codecs.js"
+import { decodeCheckRun, type CheckRunRow } from "./repositories.js"
 
 type Row = Record<string, unknown>
 type DbEffect<A> = Effect.Effect<A, SqlError | RowDecodeError>
@@ -213,6 +214,76 @@ export const InterventionRepositoryLive = Layer.effect(
 )
 
 // ---------------------------------------------------------------------------
+// Intervention→source-binding links (explicit linkage; lineage only)
+// ---------------------------------------------------------------------------
+// Design note: this is a separate Tag rather than an extension of
+// InterventionRepository so that InterventionRepository.append stays
+// untouched (same signature, same single-transaction intervention +
+// intervention_issues write). The API persists the link sequentially after
+// the append (FK ordering forces append-first); a link that fails its
+// trigger check leaves the intervention as an unlinked action (UNKNOWN
+// downstream), never a rewritten row. Historical interventions without
+// rows read as unlinked and are never backfilled.
+export interface InterventionBindingRow {
+  readonly interventionId: string
+  readonly businessId: string
+  readonly sourceBindingId: string
+  readonly beforeSourceObservationId: string | null
+}
+
+export type LinkInterventionBindingInput = InterventionBindingRow
+
+const InterventionBindingSchema = Schema.Struct({
+  intervention_id: UuidField,
+  business_id: UuidField,
+  source_binding_id: UuidField,
+  before_source_observation_id: NullableUuidField,
+})
+
+const decodeInterventionBinding = (r: unknown): Effect.Effect<InterventionBindingRow, RowDecodeError> =>
+  decodeRow(InterventionBindingSchema, "intervention_source_bindings", r).pipe(
+    Effect.map((d) => ({
+      interventionId: d.intervention_id,
+      businessId: d.business_id,
+      sourceBindingId: d.source_binding_id,
+      beforeSourceObservationId: d.before_source_observation_id,
+    })),
+  )
+
+export class InterventionBindingRepository extends Context.Tag("InterventionBindingRepository")<
+  InterventionBindingRepository,
+  {
+    /** Append-only. The database rejects cross-business bindings,
+     * observations on another target, and failed-collection observations. */
+    readonly linkInterventionBinding: (input: LinkInterventionBindingInput) => DbEffect<InterventionBindingRow>
+    /** Links for interventions recorded on one issue (tenant-scoped join).
+     * Interventions without rows are absent (unlinked, UNKNOWN downstream). */
+    readonly listByIssue: (businessId: string, issueId: string) => DbEffect<ReadonlyArray<InterventionBindingRow>>
+  }
+>() {}
+
+export const InterventionBindingRepositoryLive = Layer.effect(
+  InterventionBindingRepository,
+  Effect.map(PgClient.PgClient, (sql: SqlClient.SqlClient) => ({
+    linkInterventionBinding: (input) =>
+      sql`
+        INSERT INTO intervention_source_bindings (intervention_id, business_id, source_binding_id, before_source_observation_id)
+        VALUES (${input.interventionId}, ${input.businessId}, ${input.sourceBindingId}, ${input.beforeSourceObservationId})
+        RETURNING intervention_id, business_id, source_binding_id, before_source_observation_id`.pipe(
+        Effect.flatMap((rows) => decodeInterventionBinding((rows as Array<unknown>)[0])),
+      ),
+    listByIssue: (businessId, issueId) =>
+      sql`
+        SELECT b.intervention_id, b.business_id, b.source_binding_id, b.before_source_observation_id
+        FROM intervention_source_bindings b JOIN intervention_issues ii ON ii.intervention_id = b.intervention_id
+        WHERE b.business_id = ${businessId} AND ii.issue_id = ${issueId}
+        ORDER BY b.created_at, b.intervention_id, b.source_binding_id`.pipe(
+        Effect.flatMap((rows) => Effect.forEach(rows as Array<unknown>, decodeInterventionBinding)),
+      ),
+  })),
+)
+
+// ---------------------------------------------------------------------------
 // Re-observation links (pure lineage; comparison is derived at export)
 // ---------------------------------------------------------------------------
 export interface ReobservationRow {
@@ -303,6 +374,10 @@ export class ReobservationOriginalObservationMismatch extends Data.TaggedError("
   readonly reason: string
 }> {}
 
+export class ReobservationAlreadyActive extends Data.TaggedError("ReobservationAlreadyActive")<{
+  readonly issueId: string
+}> {}
+
 const ReobservationIntentSchema = Schema.Struct({
   id: UuidField,
   business_id: UuidField,
@@ -357,6 +432,25 @@ export class ReobservationIntentRepository extends Context.Tag("ReobservationInt
     readonly listByIssue: (businessId: string, issueId: string) => DbEffect<ReadonlyArray<ReobservationIntentRow>>
     /** Intent for one check run (the worker's claim by check_run_id), or null. */
     readonly resolveIntent: (checkRunId: string) => DbEffect<ReobservationIntentRow | null>
+    /**
+     * Atomic recheck creation: validates lineage, inserts the QUEUED check
+     * run, and inserts the intent in ONE transaction, so a re-observation
+     * check run can never exist without its durable intent. Fails with
+     * ReobservationAlreadyActive when the issue already has a QUEUED or
+     * RUNNING attempt (terminal runs never block a later recheck). Returns
+     * null when the issue is unknown in this business. The generic
+     * CheckRunRepository.enqueue remains the path for ordinary checks.
+     */
+    readonly enqueueReobservation: (input: {
+      readonly businessId: string
+      readonly issueId: string
+      readonly originalObservationId: string
+      readonly interventionId: string | null
+      readonly createdByUserId: string
+    }) => Effect.Effect<
+      { readonly checkRun: CheckRunRow; readonly intent: ReobservationIntentRow } | null,
+      SqlError | RowDecodeError | ReobservationInterventionMismatch | ReobservationOriginalObservationMismatch | ReobservationAlreadyActive
+    >
   }
 >() {}
 
@@ -398,6 +492,83 @@ export const ReobservationIntentRepositoryLive = Layer.effect(
     listByIssue: (businessId, issueId) =>
       sql`SELECT * FROM reobservation_intents WHERE business_id = ${businessId} AND issue_id = ${issueId} ORDER BY created_at, id`.pipe(
         Effect.flatMap((rows) => Effect.forEach(rows as Array<unknown>, decodeReobservationIntent)),
+      ),
+    enqueueReobservation: (input) =>
+      sql.withTransaction(
+        Effect.gen(function*() {
+          const issues = (yield* sql`
+            SELECT c.id, c.observation_id, o.check_run_id AS original_check_run_id
+            FROM candidate_claims c JOIN observations o ON o.id = c.observation_id
+            WHERE c.id = ${input.issueId} AND c.business_id = ${input.businessId}`) as Array<Row>
+          const issue = issues[0]
+          if (!issue) return null
+          if (String(issue["observation_id"]) !== input.originalObservationId) {
+            return yield* Effect.fail(
+              new ReobservationOriginalObservationMismatch({
+                reason: "original observation does not belong to the issue lineage",
+              }),
+            )
+          }
+          const prior = (yield* sql`
+            SELECT question_id, provider, requested_model FROM check_runs WHERE id = ${String(issue["original_check_run_id"])}`) as Array<Row>
+          const priorRun = prior[0]
+          if (!priorRun) return null
+          if (input.interventionId !== null) {
+            const links = (yield* sql`
+              SELECT 1 FROM intervention_issues ii JOIN interventions i ON i.id = ii.intervention_id
+              WHERE ii.intervention_id = ${input.interventionId} AND ii.issue_id = ${input.issueId} AND i.business_id = ${input.businessId}`) as Array<unknown>
+            if (links.length === 0) {
+              return yield* Effect.fail(
+                new ReobservationInterventionMismatch({ reason: "intervention is not linked to the issue" }),
+              )
+            }
+          }
+          // One active attempt per issue: a second QUEUED/RUNNING recheck is
+          // a duplicate request (typed 409 upstream). Terminal runs never
+          // block. The trigger backstops the race; map it to the same type.
+          const active = (yield* sql`
+            SELECT i.id FROM reobservation_intents i JOIN check_runs cr ON cr.id = i.check_run_id
+            WHERE i.issue_id = ${input.issueId} AND i.business_id = ${input.businessId}
+              AND cr.status IN ('QUEUED', 'RUNNING') LIMIT 1`) as Array<unknown>
+          if (active.length > 0) {
+            return yield* Effect.fail(new ReobservationAlreadyActive({ issueId: input.issueId }))
+          }
+          const runRows = (yield* sql`
+            INSERT INTO check_runs (business_id, question_id, provider, requested_model)
+            VALUES (${input.businessId}, ${String(priorRun["question_id"])}, ${String(priorRun["provider"])}, ${(priorRun["requested_model"] as string | null) ?? null})
+            RETURNING *`) as Array<unknown>
+          const checkRun = yield* decodeCheckRun(runRows[0])
+          const intentRows = (yield* sql`
+            INSERT INTO reobservation_intents (business_id, issue_id, original_observation_id, intervention_id, check_run_id, created_by_user_id)
+            VALUES (${input.businessId}, ${input.issueId}, ${input.originalObservationId}, ${input.interventionId}, ${checkRun.id}, ${input.createdByUserId})
+            RETURNING *`) as Array<unknown>
+          const intent = yield* decodeReobservationIntent(intentRows[0])
+          return { checkRun, intent } as const
+        }).pipe(
+          // Trigger backstops (measurement identity, single-active race):
+          // map marker text to the same typed errors the pre-checks raise.
+          // Trigger violations arrive nested in the driver error cause, so
+          // walk the chain instead of reading only the top message.
+          Effect.catchAll((e): Effect.Effect<never, SqlError | ReobservationInterventionMismatch | ReobservationOriginalObservationMismatch | ReobservationAlreadyActive> => {
+            const messages: Array<string> = []
+            let cur: unknown = e
+            for (let depth = 0; depth < 4 && cur !== null && typeof cur === "object"; depth++) {
+              const msg = (cur as { message?: unknown }).message
+              if (typeof msg === "string") messages.push(msg)
+              cur = (cur as { cause?: unknown }).cause
+            }
+            const msg = messages.join(" | ")
+            if (msg.includes("already has an active re-observation")) {
+              return Effect.fail(new ReobservationAlreadyActive({ issueId: input.issueId }))
+            }
+            if (msg.includes("different question") || msg.includes("different provider") || msg.includes("different requested model")) {
+              return Effect.fail(
+                new ReobservationOriginalObservationMismatch({ reason: "check run does not repeat the original measurement identity" }),
+              )
+            }
+            return Effect.fail(e as SqlError)
+          }),
+        ),
       ),
     resolveIntent: (checkRunId) =>
       sql`SELECT * FROM reobservation_intents WHERE check_run_id = ${checkRunId}`.pipe(

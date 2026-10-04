@@ -41,6 +41,37 @@ heartbeat while processing; 304/validator reuse only under identical
 authority digest + matcher; migration batch under advisory lock; packet
 export validates its own output fail-closed.
 
+## Closeout amendments (final)
+
+- Atomic creation: `ReobservationIntentRepository.enqueueReobservation`
+  validates lineage, inserts the QUEUED check run, and inserts the intent in
+  ONE transaction. A re-observation run can never exist without its intent;
+  `CheckRunRepository.enqueue` remains the ordinary-check path.
+- Attempt authority: intents joined to check runs (QUEUED/RUNNING/FAILED/
+  COMPLETED, plus transient FINALIZING for SUCCEEDED-with-observation
+  awaiting the sweeper). Failed attempts stay visible with failure class;
+  never outcomes.
+- Source alignment vs change: alignment reuses RepresentationFinding;
+  change requires same-binding before/after digests ordered around the
+  latest intervention (digest equality decides; missing digests refuse).
+  Disagreeing bindings stay UNKNOWN rather than picking a winner.
+- Measurement backstop: trigger enforces same business/question/provider
+  and NULL-safe requested-model equality on intent insert; single-active
+  attempt per issue (typed 409); questions are insert-only so question_id
+  pins the exact prompt.
+- `GET /reobservations` stays a narrow diagnostic surface; `/loop` is the
+  canonical product read model.
+- Recheck UI lists every intervention for history but marks superseded rows
+  so new evidence links the current head.
+- Single-active attempts serialize on the parent claim row (SELECT FOR UPDATE
+  in the trigger); concurrent same-issue requests yield exactly one commit.
+- Intervention→binding relations are explicit server-validated rows (never
+  digest/URL inference); before-evidence is captured at record time.
+- Change derives from bound ObservedSourceValue via existing comparators
+  (MONEY/BOOLEAN/EXACT_TEXT); page bytes alone never decide.
+- Long-lived databases converge via additive migration (composite reobservation
+  identity; obsolete columns/constraints dropped where present).
+
 ## Comparability and UNKNOWN
 
 EXACT_MATCH/COMPARABLE/NOT_COMPARABLE/INDETERMINATE preserved; prompt digest

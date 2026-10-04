@@ -15,6 +15,8 @@ import {
   InterventionRepository,
   ObservationRepository,
   ReobservationIntentRepository,
+  ReobservationAlreadyActive,
+  ReobservationInterventionMismatch,
   ReobservationRepository,
   type CheckRunRow,
   type InterventionRow,
@@ -98,7 +100,16 @@ const makeRuns = () => {
     recordAttempt: () => Effect.succeed(1),
     markFinished: () => Effect.void,
   }
-  return { enqueued, extra, layer: Layer.succeed(CheckRunRepository, service) }
+  const enqueueRun = (input: { businessId: string; questionId: string; provider: string; requestedModel: string | null }): CheckRunRow => {
+    n += 1
+    enqueued.push(input)
+    const row = checkRunRow(`10000000-0000-4000-8000-0000000000${String(n).padStart(2, "0")}`, "QUEUED")
+    const full: CheckRunRow = { ...row, businessId: input.businessId, questionId: input.questionId, provider: input.provider, requestedModel: input.requestedModel }
+    extra.set(full.id, full)
+    return full
+  }
+  const statusOf = (id: string): string => extra.get(id)?.status ?? "QUEUED"
+  return { enqueued, extra, enqueueRun, statusOf, layer: Layer.succeed(CheckRunRepository, service) }
 }
 
 const observationRow = (id: string, checkRunId: string): ObservationRow => ({
@@ -156,9 +167,11 @@ const InterventionStub = Layer.succeed(InterventionRepository, {
     Effect.succeed(businessId === BIZ_A && issueId === CLAIM_A ? [interventionRow(IV_LINKED)] : []),
 })
 
-const makeIntents = () => {
+const makeIntents = (runs?: ReturnType<typeof makeRuns>) => {
   const rows: Array<ReobservationIntentRow> = []
   let n = 0
+  const activeStatuses = new Set(["QUEUED", "RUNNING"])
+  const runsStore = runs ?? makeRuns()
   const service = {
     createIntent: (input: {
       businessId: string
@@ -182,6 +195,36 @@ const makeIntents = () => {
         }
         rows.push(row)
         return row as ReobservationIntentRow | null
+      }),
+    enqueueReobservation: (input: {
+      businessId: string
+      issueId: string
+      originalObservationId: string
+      interventionId: string | null
+      createdByUserId: string
+    }) =>
+      Effect.gen(function*() {
+        // Mirrors the repository contract: unrelated interventions fail
+        // before any persistence, and a second active attempt fails typed.
+        if (input.interventionId !== null && input.interventionId !== IV_LINKED) {
+          return yield* Effect.fail(new ReobservationInterventionMismatch({ reason: "intervention is not linked to the issue" }))
+        }
+        const active = rows.some((r) => r.issueId === input.issueId && activeStatuses.has(runsStore.statusOf(r.checkRunId)))
+        if (active) return yield* Effect.fail(new ReobservationAlreadyActive({ issueId: input.issueId }))
+        const run = runsStore.enqueueRun({ businessId: input.businessId, questionId: Q_A, provider: "mock", requestedModel: "requested" })
+        n += 1
+        const row: ReobservationIntentRow = {
+          id: `20000000-0000-4000-8000-0000000000${String(n).padStart(2, "0")}`,
+          businessId: input.businessId,
+          issueId: input.issueId,
+          originalObservationId: input.originalObservationId,
+          interventionId: input.interventionId,
+          checkRunId: run.id,
+          createdByUserId: input.createdByUserId,
+          createdAt: iso,
+        }
+        rows.push(row)
+        return { checkRun: run, intent: row } as const
       }),
     listByIssue: (businessId: string, issueId: string) =>
       Effect.succeed(rows.filter((r) => r.businessId === businessId && r.issueId === issueId)),
@@ -211,7 +254,7 @@ const linkRow = (observationId: string): ReobservationRow => ({
 describe("recheck derivation from the issue", () => {
   it("enqueues the same question/provider/model and records the intent", async () => {
     const runs = makeRuns()
-    const intents = makeIntents()
+    const intents = makeIntents(runs)
     const env = Layer.mergeAll(
       ClaimStub,
       runs.layer,
@@ -235,7 +278,7 @@ describe("recheck derivation from the issue", () => {
 
   it("records an intent without an intervention link", async () => {
     const runs = makeRuns()
-    const intents = makeIntents()
+    const intents = makeIntents(runs)
     const env = Layer.mergeAll(
       ClaimStub,
       runs.layer,
@@ -248,12 +291,38 @@ describe("recheck derivation from the issue", () => {
     )
     expect(created?.intent.interventionId).toBeNull()
   })
+
+  it("a second active attempt fails typed while the first is queued", async () => {
+    const runs = makeRuns()
+    const intents = makeIntents(runs)
+    const env = Layer.mergeAll(
+      ClaimStub,
+      runs.layer,
+      makeObservations({ [RUN_PRIOR]: observationRow(OBS_ORIG, RUN_PRIOR) }),
+      InterventionStub,
+      intents.layer,
+    )
+    const first = await Effect.runPromise(
+      requestRecheck(BIZ_A, CLAIM_A, USER_A, { interventionId: null }).pipe(Effect.provide(env)),
+    )
+    expect(first).not.toBeNull()
+    const duplicate = await Effect.runPromiseExit(
+      requestRecheck(BIZ_A, CLAIM_A, USER_A, { interventionId: null }).pipe(Effect.provide(env)),
+    )
+    expect(duplicate._tag).toBe("Failure")
+    if (duplicate._tag === "Failure" && duplicate.cause._tag === "Fail") {
+      expect(String((duplicate.cause.error as { _tag?: string })?._tag)).toBe("ReobservationAlreadyActive")
+    }
+    // No second run and no second intent were persisted.
+    expect(runs.enqueued).toHaveLength(1)
+    expect(intents.rows).toHaveLength(1)
+  })
 })
 
 describe("recheck tenancy", () => {
   it("account B cannot recheck or list account A's issue", async () => {
     const runs = makeRuns()
-    const intents = makeIntents()
+    const intents = makeIntents(runs)
     const env = Layer.mergeAll(
       ClaimStub,
       runs.layer,
@@ -271,7 +340,7 @@ describe("recheck tenancy", () => {
 
   it("unknown and malformed claim ids read as null (404 at the route)", async () => {
     const runs = makeRuns()
-    const intents = makeIntents()
+    const intents = makeIntents(runs)
     const env = Layer.mergeAll(
       ClaimStub,
       runs.layer,
@@ -289,7 +358,7 @@ describe("recheck tenancy", () => {
 describe("recheck intervention linkage", () => {
   it("rejects interventions not linked to the issue without enqueueing", async () => {
     const runs = makeRuns()
-    const intents = makeIntents()
+    const intents = makeIntents(runs)
     const env = Layer.mergeAll(
       ClaimStub,
       runs.layer,
@@ -351,7 +420,7 @@ describe("recheck attempts listing", () => {
     const pendingId = "10000000-0000-4000-8000-000000000002"
     runs.extra.set(doneId, checkRunRow(doneId, "SUCCEEDED"))
     runs.extra.set(pendingId, checkRunRow(pendingId, "QUEUED"))
-    const intents = makeIntents()
+    const intents = makeIntents(runs)
     intents.rows.push(
       {
         id: "20000000-0000-4000-8000-000000000001",
@@ -403,7 +472,7 @@ describe("recheck attempts listing", () => {
     const runs = makeRuns()
     const failedId = "10000000-0000-4000-8000-000000000003"
     runs.extra.set(failedId, checkRunRow(failedId, "FAILED"))
-    const intents = makeIntents()
+    const intents = makeIntents(runs)
     intents.rows.push({
       id: "20000000-0000-4000-8000-000000000003",
       businessId: BIZ_A,
