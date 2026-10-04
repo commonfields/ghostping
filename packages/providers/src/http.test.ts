@@ -28,7 +28,7 @@ afterAll(async () => { server.closeAllConnections(); await new Promise<void>(res
 const observe = (path: string, max = 2048, timeoutMs = 1000) => Effect.runPromise(Effect.gen(function*() {
   return yield* (yield* NineRouterProvider).observe({ runId: "http-test", provider: "9router", requestedModel: "pin", prompt: "fixture" })
 }).pipe(Effect.provide(NineRouterProviderLive.pipe(Layer.provide(NodeHttpClient.layer), Layer.provide(Layer.succeed(NineRouterSettings, {
-  baseUrl: Redacted.make(`http://127.0.0.1:${port}/${path}`), apiKey: Redacted.make("fixture-key"), model: "pin", timeoutMs, responseMaxBytes: max,
+  baseUrl: Redacted.make(`http://127.0.0.1:${port}/${path}`), apiKey: Redacted.make("fixture-key"), models: ["pin"], timeoutMs, responseMaxBytes: max,
 })))), Effect.either))
 describe("scoped Effect Node HTTP transport", () => {
   it("preserves exact bytes and a genuinely absent content type", async () => {

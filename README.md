@@ -112,11 +112,12 @@ Open [http://localhost:3000](http://localhost:3000), create an account and busin
 | `NINE_ROUTER_ENABLED` | No | `false` | Enables the live provider path. Keep disabled for local development and tests. |
 | `NINE_ROUTER_BASE_URL` | When customized | `http://localhost:20128/v1` | 9Router-compatible endpoint; only HTTPS or an exact loopback HTTP address is accepted. |
 | `NINE_ROUTER_API_KEY` | When live provider is enabled | None | Provider credential. Never commit or log it. |
-| `NINE_ROUTER_MODEL` | When live provider is enabled | None | Required model pin for reproducible provider requests. |
+| `NINE_ROUTER_MODELS` | When live provider is enabled | None | Comma-separated allowlist of explicit direct model IDs. Empty entries and duplicates are rejected. |
+| `NINE_ROUTER_MODEL` | No | None | Temporary compatibility path for one model; ignored when `NINE_ROUTER_MODELS` is set. |
 | `NINE_ROUTER_TIMEOUT_MS` | No | `60000` | Live request timeout; accepted range is 1–300,000 ms. |
 | `PROVIDER_RESPONSE_MAX_BYTES` | No | `2097152` | Maximum captured provider response size; hard-capped at 16 MiB. |
 
-Live provider calls may cost money and send prompts to an external service. Enabling the provider fails closed when its endpoint, key, or model pin is invalid. Use the mock provider for normal development and automated tests.
+Live provider calls may cost money and send prompts to an external service. Enabling the provider fails closed when its endpoint, key, or model allowlist is invalid. Each 9Router CheckRun must explicitly request one allowlisted model; Ghostping never substitutes another model. Use the mock provider for normal development and automated tests.
 
 ## Architecture
 

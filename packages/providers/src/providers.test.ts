@@ -6,17 +6,17 @@ import {
   MockProvider, MockProviderLive, NineRouterProvider, NineRouterProviderLive, ProviderRegistry, ProviderRegistryLive,
   ProviderRequest, ProviderUnsupported, isRetryableProviderError, sha256,
 } from "./index.js"
-const input = { runId: "run-1", provider: "9router", requestedModel: null, prompt: "test prompt" }
-const settings: NineRouterSettingsValue = { baseUrl: Redacted.make("http://localhost/v1"), apiKey: Redacted.make("test-only-key"), model: "pin", timeoutMs: 1000, responseMaxBytes: 2048 }
+const input = { runId: "run-1", provider: "9router", requestedModel: "provider/model-a", prompt: "test prompt" }
+const settings: NineRouterSettingsValue = { baseUrl: Redacted.make("http://localhost/v1"), apiKey: Redacted.make("test-only-key"), models: ["provider/model-a", "provider/model-b"], timeoutMs: 1000, responseMaxBytes: 2048 }
 const body = ' { "model":"actual", "choices":[{"message":{"content":"answer"}}], "citations":["https://example.test",{"uri":"https://other.test","title":"source","position":9,"attributed":true}], "usage":{"total_tokens":3}, "native_extra":1 }\n'
-const invoke = (text: string, status = 200, cfg = settings, headers: Record<string, string> = { "content-type": "application/provider+json" }) => {
+const invoke = (text: string, status = 200, cfg = settings, headers: Record<string, string> = { "content-type": "application/provider+json" }, requestInput = input) => {
   let captured: unknown
   const client = HttpClient.make(request => {
     captured = request
     return Effect.succeed(HttpClientResponse.fromWeb(request, new Response(text, { status, headers })))
   })
   const layer = NineRouterProviderLive.pipe(Layer.provide(Layer.succeed(NineRouterSettings, cfg)), Layer.provide(Layer.succeed(HttpClient.HttpClient, client)))
-  return { result: Effect.runPromise(Effect.gen(function*() { return yield* (yield* NineRouterProvider).observe(input) }).pipe(Effect.provide(layer), Effect.either)), captured: () => captured }
+  return { result: Effect.runPromise(Effect.gen(function*() { return yield* (yield* NineRouterProvider).observe(requestInput) }).pipe(Effect.provide(layer), Effect.either)), captured: () => captured }
 }
 describe("Effect provider boundary", () => {
   it("captures request mapping and exact response evidence before Schema decoding", async () => {
@@ -25,7 +25,7 @@ describe("Effect provider boundary", () => {
     expect(result._tag).toBe("Right")
     if (result._tag !== "Right") throw new Error("expected success")
     const r = result.right
-    expect(r.requestedModel).toBe("pin")
+    expect(r.requestedModel).toBe("provider/model-a")
     expect(r.observedModel).toBe("actual")
     expect(r.answerText).toBe("answer")
     expect(r.retrievalMode).toBe("unknown")
@@ -39,8 +39,17 @@ describe("Effect provider boundary", () => {
     const request = call.captured() as { method: string; url: string; headers: Record<string, string>; body: { body: Uint8Array } }
     expect(request.method).toBe("POST")
     expect(request.url).toBe("http://localhost/v1/chat/completions")
-    expect(JSON.parse(new TextDecoder().decode(request.body.body))).toEqual({ model: "pin", messages: [{ role: "user", content: "test prompt" }], stream: false })
+    expect(JSON.parse(new TextDecoder().decode(request.body.body))).toEqual({ model: "provider/model-a", messages: [{ role: "user", content: "test prompt" }], stream: false })
     expect(request.headers["authorization"]).toBe("Bearer test-only-key")
+  })
+  it("accepts each allowlisted model and sends the explicitly requested model exactly", async () => {
+    for (const requestedModel of settings.models) {
+      const call = invoke(body, 200, settings, undefined, { ...input, requestedModel })
+      const result = await call.result
+      expect(result._tag).toBe("Right")
+      const request = call.captured() as { body: { body: Uint8Array } }
+      expect(JSON.parse(new TextDecoder().decode(request.body.body)).model).toBe(requestedModel)
+    }
   })
   it("keeps absent model, citations, content type, and metadata unknown", async () => {
     const result = await invoke('{"choices":[{"message":{"content":""}}]}', 200, settings, {}).result
@@ -70,16 +79,30 @@ describe("Effect provider boundary", () => {
     expect(r._tag === "Left" && r.left._tag).toBe("ProviderMalformed")
     if (r._tag === "Left") expect(r.left.evidence).toBeUndefined()
   })
-  it("rejects disabled gateway and mismatched pinned models before network IO", async () => {
+  it("rejects disabled, missing-model, and unlisted-model requests before network IO", async () => {
     let calls = 0
     const http = Layer.succeed(HttpClient.HttpClient, HttpClient.make(() => { calls++; return Effect.never }))
-    for (const cfg of [null, settings]) {
+    for (const [cfg, requestedModel] of [[null, "provider/model-a"], [settings, null], [settings, "provider/unlisted"]] as const) {
       const r = await Effect.runPromise(Effect.gen(function*() {
-        return yield* (yield* NineRouterProvider).observe({ ...input, requestedModel: "wrong" })
+        return yield* (yield* NineRouterProvider).observe({ ...input, requestedModel })
       }).pipe(Effect.provide(NineRouterProviderLive.pipe(Layer.provide(http), Layer.provide(Layer.succeed(NineRouterSettings, cfg)))), Effect.either))
       expect(r._tag === "Left" && r.left._tag).toBe("ProviderUnsupported")
     }
     expect(calls).toBe(0)
+  })
+  it("preserves provider failure without trying another allowlisted model", async () => {
+    let calls = 0
+    let sentModel: unknown
+    const client = HttpClient.make(request => {
+      calls += 1
+      sentModel = JSON.parse(new TextDecoder().decode((request.body as { body: Uint8Array }).body)).model
+      return Effect.succeed(HttpClientResponse.fromWeb(request, new Response("unavailable", { status: 503 })))
+    })
+    const layer = NineRouterProviderLive.pipe(Layer.provide(Layer.succeed(NineRouterSettings, settings)), Layer.provide(Layer.succeed(HttpClient.HttpClient, client)))
+    const result = await Effect.runPromise(Effect.gen(function*() { return yield* (yield* NineRouterProvider).observe(input) }).pipe(Effect.provide(layer), Effect.either))
+    expect(result._tag === "Left" && result.left._tag).toBe("ProviderUnavailable")
+    expect(calls).toBe(1)
+    expect(sentModel).toBe("provider/model-a")
   })
   it("timeout interrupts the underlying HTTP effect", async () => {
     let cancelled = false
