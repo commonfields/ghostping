@@ -1,4 +1,6 @@
+export * from "./row-codecs.js"
 export * from "./repositories.js"
+export * from "./auth.js"
 export * from "./seed-helpers.js"
 export * from "./discovery.js"
 export * from "./evidence.js"

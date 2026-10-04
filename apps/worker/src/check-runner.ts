@@ -17,6 +17,7 @@ import {
   hostedMeasurementContext,
   QuestionRepository,
   type RawDigestMismatch,
+  type RowDecodeError,
 } from "@ghostping/db"
 import { isRetryableFailure, type FailureClass } from "@ghostping/domain"
 import type { WorkerResultV1 } from "@ghostping/contracts"
@@ -100,13 +101,13 @@ export const classifyInvokeError = (
 
 export class CheckRunner extends Context.Tag("CheckRunner")<
   CheckRunner,
-  { readonly runOnce: () => Effect.Effect<boolean, SqlError | RawDigestMismatch> }
+  { readonly runOnce: () => Effect.Effect<boolean, SqlError | RowDecodeError | RawDigestMismatch> }
 >() {}
 
 export const makeCheckRunnerLive = (
   retrySchedule: Schedule.Schedule<
     unknown,
-    RetryableWorkerFailure | TerminalWorkerFailure | SqlError
+    RetryableWorkerFailure | TerminalWorkerFailure | SqlError | RowDecodeError
   > = RetrySchedule,
 ) =>
   Layer.effect(
@@ -117,7 +118,7 @@ export const makeCheckRunnerLive = (
       const observations = yield* ObservationRepository
       const worker = yield* RustObservationWorker
 
-      const runOnce = (): Effect.Effect<boolean, SqlError | RawDigestMismatch> =>
+      const runOnce = (): Effect.Effect<boolean, SqlError | RowDecodeError | RawDigestMismatch> =>
         Effect.gen(function*() {
           const claimed = yield* runs.claimOne()
           if (!claimed) return false
@@ -151,7 +152,7 @@ export const makeCheckRunnerLive = (
           // every actual invocation is observable even if the process dies.
           const attemptOnce: Effect.Effect<
             { readonly result: WorkerResultV1; readonly attempt: number; readonly latencyMs: number },
-            RetryableWorkerFailure | TerminalWorkerFailure | SqlError
+            RetryableWorkerFailure | TerminalWorkerFailure | SqlError | RowDecodeError
           > = Effect.gen(function*() {
             const attempt = yield* runs.recordAttempt(claimed.id)
             const startedAt = Date.now()

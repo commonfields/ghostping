@@ -3,7 +3,7 @@
 // sleeping, no Postgres) against the real startRunnerLoops composition.
 import { Deferred, Effect, Fiber } from "effect"
 import { describe, expect, it } from "vitest"
-import { startRunnerLoops } from "./runner.js"
+import { startRunnerLoops, type RunnerLoopError } from "./runner.js"
 
 const testPollMs = 5
 
@@ -69,7 +69,7 @@ describe("worker fairness", () => {
           runOnce: () =>
             Effect.gen(function*() {
               checks.n += 1
-              if (checks.n < 3) return yield* Effect.fail(new Error("boom"))
+              if (checks.n < 3) return yield* Effect.fail(new Error("boom") as unknown as RunnerLoopError)
               return false
             }),
         }

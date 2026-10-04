@@ -28,9 +28,18 @@ import {
   type JudgmentV1,
   type ObservationV1,
 } from "@ghostping/protocol"
+import {
+  NullableTextField,
+  NullableUuidField,
+  TextField,
+  TimestampField,
+  UuidField,
+  decodeRow,
+  type RowDecodeError,
+} from "./row-codecs.js"
 
 type Row = Record<string, unknown>
-type DbEffect<A> = Effect.Effect<A, SqlError>
+type DbEffect<A> = Effect.Effect<A, SqlError | RowDecodeError>
 
 const ts = (v: unknown): string => new Date(v instanceof Date ? v : String(v)).toISOString()
 const str = (v: unknown): string | null => (v === null || v === undefined ? null : String(v))
@@ -95,34 +104,62 @@ export interface InterventionRow {
 
 export type InterventionInput = Omit<InterventionRow, "id" | "createdAt">
 
-const mapIntervention = (r: Row, issueIds: ReadonlyArray<string>): InterventionRow => ({
-  id: String(r["id"]),
-  businessId: String(r["business_id"]),
-  issueIds,
-  type: String(r["type"]) as InterventionType,
-  target: String(r["target"]),
-  performedAt: ts(r["performed_at"]),
-  actor: String(r["actor"]) as InterventionActor,
-  actorId: str(r["actor_id"]),
-  notes: str(r["notes"]),
-  evidenceBeforeDigest: str(r["evidence_before_digest"]),
-  evidenceAfterDigest: str(r["evidence_after_digest"]),
-  supersedesId: str(r["supersedes_id"]),
-  correctionReason: str(r["correction_reason"]),
-  createdAt: ts(r["created_at"]),
+const InterventionSchema = Schema.Struct({
+  id: UuidField,
+  business_id: UuidField,
+  type: TextField,
+  target: TextField,
+  performed_at: TimestampField,
+  actor: TextField,
+  actor_id: NullableTextField,
+  notes: NullableTextField,
+  evidence_before_digest: NullableTextField,
+  evidence_after_digest: NullableTextField,
+  supersedes_id: NullableUuidField,
+  correction_reason: NullableTextField,
+  created_at: TimestampField,
 })
+
+const IssueIdsSchema = Schema.Struct({
+  issue_ids: Schema.NullOr(Schema.Array(UuidField)),
+})
+
+const decodeIssueIds = (r: unknown): Effect.Effect<ReadonlyArray<string>, RowDecodeError> =>
+  decodeRow(IssueIdsSchema, "intervention_issues", r).pipe(
+    Effect.map((d) => ((d.issue_ids ?? []) as ReadonlyArray<string>).slice().sort()),
+  )
+
+const sortedIssueIdsEffect = (r: unknown): Effect.Effect<ReadonlyArray<string>, RowDecodeError> => decodeIssueIds(r)
+
+const decodeIntervention = (r: unknown, issueIds: ReadonlyArray<string>): Effect.Effect<InterventionRow, RowDecodeError> =>
+  decodeRow(InterventionSchema, "interventions", r).pipe(
+    Effect.map((d) => ({
+      id: d.id,
+      businessId: d.business_id,
+      issueIds,
+      type: d.type as InterventionType,
+      target: d.target,
+      performedAt: ts(d.performed_at),
+      actor: d.actor as InterventionActor,
+      actorId: d.actor_id,
+      notes: d.notes,
+      evidenceBeforeDigest: d.evidence_before_digest,
+      evidenceAfterDigest: d.evidence_after_digest,
+      supersedesId: d.supersedes_id,
+      correctionReason: d.correction_reason,
+      createdAt: ts(d.created_at),
+    })),
+  )
 
 export class InterventionRepository extends Context.Tag("InterventionRepository")<
   InterventionRepository,
   {
     /** Append-only. A correction is a new row with `supersedesId`; the
      * superseded row never changes. There is no update or delete method. */
-    readonly append: (input: InterventionInput) => Effect.Effect<InterventionRow, SqlError | InterventionCorrectionInvalid>
+    readonly append: (input: InterventionInput) => Effect.Effect<InterventionRow, SqlError | RowDecodeError | InterventionCorrectionInvalid>
     readonly listByIssue: (businessId: string, issueId: string) => DbEffect<ReadonlyArray<InterventionRow>>
   }
 >() {}
-
-const sortedIssueIds = (r: Row): ReadonlyArray<string> => ((r["issue_ids"] as Array<string> | null) ?? []).slice().sort()
 
 export const InterventionRepositoryLive = Layer.effect(
   InterventionRepository,
@@ -140,23 +177,24 @@ export const InterventionRepositoryLive = Layer.effect(
             const prior = (yield* sql`
               SELECT array_agg(ii.issue_id::text) AS issue_ids FROM interventions i
               JOIN intervention_issues ii ON ii.intervention_id = i.id
-              WHERE i.id = ${input.supersedesId} AND i.business_id = ${input.businessId}`) as Array<Row>
-            const priorIssues = prior[0] ? sortedIssueIds(prior[0]) : []
+              WHERE i.id = ${input.supersedesId} AND i.business_id = ${input.businessId}`) as Array<unknown>
+            const priorIssues = prior[0] ? yield* sortedIssueIdsEffect(prior[0]) : []
             // A correction replaces the whole prior event, so it must cover
             // exactly the same issues; otherwise packets would lose lineage.
-            if (priorIssues.length === 0 || priorIssues.join() !== [...input.issueIds].sort().join()) {
+            if (priorIssues.length === 0 || [...priorIssues].join() !== [...input.issueIds].sort().join()) {
               return yield* Effect.fail(new InterventionCorrectionInvalid({ reason: "a correction must reference the superseded intervention's issues" }))
             }
           }
           const rows = (yield* sql`
             INSERT INTO interventions (business_id, type, target, performed_at, actor, actor_id, notes, evidence_before_digest, evidence_after_digest, supersedes_id, correction_reason)
             VALUES (${input.businessId}, ${input.type}, ${input.target}, ${input.performedAt}::timestamptz, ${input.actor}, ${input.actorId}, ${input.notes}, ${input.evidenceBeforeDigest}, ${input.evidenceAfterDigest}, ${input.supersedesId}, ${input.correctionReason})
-            RETURNING *`) as Array<Row>
-          const row = rows[0] as Row
+            RETURNING *`) as Array<unknown>
+          const row = rows[0]
+          const decodedForId = yield* decodeRow(InterventionSchema, "interventions", row)
           for (const issueId of input.issueIds) {
-            yield* sql`INSERT INTO intervention_issues (intervention_id, issue_id) VALUES (${String(row["id"])}, ${issueId})`
+            yield* sql`INSERT INTO intervention_issues (intervention_id, issue_id) VALUES (${decodedForId.id}, ${issueId})`
           }
-          return mapIntervention(row, [...input.issueIds].sort())
+          return yield* decodeIntervention(row, [...input.issueIds].sort())
         }),
       ),
     listByIssue: (businessId, issueId) =>
@@ -165,7 +203,11 @@ export const InterventionRepositoryLive = Layer.effect(
         FROM interventions i JOIN intervention_issues ii ON ii.intervention_id = i.id
         WHERE i.business_id = ${businessId} AND ii.issue_id = ${issueId}
         ORDER BY i.performed_at, i.created_at, i.id`.pipe(
-        Effect.map((rows) => (rows as Array<Row>).map((r) => mapIntervention(r, sortedIssueIds(r)))),
+        Effect.flatMap((rows) =>
+          Effect.forEach(rows as Array<unknown>, (r) =>
+            Effect.flatMap(sortedIssueIdsEffect(r), (ids) => decodeIntervention(r, ids)),
+          ),
+        ),
       ),
   })),
 )
@@ -183,15 +225,28 @@ export interface ReobservationRow {
   readonly createdAt: string
 }
 
-const mapReobservation = (r: Row): ReobservationRow => ({
-  id: String(r["id"]),
-  businessId: String(r["business_id"]),
-  originalObservationId: String(r["original_observation_id"]),
-  issueId: String(r["issue_id"]),
-  interventionId: str(r["intervention_id"]),
-  observationId: String(r["observation_id"]),
-  createdAt: ts(r["created_at"]),
+const ReobservationSchema = Schema.Struct({
+  id: UuidField,
+  business_id: UuidField,
+  original_observation_id: UuidField,
+  issue_id: UuidField,
+  intervention_id: NullableUuidField,
+  observation_id: UuidField,
+  created_at: TimestampField,
 })
+
+const decodeReobservation = (r: unknown): Effect.Effect<ReobservationRow, RowDecodeError> =>
+  decodeRow(ReobservationSchema, "reobservations", r).pipe(
+    Effect.map((d) => ({
+      id: d.id,
+      businessId: d.business_id,
+      originalObservationId: d.original_observation_id,
+      issueId: d.issue_id,
+      interventionId: d.intervention_id,
+      observationId: d.observation_id,
+      createdAt: ts(d.created_at),
+    })),
+  )
 
 export class ReobservationRepository extends Context.Tag("ReobservationRepository")<
   ReobservationRepository,
@@ -211,10 +266,10 @@ export const ReobservationRepositoryLive = Layer.effect(
       sql`
         INSERT INTO reobservations (business_id, original_observation_id, issue_id, intervention_id, observation_id)
         VALUES (${input.businessId}, ${input.originalObservationId}, ${input.issueId}, ${input.interventionId}, ${input.observationId})
-        RETURNING *`.pipe(Effect.map((rows) => mapReobservation((rows as Array<Row>)[0] as Row))),
+        RETURNING *`.pipe(Effect.flatMap((rows) => decodeReobservation((rows as Array<unknown>)[0]))),
     listByIssue: (businessId, issueId) =>
       sql`SELECT * FROM reobservations WHERE business_id = ${businessId} AND issue_id = ${issueId} ORDER BY created_at, id`.pipe(
-        Effect.map((rows) => (rows as Array<Row>).map(mapReobservation)),
+        Effect.flatMap((rows) => Effect.forEach(rows as Array<unknown>, decodeReobservation)),
       ),
   })),
 )
@@ -302,7 +357,11 @@ export const EvidenceLineageRepositoryLive = Layer.effect(
             SELECT i.*, (SELECT array_agg(all_ii.issue_id::text) FROM intervention_issues all_ii WHERE all_ii.intervention_id = i.id) AS issue_ids
             FROM interventions i JOIN intervention_issues ii ON ii.intervention_id = i.id
             WHERE i.business_id = ${businessId} AND ii.issue_id = ${issueId}
-            ORDER BY i.performed_at, i.created_at, i.id`) as Array<Row>
+            ORDER BY i.performed_at, i.created_at, i.id`) as Array<unknown>
+          const decodedInterventions = yield* Effect.forEach(interventions, (r) =>
+            Effect.flatMap(sortedIssueIdsEffect(r), (ids) => decodeIntervention(r, ids)),
+          )
+          const decodedReobservations = yield* Effect.forEach(reobservations as Array<unknown>, decodeReobservation)
           return {
             business: { id: businessId, name: String(claim["business_name"]) },
             claim,
@@ -311,8 +370,8 @@ export const EvidenceLineageRepositoryLive = Layer.effect(
             claims,
             judgments,
             facts,
-            interventions: interventions.map((r) => mapIntervention(r, sortedIssueIds(r))),
-            reobservations: reobservations.map(mapReobservation),
+            interventions: decodedInterventions,
+            reobservations: decodedReobservations,
           }
         }),
       ),
@@ -471,7 +530,7 @@ export const exportIssuePacket = (input: {
   readonly issueId: string
   readonly generatedAt: string
   readonly embedRawEvidence?: boolean
-}): Effect.Effect<EvidencePacketV1 | null, SqlError | EvidenceExportError, EvidenceLineageRepository> =>
+}): Effect.Effect<EvidencePacketV1 | null, SqlError | RowDecodeError | EvidenceExportError, EvidenceLineageRepository> =>
   Effect.gen(function*() {
     const repo = yield* EvidenceLineageRepository
     const lineage = yield* repo.loadIssue(input.accountId, input.businessId, input.issueId)

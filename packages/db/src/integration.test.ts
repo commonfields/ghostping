@@ -16,13 +16,14 @@ import {
   RawDigestMismatch,
   type CheckRunRow,
 } from "./repositories.js"
+import type { RowDecodeError } from "./row-codecs.js"
 
 const url = process.env["DATABASE_URL"] ?? process.env["TEST_DATABASE_URL"] ?? ""
 const run = url ? describe : describe.skip
 
 const unique = (prefix: string) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e9)}`
 
-type ClaimFn = () => Effect.Effect<CheckRunRow | null, SqlError>
+type ClaimFn = () => Effect.Effect<CheckRunRow | null, SqlError | RowDecodeError>
 
 run("postgres closeout regressions", () => {
   let pool: pg.Pool

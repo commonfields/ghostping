@@ -34,6 +34,7 @@ import {
   type DiscoveryFrontierRow,
   type DiscoveryMatchWrite,
   type DiscoveryRunRow,
+  type RowDecodeError,
 } from "@ghostping/db"
 import { normalizeUrl, safeFetch, type HttpTransport, type SafeFetchEvidence } from "@ghostping/representation"
 import {
@@ -98,7 +99,7 @@ export const extractPageLinks = (html: string, baseUrl: string): string[] => {
 
 export class DiscoveryRunner extends Context.Tag("DiscoveryRunner")<
   DiscoveryRunner,
-  { readonly runOnce: () => Effect.Effect<boolean, SqlError> }
+  { readonly runOnce: () => Effect.Effect<boolean, SqlError | RowDecodeError> }
 >() {}
 
 interface CrawlCounters {
@@ -182,7 +183,7 @@ export const makeDiscoveryRunnerLive = () =>
         run: DiscoveryRunRow,
         failureClass: string,
         detail: string,
-      ): Effect.Effect<true, SqlError> =>
+      ): Effect.Effect<true, SqlError | RowDecodeError> =>
         Effect.gen(function*() {
           yield* runs.markFinished(run.businessId, run.id, "FAILED", failureClass, detail.slice(0, 500))
           yield* log(run, `failed:${failureClass}`, { detail: detail.slice(0, 200) })
@@ -216,16 +217,17 @@ export const makeDiscoveryRunnerLive = () =>
 
       // Freeze one snapshot per authority lineage. Malformed lineages land in
       // snapshot.unsupported and are skipped conservatively (never winners).
-      const freezeAuthority = (businessId: string): Effect.Effect<AuthoritySnapshotV1, SqlError> =>
+      const freezeAuthority = (businessId: string): Effect.Effect<AuthoritySnapshotV1, SqlError | RowDecodeError> =>
         Effect.gen(function*() {
           const all = yield* facts.listByBusiness(businessId)
           const byId = new Map<string, FactRowInput>()
           for (const f of all.filter((row) => row.status === "ACTIVE")) {
-            // ProductRead failures are SqlError in practice (typed unknown);
-            // a read failure aborts the run, never a silent empty snapshot.
+            // ProductRead failures are SqlError or RowDecodeError in practice
+            // (typed unknown); a read failure aborts the run, never a silent
+            // empty snapshot.
             const lineage = (yield* reads
               .factLineage(businessId, f.id)
-              .pipe(Effect.mapError((e) => e as SqlError))) as Array<Record<string, unknown>>
+              .pipe(Effect.mapError((e) => e as SqlError | RowDecodeError))) as Array<Record<string, unknown>>
             if (lineage.length === 0) continue
             let root: string | null = null
             for (const r of lineage) {
@@ -256,7 +258,7 @@ export const makeDiscoveryRunnerLive = () =>
           return buildAuthoritySnapshot([...byId.values()])
         })
 
-      const runOnce = (): Effect.Effect<boolean, SqlError> =>
+      const runOnce = (): Effect.Effect<boolean, SqlError | RowDecodeError> =>
         Effect.gen(function*() {
           const claimed = yield* runs.claimAny()
           if (!claimed) return false
@@ -299,7 +301,7 @@ export const makeDiscoveryRunnerLive = () =>
             ),
           )
 
-          function scanRun(run: DiscoveryRunRow): Effect.Effect<boolean, SqlError> {
+          function scanRun(run: DiscoveryRunRow): Effect.Effect<boolean, SqlError | RowDecodeError> {
             return Effect.gen(function*() {
               const startedMs = Date.now()
               const scope = yield* scopes.getScoped(run.businessId, run.scopeId)
@@ -385,7 +387,7 @@ export const makeDiscoveryRunnerLive = () =>
                 state: "FETCHED" | "FAILED",
                 failure: string | null,
                 status: number | null,
-              ): Effect.Effect<void, SqlError> {
+              ): Effect.Effect<void, SqlError | RowDecodeError> {
                 return observations.insert({
                   businessId: own.businessId,
                   scopeId,
@@ -414,7 +416,7 @@ export const makeDiscoveryRunnerLive = () =>
               const deadlineExceeded = (): boolean => Date.now() - startedMs > DISCOVERY_BUDGETS_V1.wallClockMs
               let sitemapTruncated = false
 
-              const fetchSitemapDoc = (url: string, via: DiscoveredVia): Effect.Effect<{ urls: string[]; nested: string[] } | null, SqlError> =>
+              const fetchSitemapDoc = (url: string, via: DiscoveredVia): Effect.Effect<{ urls: string[]; nested: string[] } | null, SqlError | RowDecodeError> =>
                 Effect.gen(function*() {
                   yield* pace()
                   const ev = yield* Effect.promise(async () => {
@@ -476,7 +478,7 @@ export const makeDiscoveryRunnerLive = () =>
                   }
                 })
 
-              const walkSitemaps = (): Effect.Effect<Array<{ url: string; via: DiscoveredVia }>, SqlError> =>
+              const walkSitemaps = (): Effect.Effect<Array<{ url: string; via: DiscoveredVia }>, SqlError | RowDecodeError> =>
                 Effect.gen(function*() {
                   const entryVias = new Map<string, DiscoveredVia>()
                   for (const s of rules.sitemaps) {
@@ -818,7 +820,7 @@ export const makeDiscoveryRunnerLive = () =>
                 item: DiscoveryFrontierRow,
                 failure: string,
                 ev: SafeFetchEvidence | null,
-              ): Effect.Effect<void, SqlError> {
+              ): Effect.Effect<void, SqlError | RowDecodeError> {
                 return Effect.gen(function*() {
                   yield* frontier.persistPageFetch({
                     businessId: run.businessId,
@@ -848,7 +850,7 @@ export const makeDiscoveryRunnerLive = () =>
                 })
               }
 
-              function persistDeniedPage(item: DiscoveryFrontierRow, ev: SafeFetchEvidence): Effect.Effect<void, SqlError> {
+              function persistDeniedPage(item: DiscoveryFrontierRow, ev: SafeFetchEvidence): Effect.Effect<void, SqlError | RowDecodeError> {
                 return Effect.gen(function*() {
                   // Fetched but robots-disallowed at the final URL: recorded
                   // as denied, never matched.

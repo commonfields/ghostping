@@ -4,36 +4,72 @@
 // one-directional (representation never imports db).
 
 import pg from "pg"
+import { Schema } from "effect"
 import { sameCanonicalUrl } from "@ghostping/representation"
 import { AuthorityError, decodeBridge, type AuthorityStore, type BridgeStore, type FactSyncStore, type FactTxStore, type Provenance, type SyncedFact } from "@ghostping/truth"
 import type { ManifestFactV1 } from "@ghostping/truth"
+import {
+  NullableTextField,
+  NullableTimestampField,
+  TextField,
+  TimestampField,
+  UuidField,
+  IntField,
+  RowDecodeError,
+} from "./row-codecs.js"
 
 export { AuthorityError }
 
 const iso = (v: unknown): string => new Date(String(v)).toISOString()
+
+const SyncedFactSchema = Schema.Struct({
+  id: UuidField,
+  version: IntField,
+  status: TextField,
+  subject: TextField,
+  predicate: TextField,
+  value_text: TextField,
+  value_type: TextField,
+  valid_from: TimestampField,
+  valid_until: NullableTimestampField,
+  source_url: Schema.optional(NullableTextField),
+})
+
+const decodeSyncedRow = (row: unknown, table: string) => {
+  const result = Schema.decodeUnknownEither(SyncedFactSchema)(row)
+  if (result._tag === "Right") return result.right
+  let detail: string
+  try {
+    detail = JSON.stringify(result.left).slice(0, 500)
+  } catch {
+    detail = String(result.left).slice(0, 500)
+  }
+  throw new RowDecodeError({ table, detail })
+}
+
+const toSynced = (row: Record<string, unknown>, key: string): SyncedFact => {
+  const d = decodeSyncedRow(row, "authoritative_facts")
+  const decoded = decodeBridge(d.value_text, d.value_type)
+  if (!decoded) throw new Error(`NonCanonicalAuthorityValue: ${d.id}`)
+  return {
+    id: d.id,
+    key,
+    version: Number(d.version),
+    status: d.status as SyncedFact["status"],
+    subject: d.subject,
+    predicate: d.predicate,
+    value: decoded,
+    valid_from: iso(d.valid_from),
+    valid_until: d.valid_until === null ? null : iso(d.valid_until),
+    source_url: d.source_url ?? null,
+  }
+}
 
 export interface PgSyncStore extends FactSyncStore {
   readonly close: () => Promise<void>
 }
 
 type TxQuery = (text: string, params?: unknown[]) => Promise<pg.QueryResult>
-
-const toSynced = (row: Record<string, unknown>, key: string): SyncedFact => {
-  const decoded = decodeBridge(String(row["value_text"]), String(row["value_type"]))
-  if (!decoded) throw new Error(`NonCanonicalAuthorityValue: ${String(row["id"])}`)
-  return {
-    id: String(row["id"]),
-    key,
-    version: Number(row["version"]),
-    status: String(row["status"]) as SyncedFact["status"],
-    subject: String(row["subject"]),
-    predicate: String(row["predicate"]),
-    value: decoded,
-    valid_from: iso(row["valid_from"]),
-    valid_until: row["valid_until"] === null ? null : iso(row["valid_until"]),
-    source_url: (row["source_url"] as string | null) ?? null,
-  }
-}
 
 const txOps = (q: TxQuery): FactTxStore => ({
   mode: async (businessId: string) => {
@@ -275,10 +311,31 @@ export const pgBridgeStore = (databaseUrl: string, businessId: string): BridgeSt
   }
 }
 
-const toBridgeBinding = (row: Record<string, unknown>) => ({
-  id: String(row["id"]),
-  target_id: String(row["source_target_id"]),
-  fact_id: String(row["fact_id"]),
-  managed_key: (row["managed_key"] as string | null) ?? null,
-  created_at: String(row["created_at"] ?? ""),
+const BridgeBindingSchema = Schema.Struct({
+  id: UuidField,
+  source_target_id: UuidField,
+  fact_id: UuidField,
+  managed_key: NullableTextField,
+  created_at: TimestampField,
 })
+
+const toBridgeBinding = (row: Record<string, unknown>) => {
+  const result = Schema.decodeUnknownEither(BridgeBindingSchema)(row)
+  if (result._tag === "Left") {
+    let detail: string
+    try {
+      detail = JSON.stringify(result.left).slice(0, 500)
+    } catch {
+      detail = String(result.left).slice(0, 500)
+    }
+    throw new RowDecodeError({ table: "source_bindings", detail })
+  }
+  const d = result.right
+  return {
+    id: d.id,
+    target_id: d.source_target_id,
+    fact_id: d.fact_id,
+    managed_key: d.managed_key,
+    created_at: String(d.created_at),
+  }
+}
