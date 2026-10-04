@@ -86,3 +86,16 @@ Partially. It executed the full loop on plumbing, caught no live misrepresentati
 - Moat: no new evidence (no live loop completed). Corpus record: NOT generated (would be synthetic).
 - Commercial: no dimension updates warranted beyond prior remap; pilot gate unchanged (false).
 - Decision for this mission: PRODUCT_GAP_FOUND (blocker PR #23 open, unmerged).
+
+---
+
+## LIVE RESUME section — 2026-10-04 (PR #23 merged, main f5ea719)
+
+- Canonical repo re-verified: `commonfields/ghostping`; urbiens URL 301-redirects (transfer, not a fork). Origin updated.
+- PR #23 MERGED (had been the blocker fix: deliberate target+binding creation + candidate Track dialog, exact-head CI green). Boundary invariants re-confirmed by inspection: no auto-promotion path in discovery/worker, tenant-scoped creation, 404s on unknown/cross-tenant, no intervention/truth/check side effects in tracking code.
+- Product-path acceptance on merged main, zero SQL: discovery candidate (META `octolytics-dimension-repository_public`) → Track → target (idempotent re-track returned existing row) → binding (META_CONTENT/BOOLEAN) → detail (UNKNOWN, never observed) → Verify source → FETCHED, OBSERVED `true`, finding IN_SYNC. Representations list holds exactly the 2 deliberate bindings — no auto-promotion.
+- Discovery re-run on canonical scope: SUCCEEDED, 1 page, 9 candidates — same boolean-chrome coincidence class (octolytics/react-profiling true/false). BOOLEAN precision finding stands, still mitigated by evidence transparency, not heuristics.
+- Provider config from current code: only `mock` + `9router` exist as hosted providers; no hosted code reads OPENAI/ANTHROPIC/GEMINI keys. Live gate needs `NINE_ROUTER_ENABLED=true` + `NINE_ROUTER_API_KEY` + `NINE_ROUTER_MODEL`; all ABSENT, loopback default endpoint unreachable. Result: LIVE_AI_DOGFOOD = BLOCKED_BY_CREDENTIALS (again). No mock output presented as live; no credentials created.
+- Friction this run: none new (BLOCKER class empty). SERIOUS carried over: boolean-candidate noise (documented, tolerated). MINOR: mock answers Northstar-flavored for any business.
+- Corpus: no real record (correctly absent — nothing live happened).
+- Value: source-side loop now completable end-to-end by an operator (track → verify → evidence); AI-side loop remains unproven for lack of credentials, not for lack of product path.
