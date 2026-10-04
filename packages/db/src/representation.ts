@@ -50,6 +50,7 @@ export class SourceTargetRepository extends Context.Tag("SourceTargetRepository"
   {
     readonly create: (input: { businessId: string; url: string; control: string; enabled?: boolean }) => Effect.Effect<SourceTargetRow, unknown>
     readonly listByBusiness: (businessId: string) => Effect.Effect<ReadonlyArray<SourceTargetRow>, unknown>
+    readonly getScoped: (businessId: string, id: string) => Effect.Effect<SourceTargetRow | null, unknown>
   }
 >() {}
 
@@ -65,6 +66,13 @@ export const SourceTargetRepositoryLive = Layer.effect(
       Effect.gen(function*() {
         const rows = (yield* sql`SELECT * FROM source_targets WHERE business_id = ${businessId} ORDER BY created_at ASC`) as Array<unknown>
         return yield* Effect.forEach(rows, decodeRepresentationTarget)
+      }),
+    getScoped: (businessId: string, id: string) =>
+      Effect.gen(function*() {
+        const rows = (yield* sql`SELECT * FROM source_targets WHERE id = ${id} AND business_id = ${businessId}`) as Array<unknown>
+        const row = rows[0]
+        if (!row) return null
+        return yield* decodeRepresentationTarget(row)
       }),
   })),
 )

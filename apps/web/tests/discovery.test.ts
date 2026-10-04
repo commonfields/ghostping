@@ -10,6 +10,18 @@ const readAppFile = async (rel: string) => {
   return fs.readFileSync(new URL(`../app/${rel}`, import.meta.url), "utf8")
 }
 
+describe("candidate tracking is deliberate action only", () => {
+  it("offers Track with explicit configuration, never auto-tracking", async () => {
+    const page = await readAppFile("routes/discovery.tsx")
+    for (const copy of ["Track", "Track this source", "discovery never tracks anything by itself", "Track source", "Representations.createTarget", "Representations.createBinding"]) {
+      expect(page, `missing copy: ${copy}`).toContain(copy)
+    }
+    const api = await readAppFile("lib/api.ts")
+    expect(api).toContain("representations/targets")
+    expect(api).toContain("/bindings")
+  })
+})
+
 describe("discovery route", () => {
   it("lives under representations without a new sidebar section", async () => {
     const main = await readAppFile("main.tsx")

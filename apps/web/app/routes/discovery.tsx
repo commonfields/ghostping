@@ -20,10 +20,11 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { EmptyState, PageHeader } from "@/components/page"
-import { Discovery, type DiscoveryCandidateRelation, type DiscoveryRun, type DiscoveryRunState } from "@/lib/api"
+import { Discovery, Facts, Representations, type DiscoveryCandidate, type DiscoveryCandidateRelation, type DiscoveryRun, type DiscoveryRunState } from "@/lib/api"
 import { errorMessage, formatDateTime, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
 
@@ -333,6 +334,7 @@ export function DiscoveryPage() {
                                 <ExternalLinkIcon />
                               </a>
                             </Button>
+                            <TrackCandidateButton businessId={id} candidate={c} />
                           </div>
                         </TableCell>
                         <TableCell>
@@ -361,6 +363,129 @@ export function DiscoveryPage() {
 
       <AddOwnedSiteDialog businessId={id} open={addOpen} onOpenChange={setAddOpen} onCreated={(scopeId) => void scopes.reload().then(() => setSelectedScopeId(scopeId))} />
     </div>
+  )
+}
+
+const extractorKindForSurface = (surface: string | undefined): string => {
+  if (surface === "JSON_LD") return "JSON_LD"
+  if (surface === "META") return "META_CONTENT"
+  return "CSS_TEXT"
+}
+
+const selectorForLocator = (locator: string | undefined): string => {
+  if (!locator) return ""
+  for (const prefix of ["meta:", "json-ld:", "css:"]) {
+    if (locator.startsWith(prefix)) return locator.slice(prefix.length)
+  }
+  return locator
+}
+
+const comparatorForValueType = (valueType: string | undefined): string => {
+  if (valueType === "CURRENCY") return "MONEY"
+  if (valueType === "BOOLEAN") return "BOOLEAN"
+  return "EXACT_TEXT"
+}
+
+function TrackCandidateButton({ businessId, candidate }: { businessId: string; candidate: DiscoveryCandidate }) {
+  const [open, setOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+  const firstEvidence = candidate.evidence?.[0]
+  const [control, setControl] = useState("OWNED")
+  const [kind, setKind] = useState(() => extractorKindForSurface(firstEvidence?.surface))
+  const [selector, setSelector] = useState(() => selectorForLocator(firstEvidence?.locator))
+  const facts = useApi(open ? `track-facts:${businessId}` : null, () => Facts.list(businessId))
+  const fact = facts.data?.facts.find((f) => f.id === candidate.fact_id) ?? null
+  const [comparator, setComparator] = useState(() => comparatorForValueType(fact?.valueType))
+
+  return (
+    <>
+      <Button variant="ghost" size="sm" onClick={() => { setOpen(true); setError(null); setDone(false) }}>
+        Track
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Track this source</DialogTitle>
+            <DialogDescription>
+              Record {domainOf(candidate.page_url)} as a tracked source for {sentenceCase(candidate.fact_predicate)}. Tracking is a
+              deliberate action; discovery never tracks anything by itself.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="grid gap-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              setPending(true)
+              setError(null)
+              Representations.createTarget(businessId, { url: candidate.page_url, control })
+                .then(({ target }) =>
+                  Representations.createBinding(businessId, target.id, {
+                    factId: candidate.fact_id,
+                    extractorKind: kind,
+                    extractorSelector: selector.trim(),
+                    comparator,
+                  }),
+                )
+                .then(() => setDone(true))
+                .catch((err: unknown) => setError(errorMessage(err)))
+                .finally(() => setPending(false))
+            }}
+          >
+            <div className="grid gap-2">
+              <Label htmlFor="track-control">Source control</Label>
+              <Select value={control} onValueChange={setControl}>
+                <SelectTrigger id="track-control">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="OWNED">Owned</SelectItem>
+                  <SelectItem value="THIRD_PARTY">Third party</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="track-kind">Extractor</Label>
+              <Select value={kind} onValueChange={setKind}>
+                <SelectTrigger id="track-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="JSON_LD">JSON-LD path</SelectItem>
+                  <SelectItem value="META_CONTENT">Meta content</SelectItem>
+                  <SelectItem value="CSS_TEXT">CSS text</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="track-selector">Selector</Label>
+              <Input id="track-selector" value={selector} onChange={(e) => setSelector(e.currentTarget.value)} placeholder="offers.price" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="track-comparator">Comparator ({fact ? `fact type ${fact.valueType}` : "fact type unknown"})</Label>
+              <Select value={comparator} onValueChange={setComparator}>
+                <SelectTrigger id="track-comparator">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="EXACT_TEXT">Exact text</SelectItem>
+                  <SelectItem value="BOOLEAN">Boolean</SelectItem>
+                  <SelectItem value="MONEY">Money</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {error ? <p className="text-sm text-wrong">{error}</p> : null}
+            {done ? <p className="text-sm text-muted-foreground">Tracked. See it under Representations.</p> : null}
+            <DialogFooter>
+              <Button type="submit" disabled={pending || !selector.trim()}>
+                {pending ? "Tracking…" : "Track source"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

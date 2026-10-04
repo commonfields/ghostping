@@ -21,6 +21,7 @@ import {
   ObservationRepositoryLive,
   ProductReadRepositoryLive,
   QuestionRepositoryLive,
+  SourceTargetRepositoryLive,
   ReobservationIntentRepositoryLive,
   ReobservationRepositoryLive,
 } from "@ghostping/db"
@@ -31,6 +32,7 @@ const Repos = Layer.mergeAll(
   BusinessRepositoryLive,
   FactRepositoryLive,
   QuestionRepositoryLive,
+  SourceTargetRepositoryLive,
   CheckRunRepositoryLive,
   ObservationRepositoryLive,
   ClaimRepositoryLive,
@@ -39,6 +41,7 @@ const Repos = Layer.mergeAll(
   JudgmentRepositoryLive,
   ProductReadRepositoryLive,
   QuestionRepositoryLive,
+  SourceTargetRepositoryLive,
   ReobservationIntentRepositoryLive,
   ReobservationRepositoryLive,
   DiscoveryScopeRepositoryLive,

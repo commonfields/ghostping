@@ -65,3 +65,24 @@ Not executed: nothing was changed, and live re-observation is BLOCKED on credent
 ## Did Ghostping materially help Ghostping?
 
 Partially. It executed the full loop on plumbing, caught no live misrepresentation (couldn't look), but genuinely exposed a precision weakness in its own matcher plus two missing loop surfaces (since built). That is a legitimate assay result: useful, not yet pilot-proving.
+
+---
+
+## LIVE section — 2026-10-04 (this mission)
+
+- Canonical repo: `commonfields/ghostping` (urbiens 301-redirects; origin updated). Main: `60bda0c`.
+- Environment: local staging (API :3001, web :3000, worker, local PG; CI PG16 green).
+- Public sources: README.md + docs/ CONTROLLED (content via public repo); github.com/commonfields/ghostping PARTIALLY_CONTROLLED (chrome/robots uncontrolled); website/ local-only placeholder; ghostping.dev nonexistent (verified).
+- Facts: 10 implementation-verified assertions (retained) + 1 honest TEXT fact (`github_description`).
+- Buyer questions: 12 retained.
+- Source observations: real fetch of github.com page (og:description) → OBSERVED → finding DRIFT (platform suffix vs approved text — informative, no action warranted).
+- Discovery: canonical scope SUCCEEDED, 1 page, 9 candidates — same boolean-META coincidence class as before.
+- Provider config: mock + pinned 9router supported; NINE_ROUTER_API_KEY and all other provider keys ABSENT (names only, no values present anywhere).
+- Live AI: zero calls executed → LIVE_AI_DOGFOOD = BLOCKED_BY_CREDENTIALS. No mock output presented as live evidence.
+- Issues: pre-existing WRONG guarantee-claim (mock lineage) stands; no live misrepresentation found (could not look).
+- Intervention: none warranted; none performed.
+- Product friction BLOCKER found and fixed in this mission: no product path could create a tracked SourceBinding (VERIFY SOURCE unreachable for every new business) → `fix/live-dogfood-blocker-v1` (target+binding creation, candidate Track dialog, idempotent, no auto-promotion). Corroborating SERIOUS: candidate rows showed no path forward.
+- Value answers: (1) no new misrepresentation beyond the known mock one; (2) nothing to be obvious about without looking — live surfaces untested; (3) source-side evidence trustworthy (full fetch/extract/compare trail); (4) controllable place identified (tracked binding, now creatable); (5) operator acted (fact+binding+verify via product); (6) verified afterward with full evidence; (7) AI recheck not performed (no credentials); (8) before/after source evidence understandable; (9) UNKNOWN held (no live claims made); (10) repeat usage plausible for source monitoring, unproven for AI loop.
+- Moat: no new evidence (no live loop completed). Corpus record: NOT generated (would be synthetic).
+- Commercial: no dimension updates warranted beyond prior remap; pilot gate unchanged (false).
+- Decision for this mission: PRODUCT_GAP_FOUND (blocker PR #23 open, unmerged).
