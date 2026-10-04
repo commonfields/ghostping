@@ -349,6 +349,64 @@ export const Interventions = {
     }),
 }
 
+// Issue loop: one derived view over an issue, its recorded actions, linked
+// source verification, and before/after rechecks. Read-only; comparison
+// wording arrives from the server display copy.
+export type LoopCitation = { uri: string | null; title: string | null; position: number | null; attributed: boolean }
+
+export type LoopSide = {
+  observationId: string
+  provider: string
+  requestedModel: string | null
+  observedModel: string | null
+  collectedAt: string
+  answerText: string
+  citations: LoopCitation[]
+  claimId: string | null
+  claimText: string | null
+  judgmentId: string | null
+  verdict: string | null
+}
+
+export type LoopComparison = {
+  reobservationId: string
+  interventionId: string | null
+  before: LoopSide
+  after: LoopSide
+  matchClassification: string
+  observedChange: string
+  outcome: string
+  causalAttribution: "UNKNOWN"
+  measurementStatus: string
+  displayCopy: string
+  comparabilityExplanation: string
+}
+
+export type IssueLoop = {
+  issue: { claimId: string; observationId: string; verdict: string | null; state: string }
+  originalObservation: LoopSide
+  originalJudgment: { id: string; verdict: string; notes: string | null; createdAt: string } | null
+  interventions: Intervention[]
+  sourceVerification: { state: string; detail: string; linkedBindingId: string | null; linkedObservationId: string | null }
+  reobservationAttempts: Array<{ id: string; interventionId: string | null; observationId: string; createdAt: string; status: string }>
+  completedReobservations: Array<{ id: string; interventionId: string | null; observationId: string; createdAt: string; after: LoopSide }>
+  latestComparison: LoopComparison | null
+  explicitUnknowns: Array<{ subjectId: string; field: string }>
+}
+
+// Rechecks: the reobservations POST endpoint lands with the parallel API
+// track; until then calls surface the server error and the UI shows it
+// honestly instead of guessing.
+export const Rechecks = {
+  getLoop: (businessId: string, claimId: string) =>
+    api<{ loop: IssueLoop }>(`/api/businesses/${businessId}/issues/${claimId}/loop`),
+  create: (businessId: string, claimId: string, input?: { interventionId?: string | null }) =>
+    api<{ checkRun: unknown; intent: unknown }>(`/api/businesses/${businessId}/issues/${claimId}/reobservations`, {
+      method: "POST",
+      body: JSON.stringify({ interventionId: input?.interventionId ?? null }),
+    }),
+}
+
 export type VerdictCounts = { supported: number; wrong: number; partial: number; unknown: number; unreviewed: number }
 
 export type Analytics = {

@@ -1,5 +1,28 @@
 // Provider execution stays outside persistence transactions. One registry,
 // bounded typed retries, append-only evidence, and transactional success.
+//
+// Re-observation finalization: when a check run fulfills a durable
+// re-observation intent, its lineage link commits atomically inside
+// ObservationRepository.create (same transaction as the observation and
+// the SUCCEEDED marking), so a crash can never leave a completed
+// observation without its link or vice versa. The explicit finalize call
+// below is an idempotent cover for any path where observation and
+// completion committed without the link, and the sweeper at the top of
+// every runOnce deterministically recovers SUCCEEDED runs with
+// unfulfilled intents (bounded per iteration until drained).
+//
+// Exact failure windows:
+// - Crash before the create transaction commits: the check stays RUNNING
+//   with no observation and no link (pre-existing worker behavior for
+//   crashes; identical to a check that never ran).
+// - Crash after commit: observation, SUCCEEDED, and link are all durable
+//   (one transaction); the cover call and sweeper are no-ops via
+//   UNIQUE(issue_id, observation_id) + insert-or-select.
+// - Provider timeout/auth/malformed (or missing question): the run is
+//   marked FAILED, no observation is stored, no link is created, and the
+//   intent row is retained append-only for a later recheck. Failure reads
+//   as MEASUREMENT_FAILED downstream, never NO_OBSERVED_CHANGE: this
+//   worker never derives outcomes at all.
 import { Context, Effect, Layer, Redacted, Schedule } from "effect"
 import type { SqlError } from "@effect/sql/SqlError"
 import {
@@ -35,8 +58,12 @@ export const makeCheckRunnerLive = (retrySchedule: Schedule.Schedule<unknown, Pr
     const evidence = yield* ProviderAttemptEvidenceRepository
     const providers = yield* ProviderRegistry
     return { runOnce: () => Effect.gen(function*() {
+      // Deterministic recovery before claiming new work, so an unfulfilled
+      // intent from a completed run is linked even when the queue is idle.
+      // Bounded (25) per iteration; returning true keeps polling until drained.
+      const swept = yield* observations.sweepUnfulfilledReobservations(25)
       const claimed = yield* runs.claimOne()
-      if (!claimed) return false
+      if (!claimed) return swept > 0
       const log = (message: string, fields: Record<string, string | number | boolean | null> = {}) => Effect.logInfo(message).pipe(Effect.annotateLogs({
         business_id: claimed.businessId, check_run_id: claimed.id, provider: claimed.provider,
         requested_model: claimed.requestedModel, ...fields,
@@ -100,6 +127,13 @@ export const makeCheckRunnerLive = (retrySchedule: Schedule.Schedule<unknown, Pr
         surfaceIdentity: measurementContext?.surface ?? null, measurementContext, synthetic: r.synthetic,
         citations: r.citations, completeRun: true,
       })
+      // Idempotent cover: the link normally already exists (committed
+      // atomically inside create above). When no intent names this run, or
+      // the run somehow completed without one, this stores nothing and
+      // returns null. Crash/retry can never duplicate links: concurrent
+      // finalizations serialize on UNIQUE(issue_id, observation_id) and the
+      // follow-up select returns the single winner.
+      yield* observations.finalizeReobservationForCheckRun(claimed.id)
       yield* log("check succeeded", { status: "SUCCEEDED" })
       return true
     }) }

@@ -275,6 +275,205 @@ export const ReobservationRepositoryLive = Layer.effect(
 )
 
 // ---------------------------------------------------------------------------
+// Re-observation intents: durable re-check requests (linkage only)
+// ---------------------------------------------------------------------------
+// An intent names the exact QUEUED check run that will fulfill it
+// (stored at creation, never null). There is no status column: an intent
+// is fulfilled exactly when a reobservations row exists for the
+// observation collected by its check run. Failed checks leave the intent
+// row in place with no link. No signature, match, observed change,
+// outcome, or causal claim is stored here or anywhere else; those derive
+// in @ghostping/protocol at read/export time.
+export interface ReobservationIntentRow {
+  readonly id: string
+  readonly businessId: string
+  readonly issueId: string
+  readonly originalObservationId: string
+  readonly interventionId: string | null
+  readonly checkRunId: string
+  readonly createdByUserId: string
+  readonly createdAt: string
+}
+
+export class ReobservationInterventionMismatch extends Data.TaggedError("ReobservationInterventionMismatch")<{
+  readonly reason: string
+}> {}
+
+export class ReobservationOriginalObservationMismatch extends Data.TaggedError("ReobservationOriginalObservationMismatch")<{
+  readonly reason: string
+}> {}
+
+const ReobservationIntentSchema = Schema.Struct({
+  id: UuidField,
+  business_id: UuidField,
+  issue_id: UuidField,
+  original_observation_id: UuidField,
+  intervention_id: NullableUuidField,
+  check_run_id: UuidField,
+  created_by_user_id: UuidField,
+  created_at: TimestampField,
+})
+
+const decodeReobservationIntent = (r: unknown): Effect.Effect<ReobservationIntentRow, RowDecodeError> =>
+  decodeRow(ReobservationIntentSchema, "reobservation_intents", r).pipe(
+    Effect.map((d) => ({
+      id: d.id,
+      businessId: d.business_id,
+      issueId: d.issue_id,
+      originalObservationId: d.original_observation_id,
+      interventionId: d.intervention_id,
+      checkRunId: d.check_run_id,
+      createdByUserId: d.created_by_user_id,
+      createdAt: ts(d.created_at),
+    })),
+  )
+
+export class ReobservationIntentRepository extends Context.Tag("ReobservationIntentRepository")<
+  ReobservationIntentRepository,
+  {
+    /**
+     * Durable intent for one re-check. Returns null when the issue is
+     * unknown in this business (404 upstream, no existence leak). Fails
+     * with ReobservationOriginalObservationMismatch when the supplied
+     * original observation is not the issue's own observation, and with
+     * ReobservationInterventionMismatch when the intervention is not
+     * linked to the issue in this business. The database trigger re-checks
+     * the same tenancy as a backstop. Protocol V1 places no head-of-chain
+     * requirement on the cited intervention (any intervention linked to
+     * the issue may be cited; linearity is an export-time packet property),
+     * so none is enforced here.
+     */
+    readonly createIntent: (input: {
+      readonly businessId: string
+      readonly issueId: string
+      readonly originalObservationId: string
+      readonly interventionId: string | null
+      readonly checkRunId: string
+      readonly createdByUserId: string
+    }) => Effect.Effect<
+      ReobservationIntentRow | null,
+      SqlError | RowDecodeError | ReobservationInterventionMismatch | ReobservationOriginalObservationMismatch
+    >
+    readonly listByIssue: (businessId: string, issueId: string) => DbEffect<ReadonlyArray<ReobservationIntentRow>>
+    /** Intent for one check run (the worker's claim by check_run_id), or null. */
+    readonly resolveIntent: (checkRunId: string) => DbEffect<ReobservationIntentRow | null>
+  }
+>() {}
+
+export const ReobservationIntentRepositoryLive = Layer.effect(
+  ReobservationIntentRepository,
+  Effect.map(PgClient.PgClient, (sql: SqlClient.SqlClient) => ({
+    createIntent: (input) =>
+      sql.withTransaction(
+        Effect.gen(function*() {
+          const issues = (yield* sql`
+            SELECT id, observation_id FROM candidate_claims
+            WHERE id = ${input.issueId} AND business_id = ${input.businessId}`) as Array<Row>
+          const issue = issues[0]
+          if (!issue) return null
+          if (String(issue["observation_id"]) !== input.originalObservationId) {
+            return yield* Effect.fail(
+              new ReobservationOriginalObservationMismatch({
+                reason: "original observation does not belong to the issue lineage",
+              }),
+            )
+          }
+          if (input.interventionId !== null) {
+            const links = (yield* sql`
+              SELECT 1 FROM intervention_issues ii JOIN interventions i ON i.id = ii.intervention_id
+              WHERE ii.intervention_id = ${input.interventionId} AND ii.issue_id = ${input.issueId} AND i.business_id = ${input.businessId}`) as Array<unknown>
+            if (links.length === 0) {
+              return yield* Effect.fail(
+                new ReobservationInterventionMismatch({ reason: "intervention is not linked to the issue" }),
+              )
+            }
+          }
+          const rows = (yield* sql`
+            INSERT INTO reobservation_intents (business_id, issue_id, original_observation_id, intervention_id, check_run_id, created_by_user_id)
+            VALUES (${input.businessId}, ${input.issueId}, ${input.originalObservationId}, ${input.interventionId}, ${input.checkRunId}, ${input.createdByUserId})
+            RETURNING *`) as Array<unknown>
+          return yield* decodeReobservationIntent(rows[0])
+        }),
+      ),
+    listByIssue: (businessId, issueId) =>
+      sql`SELECT * FROM reobservation_intents WHERE business_id = ${businessId} AND issue_id = ${issueId} ORDER BY created_at, id`.pipe(
+        Effect.flatMap((rows) => Effect.forEach(rows as Array<unknown>, decodeReobservationIntent)),
+      ),
+    resolveIntent: (checkRunId) =>
+      sql`SELECT * FROM reobservation_intents WHERE check_run_id = ${checkRunId}`.pipe(
+        Effect.flatMap((rows) => {
+          const r = (rows as Array<unknown>)[0]
+          if (!r) return Effect.succeed(null as ReobservationIntentRow | null)
+          return decodeReobservationIntent(r)
+        }),
+      ),
+  })),
+)
+
+/**
+ * Idempotent link finalization for one check run. Inserts the
+ * reobservations row for the intent's issue exactly when the check
+ * SUCCEEDED and its observation exists; otherwise stores nothing and
+ * returns null. Failed checks (FAILED status, missing question, provider
+ * timeout/auth/malformed) never produce rows, and intents are append-only
+ * so the unfulfilled intent stays readable. Concurrent completions
+ * serialize on UNIQUE(issue_id, observation_id): exactly one row survives
+ * and the follow-up select returns the winner either way.
+ */
+export const finalizeReobservationLinkForCheckRun = (
+  sql: SqlClient.SqlClient,
+  checkRunId: string,
+): Effect.Effect<ReobservationRow | null, SqlError | RowDecodeError> =>
+  Effect.gen(function*() {
+    const inserted = (yield* sql`
+      INSERT INTO reobservations (business_id, original_observation_id, issue_id, intervention_id, observation_id)
+      SELECT i.business_id, i.original_observation_id, i.issue_id, i.intervention_id, o.id
+      FROM reobservation_intents i
+      JOIN check_runs cr ON cr.id = i.check_run_id AND cr.business_id = i.business_id
+      JOIN observations o ON o.check_run_id = i.check_run_id AND o.business_id = i.business_id
+      WHERE i.check_run_id = ${checkRunId} AND cr.status = 'SUCCEEDED'
+      ON CONFLICT (issue_id, observation_id) DO NOTHING
+      RETURNING *`) as Array<unknown>
+    if (inserted[0]) return yield* decodeReobservation(inserted[0])
+    const existing = (yield* sql`
+      SELECT r.* FROM reobservations r
+      JOIN observations o ON o.id = r.observation_id
+      JOIN reobservation_intents i ON i.issue_id = r.issue_id AND i.check_run_id = o.check_run_id
+      WHERE i.check_run_id = ${checkRunId}`) as Array<unknown>
+    if (!existing[0]) return null
+    return yield* decodeReobservation(existing[0])
+  })
+
+/**
+ * Deterministic recovery: finalize links for SUCCEEDED runs whose intents
+ * are still unfulfilled (crash between observation commit and link insert,
+ * rows written before intent finalization existed, or intents recorded
+ * directly against already-collected observations). Bounded per call; the
+ * worker runs it on every runOnce until drained. Returns how many links
+ * were (newly or already) fulfilled.
+ */
+export const sweepUnfulfilledReobservationLinks = (
+  sql: SqlClient.SqlClient,
+  limit: number,
+): Effect.Effect<number, SqlError | RowDecodeError> =>
+  Effect.gen(function*() {
+    const pending = (yield* sql`
+      SELECT i.check_run_id AS check_run_id FROM reobservation_intents i
+      JOIN check_runs cr ON cr.id = i.check_run_id AND cr.business_id = i.business_id
+      JOIN observations o ON o.check_run_id = i.check_run_id AND o.business_id = i.business_id
+      LEFT JOIN reobservations r ON r.issue_id = i.issue_id AND r.observation_id = o.id
+      WHERE cr.status = 'SUCCEEDED' AND r.id IS NULL
+      ORDER BY cr.completed_at NULLS LAST, i.created_at, i.id
+      LIMIT ${limit}`) as Array<Row>
+    let fulfilled = 0
+    for (const p of pending) {
+      const linked = yield* finalizeReobservationLinkForCheckRun(sql, String(p["check_run_id"]))
+      if (linked) fulfilled += 1
+    }
+    return fulfilled
+  })
+
+// ---------------------------------------------------------------------------
 // Complete issue lineage (tenant-scoped, one consistent snapshot)
 // ---------------------------------------------------------------------------
 export interface IssueLineage {

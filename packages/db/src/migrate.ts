@@ -7,9 +7,21 @@ import pg from "pg"
 const here = dirname(fileURLToPath(import.meta.url))
 const dir = join(here, "../migrations")
 
+// Serializes concurrent migrate() callers (parallel vitest files, parallel
+// deploy tasks). Postgres DDL guards like CREATE TABLE IF NOT EXISTS are
+// check-then-create and NOT atomic: concurrent first-migrates race on the
+// catalog (23505 pg_type_typname_nsp_index, duplicate trigger/index
+// errors) with exactly one winner. A session-level advisory lock makes the
+// whole batch mutually exclusive without retries (real failures still
+// throw). Released on unlock, or automatically if the session drops.
+// Key = first 60 bits of sha256("ghostping-db-migrations").
+const MIGRATION_ADVISORY_LOCK = "769653221042929474"
+
 export async function migrate(databaseUrl: string): Promise<void> {
   const client = new pg.Client({ connectionString: databaseUrl })
   await client.connect()
+  // Blocks until any concurrent migrate() finishes its batch.
+  await client.query(`SELECT pg_advisory_lock($1)`, [MIGRATION_ADVISORY_LOCK])
   try {
     // CITEXT is optional (may be missing in minimal images); tolerate it.
     try {
@@ -31,7 +43,11 @@ export async function migrate(databaseUrl: string): Promise<void> {
       console.log(`applied ${f}`)
     }
   } finally {
-    await client.end()
+    try {
+      await client.query(`SELECT pg_advisory_unlock($1)`, [MIGRATION_ADVISORY_LOCK])
+    } finally {
+      await client.end()
+    }
   }
 }
 

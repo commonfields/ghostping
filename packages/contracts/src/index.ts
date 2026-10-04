@@ -37,6 +37,14 @@ export const Routes = {
     method: "POST",
     path: `/api/businesses/${businessId}/issues/${claimId}/interventions`,
   }),
+  listReobservations: (businessId: string, claimId: string) => ({
+    method: "GET",
+    path: `/api/businesses/${businessId}/issues/${claimId}/reobservations`,
+  }),
+  requestReobservation: (businessId: string, claimId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/issues/${claimId}/reobservations`,
+  }),
   overview: (businessId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/overview` }),
   analytics: (businessId: string, days: number) => ({ method: "GET", path: `/api/businesses/${businessId}/analytics?days=${days}` }),
   factHistory: (businessId: string, factId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/facts/${factId}/history` }),
@@ -190,6 +198,15 @@ export const CreateInterventionRequest = Schema.Struct({
   evidenceAfterDigest: Schema.optional(Schema.NullOr(Schema.String)),
 })
 export type CreateInterventionRequest = typeof CreateInterventionRequest.Type
+
+// Durable re-check requests carry only an optional intervention link. The
+// recheck re-runs the issue's own question with its own provider and
+// requested model (resolved server-side from the issue lineage), so the
+// body has no prompt, question, provider, or model fields to substitute.
+export const CreateReobservationRequest = Schema.Struct({
+  interventionId: Schema.optional(Schema.NullOr(Schema.UUID)),
+})
+export type CreateReobservationRequest = typeof CreateReobservationRequest.Type
 
 // Route identifiers: validate before touching the repository so malformed
 // ids become 4xx, never opaque SQL errors.

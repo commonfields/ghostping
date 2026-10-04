@@ -23,6 +23,8 @@ const runCase = async (script: Array<ProviderError | ProviderObservation>, opts:
   })
   const observations = Layer.succeed(ObservationRepository, {
     getScoped: () => Effect.succeed(null), getByCheckRun: () => Effect.succeed(null),
+    finalizeReobservationForCheckRun: () => Effect.succeed(null),
+    sweepUnfulfilledReobservations: () => Effect.succeed(0),
     create: input => Effect.sync(() => {
       state.observation = input
       if (input.completeRun) state.status = "SUCCEEDED"

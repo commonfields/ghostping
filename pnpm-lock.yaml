@@ -47,6 +47,9 @@ importers:
       '@ghostping/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@ghostping/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@ghostping/representation':
         specifier: workspace:*
         version: link:../../packages/representation
