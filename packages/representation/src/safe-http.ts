@@ -71,6 +71,14 @@ export interface SafeRedirectPolicy {
   readonly maxRedirects: number
   readonly allowCrossOrigin: boolean
   readonly scopeOrigin?: string | null
+  /**
+   * Generic redirect-target guard (e.g. a path-prefix scope). Evaluated
+   * BEFORE the redirect target is fetched; a false return yields
+   * OUT_OF_SCOPE_REDIRECT without issuing the request. The fetcher owns no
+   * domain scope semantics; callers supply them (discovery passes
+   * isInScope for PAGE fetches, nothing for origin-level resources).
+   */
+  readonly isAllowedRedirect?: (url: string) => boolean
 }
 
 export interface SafeFetchOptions {
@@ -329,6 +337,9 @@ export const safeFetch = async (rawUrl: string, options: SafeFetchOptions = {}):
     maxRedirects: options.redirectPolicy?.maxRedirects ?? limits.maxRedirects,
     allowCrossOrigin: options.redirectPolicy?.allowCrossOrigin ?? true,
     scopeOrigin: options.redirectPolicy?.scopeOrigin ?? null,
+    ...(options.redirectPolicy?.isAllowedRedirect !== undefined
+      ? { isAllowedRedirect: options.redirectPolicy.isAllowedRedirect }
+      : {}),
   }
   const validators = options.validators ?? null
   const userAgent = options.userAgent
@@ -464,6 +475,15 @@ export const safeFetch = async (rawUrl: string, options: SafeFetchOptions = {}):
               ...failEvidence({ requestedUrl, current, startedAt, completedAt: now(), status, headers: res.headers, failure: "OUT_OF_SCOPE_REDIRECT", redirectChain }),
               outOfScopeRedirect: next,
             }
+          }
+        }
+        // Generic caller-supplied target guard (e.g. path-prefix scope):
+        // evaluated before the target is fetched, so a forbidden target is
+        // never requested, not merely unmatched afterwards.
+        if (redirectPolicy.isAllowedRedirect !== undefined && !redirectPolicy.isAllowedRedirect(next)) {
+          return {
+            ...failEvidence({ requestedUrl, current, startedAt, completedAt: now(), status, headers: res.headers, failure: "OUT_OF_SCOPE_REDIRECT", redirectChain }),
+            outOfScopeRedirect: next,
           }
         }
         redirects += 1

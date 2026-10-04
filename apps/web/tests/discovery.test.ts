@@ -100,10 +100,19 @@ describe("discovery candidates", () => {
 
   it("bounds its claims to what the scan reached", async () => {
     const page = await readAppFile("routes/discovery.tsx")
-    expect(page).toContain("candidate pages in this scan.")
-    expect(page).toContain("Ghostping found {latest.candidates_found} candidate pages in this scan.")
+    expect(page).toContain("in this scan.")
+    expect(page).toContain("Ghostping found {latest.candidates_found}")
+    expect(page).toContain('candidate" : "candidates"')
+    expect(page).not.toContain("candidate pages")
     expect(page).not.toContain("exhaustive")
     expect(page).not.toContain("coverage")
+  })
+
+  it("uses singular/plural candidate copy for one and many", async () => {
+    const page = await readAppFile("routes/discovery.tsx")
+    expect(page.replace(/\s+/g, " ")).toContain(
+      "Ghostping found {latest.candidates_found} {latest.candidates_found === 1 ? \"candidate\" : \"candidates\"} in this scan.",
+    )
   })
 
   it("warns and offers a rescan when truth changed since the scan", async () => {

@@ -35,7 +35,7 @@ import {
   type DiscoveryMatchWrite,
   type DiscoveryRunRow,
 } from "@ghostping/db"
-import { normalizeUrl, safeFetch, type SafeFetchEvidence } from "@ghostping/representation"
+import { normalizeUrl, safeFetch, type HttpTransport, type SafeFetchEvidence } from "@ghostping/representation"
 import {
   buildAuthoritySnapshot,
   buildFrontier,
@@ -112,6 +112,46 @@ interface CrawlCounters {
   candidates: number
 }
 
+export interface RobotsSeamFetchOpts {
+  readonly byteCeiling: number
+  readonly acceptedContentTypes: ReadonlyArray<string>
+  readonly userAgent: string
+  readonly timeoutMs: number
+}
+
+export interface RobotsSeamFetchResult {
+  readonly status: number
+  readonly headers: Readonly<Record<string, string>>
+  readonly body: Uint8Array
+  readonly finalUrl: string
+}
+
+/**
+ * Scope-bound robots fetcher adapter. Honors the caller's
+ * acceptedContentTypes (robots V1: text/plain): an explicitly incompatible
+ * type surfaces as UNSUPPORTED_CONTENT_TYPE and the caller fails closed
+ * (UNAVAILABLE), never as empty allow-all rules. A missing Content-Type
+ * retains pass-through behavior. Cross-origin redirects are never followed.
+ */
+export const makeRobotsFetcher = (scopeOrigin: string, transport?: HttpTransport): {
+  readonly fetch: (url: string, opts: RobotsSeamFetchOpts) => Promise<RobotsSeamFetchResult>
+} => ({
+  fetch: async (url, opts) => {
+    const ev = await safeFetch(url, {
+      ...(transport !== undefined ? { transport } : {}),
+      limits: { maxBytes: opts.byteCeiling, acceptedContentTypes: [...opts.acceptedContentTypes], timeoutMs: opts.timeoutMs },
+      userAgent: opts.userAgent,
+      redirectPolicy: { maxRedirects: 5, allowCrossOrigin: false, scopeOrigin },
+    })
+    if (ev.failure === "OUT_OF_SCOPE_REDIRECT") throw new Error("robots fetch failed: OUT_OF_SCOPE_REDIRECT")
+    if (ev.status === null) throw new Error(`robots fetch failed: ${ev.failure ?? "unknown"}`)
+    if (ev.failure !== null && ev.failure !== "NETWORK_ERROR") {
+      throw new Error(`robots fetch failed: ${ev.failure}`)
+    }
+    return { status: ev.status, headers: ev.headers, body: ev.body ?? new Uint8Array(0), finalUrl: ev.finalUrl }
+  },
+})
+
 export const makeDiscoveryRunnerLive = () =>
   Layer.effect(
     DiscoveryRunner,
@@ -149,35 +189,11 @@ export const makeDiscoveryRunnerLive = () =>
           return true as const
         })
 
-      // Adapter from the shared SafeHttpFetcher to the discovery robots
-      // seam. Scope-bound: cross-origin redirects are never followed as
-      // policy (OUT_OF_SCOPE_REDIRECT -> robots UNAVAILABLE, fail closed);
-      // a foreign origin must never supply this scope's crawl policy.
-      // Transport/security/size failures throw (robots UNAVAILABLE, fail
-      // closed); HTTP error statuses flow through for status handling.
-      const makeRobotsFetcher = (scopeOrigin: string) => ({
-        fetch: async (
-          url: string,
-          opts: { byteCeiling: number; acceptedContentTypes: ReadonlyArray<string>; userAgent: string; timeoutMs: number },
-        ): Promise<{ status: number; headers: Readonly<Record<string, string>>; body: Uint8Array; finalUrl: string }> => {
-          const ev = await safeFetch(url, {
-            limits: { maxBytes: opts.byteCeiling, acceptedContentTypes: null, timeoutMs: opts.timeoutMs },
-            userAgent: opts.userAgent,
-            redirectPolicy: { maxRedirects: 5, allowCrossOrigin: false, scopeOrigin },
-          })
-          if (ev.failure === "OUT_OF_SCOPE_REDIRECT") throw new Error("robots fetch failed: OUT_OF_SCOPE_REDIRECT")
-          if (ev.status === null) throw new Error(`robots fetch failed: ${ev.failure ?? "unknown"}`)
-          if (ev.failure !== null && ev.failure !== "NETWORK_ERROR") {
-            throw new Error(`robots fetch failed: ${ev.failure}`)
-          }
-          return { status: ev.status, headers: ev.headers, body: ev.body ?? new Uint8Array(0), finalUrl: ev.finalUrl }
-        },
-      })
-
       const fetchPageEvidence = (
         url: string,
         validators: { etag: string | null; last_modified: string | null } | null,
         scopeOrigin: string,
+        isAllowedRedirect?: (target: string) => boolean,
       ): Promise<SafeFetchEvidence> =>
         safeFetch(url, {
           limits: {
@@ -189,7 +205,12 @@ export const makeDiscoveryRunnerLive = () =>
           ...(validators !== null
             ? { validators: { etag: validators.etag, last_modified: validators.last_modified, origin: scopeOrigin } }
             : {}),
-          redirectPolicy: { maxRedirects: 5, allowCrossOrigin: false, scopeOrigin },
+          redirectPolicy: {
+            maxRedirects: 5,
+            allowCrossOrigin: false,
+            scopeOrigin,
+            ...(isAllowedRedirect !== undefined ? { isAllowedRedirect } : {}),
+          },
           userAgent: DISCOVERY_USER_AGENT,
         })
 
@@ -603,10 +624,15 @@ export const makeDiscoveryRunnerLive = () =>
                   })
                 const ev = yield* Effect.promise(async () => {
                   try {
+                    // Path-prefix scope applies BEFORE the redirect fetch:
+                    // a target outside the configured subtree is never
+                    // requested. Origin-level resources (robots/sitemaps)
+                    // keep origin rules; only PAGE content is prefix-gated.
                     return await fetchPageEvidence(
                       item.requestedUrl,
                       reuseAllowed && prior !== null ? { etag: prior.etag, last_modified: prior.lastModified } : null,
                       sc.canonicalOrigin,
+                      (target) => isInScope(target, frontierScope),
                     )
                   } catch {
                     return null

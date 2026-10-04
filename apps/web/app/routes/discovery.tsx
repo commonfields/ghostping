@@ -275,7 +275,7 @@ export function DiscoveryPage() {
           </CardHeader>
           <CardContent className="space-y-4 px-5 pb-5">
             <p className="text-sm text-muted-foreground">
-              Ghostping found {latest.candidates_found} candidate pages in this scan.
+              Ghostping found {latest.candidates_found} {latest.candidates_found === 1 ? "candidate" : "candidates"} in this scan.
             </p>
             {truthChanged ? (
               <Alert>
