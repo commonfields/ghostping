@@ -7,73 +7,52 @@
 [![pnpm 10.12.1](https://img.shields.io/badge/pnpm-10.12.1-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
 [![Rust stable](https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 
-> Know what AI tells customers about your company, trace important problems to evidence, correct what you control, and verify what changes afterward.
+> Find what AI gets wrong about your business, trace it to evidence, correct what you control, and verify what changes.
 
-Ghostping is an AI representation integrity system. It connects a business's approved facts to observations from AI systems and web sources, keeps human judgment separate from collected evidence, records corrective work, and verifies what changed after that work.
+Ghostping is an evidence system for AI representation integrity. It records what a business says is true, observes what AI systems and web sources say, lets people review the difference, and measures the result of corrective work.
 
-Ghostping does not turn incomplete evidence into a score or claim that one change caused another:
+It does not turn incomplete evidence into a score or claim that one change caused another:
 
 > Observation is not interpretation. Interpretation is not authority. Correlation is not causality. Unknown is not false.
 
 ## How it works
 
 ```mermaid
-flowchart TB
-    A["Approved facts<br/><small>What the business stands behind</small>"]
-    B["Buyer questions<br/><small>What customers may ask AI</small>"]
-    C["AI observations<br/><small>Answers, model identity, raw evidence</small>"]
-    D["Source observations<br/><small>Owned and tracked web representations</small>"]
-    E["Human review<br/><small>Claims, evidence, and verdicts</small>"]
-    F{"Material mismatch?"}
-    G["Issue<br/><small>A concrete problem to resolve</small>"]
-    H["Continue observing<br/><small>No forced conclusion</small>"]
-    I["Recorded intervention<br/><small>What an operator changed</small>"]
-    J["Verify source<br/><small>Re-observe the controlled surface</small>"]
-    K["Recheck AI<br/><small>Run a matched observation</small>"]
-    L["Derived outcome<br/><small>Correction, no change, or indeterminate</small>"]
+%%{init: {"flowchart": {"useMaxWidth": true, "htmlLabels": true, "curve": "basis"}}}%%
+flowchart LR
+    truth["<b>1. Truth</b><br/>Approved facts"]
+    observe["<b>2. Observe</b><br/>AI and source evidence"]
+    review["<b>3. Review</b><br/>Human judgment"]
+    correct["<b>4. Correct</b><br/>Record action"]
+    verify["<b>5. Verify</b><br/>Recheck source and AI"]
 
-    A --> B
-    A --> D
-    B --> C
-    C --> E
-    D --> E
-    E --> F
-    F -->|Yes| G
-    F -->|No or unknown| H
-    G --> I
-    I --> J
-    J --> K
-    K --> L
-    L -. Next observation cycle .-> B
+    truth --> observe --> review
+    review -->|Issue found| correct --> verify
+    review -. No issue or unknown .-> observe
+    verify -. Re-observe .-> observe
 
-    classDef authority fill:#DCFCE7,stroke:#15803D,color:#14532D,stroke-width:2px;
+    classDef truth fill:#DCFCE7,stroke:#15803D,color:#14532D,stroke-width:2px;
     classDef observe fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A,stroke-width:2px;
     classDef review fill:#FEF3C7,stroke:#D97706,color:#78350F,stroke-width:2px;
-    classDef action fill:#FCE7F3,stroke:#DB2777,color:#831843,stroke-width:2px;
+    classDef correct fill:#FCE7F3,stroke:#DB2777,color:#831843,stroke-width:2px;
     classDef verify fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95,stroke-width:2px;
-    classDef decision fill:#FFEDD5,stroke:#EA580C,color:#7C2D12,stroke-width:2px;
 
-    class A authority;
-    class B,C,D observe;
-    class E,H review;
-    class F decision;
-    class G,I action;
-    class J,K,L verify;
+    class truth truth;
+    class observe observe;
+    class review review;
+    class correct correct;
+    class verify verify;
     linkStyle default stroke:#64748B,stroke-width:2px;
 ```
 
-The colors describe responsibility in the loop: green is authoritative business truth, blue is machine observation, amber is human review, orange is a decision boundary, pink is operator action, and purple is verification. Every important transition is persisted in PostgreSQL, and before/after outcomes are derived from evidence rather than manually asserted.
+The diagram scales to the available width and keeps each responsibility distinct: business truth, machine observation, human review, operator action, and verification. Ghostping stores the evidence behind every stage in PostgreSQL and derives outcomes as `OBSERVED_CORRECTION`, `NO_OBSERVED_CHANGE`, or `INDETERMINATE`.
 
-## What Ghostping provides
+### Design rules
 
-- **Truth management:** versioned, approved facts that record what a business currently stands behind.
-- **AI checks:** buyer questions run through a deterministic offline mock provider or an explicitly enabled, pinned 9Router model.
-- **Evidence review:** raw observations, candidate claims, citations, and human judgments remain distinct.
-- **Issue workflow:** contradictions and partial answers become traceable issues instead of aggregate scores.
-- **Representation tracking:** known web sources can be observed and compared with authoritative facts.
-- **Owned-site discovery:** bounded, robots-aware scans find pages that may repeat current or historical fact values.
-- **Intervention verification:** operators record manual corrections, verify the source, recheck AI, and inspect a derived outcome.
-- **Tenant isolation:** hosted data and reads are scoped to the authenticated account; resources outside that scope are not exposed.
+- **Evidence over scores.** Ghostping shows concrete observations and issues, not an opaque accuracy or visibility score.
+- **Unknown stays unknown.** Missing, failed, or ambiguous evidence is never treated as false.
+- **People make judgments.** Machines collect observations; reviewers decide what those observations mean.
+- **Verification is not causation.** A before-and-after change can be recorded without claiming what caused it.
 
 ## Hosted quick start
 
@@ -99,7 +78,7 @@ export DATABASE_URL="postgres://localhost:5432/ghostping"
 pnpm db:migrate
 ```
 
-Optional: load the Northstar demonstration business.
+Optional: load five deterministic product-surface demo businesses.
 
 ```bash
 pnpm db:seed
@@ -120,7 +99,7 @@ pnpm --filter @ghostping/worker dev
 pnpm --filter @ghostping/web dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), create an account and business, then add approved facts and run a check. The default `mock` provider is deterministic, offline, and requires no credentials.
+Open [http://localhost:3000](http://localhost:3000), create an account and business, add approved facts, and run a check. The default `mock` provider is deterministic, offline, and requires no credentials.
 
 ## Configuration
 
@@ -146,14 +125,10 @@ Live provider calls may cost money and send prompts to an external service. Enab
 | [`apps/web`](apps/web) | React 19, Vite, Tailwind CSS, and Radix UI workspace for overview, issues, representations, truth, and checks. |
 | [`apps/api`](apps/api) | Effect HTTP API with server-side sessions, request validation, and account-scoped repositories. |
 | [`apps/worker`](apps/worker) | Two independent, bounded Effect loops for AI check runs and owned-site discovery. |
-| [`packages/domain`](packages/domain) | Canonical domain types and validation rules. |
-| [`packages/contracts`](packages/contracts) | Shared API request and response contracts. |
 | [`packages/db`](packages/db) | PostgreSQL migrations and Effect repositories; the only hosted persistence layer. |
-| [`packages/protocol`](packages/protocol) | Evidence packet schemas, canonical serialization, digests, fixtures, and outcome derivation. |
-| [`packages/providers`](packages/providers) | Offline mock and fail-closed 9Router provider adapters. |
-| [`packages/representation`](packages/representation) | Safe HTTP collection, extraction, and deterministic source comparison. |
-| [`packages/discovery`](packages/discovery) | Robots and sitemap-aware crawling, bounded frontier processing, and candidate matching. |
-| [`packages/truth`](packages/truth) | Authority manifests and deterministic truth projection tools. |
+| [`packages/domain`](packages/domain), [`packages/contracts`](packages/contracts), [`packages/protocol`](packages/protocol) | Canonical domain rules, API contracts, evidence schemas, digests, fixtures, and outcome derivation. |
+| [`packages/providers`](packages/providers), [`packages/representation`](packages/representation), [`packages/discovery`](packages/discovery) | Provider adapters, safe source collection, deterministic comparison, and bounded discovery. |
+| [`packages/truth`](packages/truth) | Authority manifests and deterministic truth projection. |
 
 The hosted stack uses 15 ordered PostgreSQL migrations. Evidence and workflow records are append-oriented where history matters; derived views can be recomputed from their source records. The worker contains failures within each loop so a discovery failure does not stop queued AI checks, or vice versa.
 
@@ -161,10 +136,9 @@ The hosted stack uses 15 ordered PostgreSQL migrations. Evidence and workflow re
 
 - Authentication uses server-side sessions and `HttpOnly`, `SameSite=Lax` cookies.
 - Authorization is enforced in account-scoped server repositories, not inferred from client state.
-- Provider credentials are read as redacted configuration and are not part of stored evidence.
+- Provider credentials are loaded as redacted configuration and are never stored as evidence.
 - Live provider access is disabled by default and requires an explicit model pin.
 - Source collection is bounded and validated; discovery does not recursively crawl without limits.
-- Missing, failed, or ambiguous observations remain `UNKNOWN`; they are never converted into false claims.
 - A recorded intervention proves that work was recorded, not that it was deployed, indexed, retrieved, or responsible for a later AI answer.
 
 ## Local CLI and desktop app
