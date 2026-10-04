@@ -60,6 +60,11 @@ FOR EACH ROW EXECUTE FUNCTION check_reobservation_intent_measurement_identity();
 
 CREATE OR REPLACE FUNCTION check_reobservation_intent_single_active() RETURNS trigger AS $$
 BEGIN
+  -- Serialize attempts for the same issue: lock the parent claim row first
+  -- so two concurrent transactions cannot both observe "no active attempt".
+  -- Different issues lock different rows and stay concurrent. The lock is
+  -- held until this transaction commits or rolls back.
+  PERFORM 1 FROM candidate_claims WHERE id = NEW.issue_id FOR UPDATE;
   IF EXISTS (
     SELECT 1 FROM reobservation_intents i
     JOIN check_runs cr ON cr.id = i.check_run_id

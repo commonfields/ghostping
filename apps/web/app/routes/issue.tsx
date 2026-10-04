@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { EmptyState, PageHeader } from "@/components/page"
 import { Spinner } from "@/components/spinner"
 import { ControlBadge, IssueStateBadge, RepresentationStateBadge } from "@/components/status"
-import { Interventions, Issues, Rechecks, type CitationEvidence, type Intervention, type IssueLoop } from "@/lib/api"
+import { Interventions, Issues, Rechecks, Sources, type CitationEvidence, type Intervention, type IssueLoop } from "@/lib/api"
 import { errorMessage, formatDateTime, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
 
@@ -462,7 +462,80 @@ function IssueLoopSection({ businessId, claimId }: { businessId: string; claimId
           </p>
         </CardContent>
       </Card>
+
+      <VerifySourceCard
+        businessId={businessId}
+        bindingId={loop?.sourceVerification.bindingId ?? null}
+        onChecked={() => void reload()}
+      />
     </>
+  )
+}
+
+function VerifySourceCard({ businessId, bindingId, onChecked }: { businessId: string; bindingId: string | null; onChecked: () => void }) {
+  const [checking, setChecking] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+  const [checkError, setCheckError] = useState<string | null>(null)
+  if (bindingId === null) {
+    return (
+      <Card className="shadow-(--float-shadow)">
+        <CardHeader>
+          <CardTitle>Verify source</CardTitle>
+          <CardDescription>
+            This action is not linked to a tracked representation, so Ghostping cannot verify the source automatically.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    )
+  }
+  return (
+    <Card className="shadow-(--float-shadow)">
+      <CardHeader>
+        <CardTitle>Verify source</CardTitle>
+        <CardDescription>
+          Fetch the linked tracked representation again using the same safe collector. The new observation is preserved;
+          nothing is rewritten.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {result ? <p className="text-sm text-muted-foreground">{result}</p> : null}
+        {checkError ? (
+          <Alert variant="destructive">
+            <TriangleAlertIcon />
+            <AlertTitle className="font-normal">{checkError}</AlertTitle>
+          </Alert>
+        ) : null}
+        <div className="flex items-center justify-end gap-3">
+          {checking ? <p className="text-sm text-muted-foreground">Checking source…</p> : null}
+          <Button
+            size="sm"
+            disabled={checking}
+            onClick={() => {
+              setChecking(true)
+              setCheckError(null)
+              setResult(null)
+              Sources.check(businessId, bindingId)
+                .then((r) => {
+                  const state = r.finding.state
+                  setResult(
+                    state === "IN_SYNC"
+                      ? "Source check finished: the observed value matches the approved value."
+                      : state === "DRIFT"
+                        ? "Source check finished: the observed value differs from the approved value."
+                        : "Source check finished: the observation could not be compared.",
+                  )
+                  onChecked()
+                })
+                .catch((err: unknown) => setCheckError(errorMessage(err)))
+                .finally(() => setChecking(false))
+            }}
+          >
+            {checking ? <Spinner /> : null}
+            Verify source
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

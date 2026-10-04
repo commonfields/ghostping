@@ -11,6 +11,7 @@ import {
   CheckRunRepository,
   EvidenceLineageRepository,
   FactRepository,
+  InterventionBindingRepository,
   ObservationRepository,
   ProductReadRepository,
   ReobservationIntentRepository,
@@ -130,8 +131,10 @@ const baseArgs = () => ({
   interventions: [] as InterventionRow[],
   reobservations: [] as ReobservationRow[],
   afterObservations: new Map<string, LoopObservationInput>(),
+  relations: [],
   sourceBindings: [],
   sourceObservations: [],
+  sourceValues: [],
   intents: [],
   checkRuns: new Map(),
   runObservations: new Map(),
@@ -231,120 +234,218 @@ describe("UNKNOWN preservation", () => {
 
   it("source verification is states, never a manual boolean", () => {
     const loop = buildIssueLoop({ ...baseArgs(), interventions: [intervention("01")] })
-    expect(Object.keys(loop.sourceVerification).sort()).toEqual(["afterObservationId", "alignment", "beforeObservationId", "bindingId", "change", "detail"])
+    expect(Object.keys(loop.sourceVerification).sort()).toEqual(["afterObservationId", "afterValue", "alignment", "beforeObservationId", "beforeValue", "bindingId", "change", "detail", "documentChanged"])
     expect(typeof loop.sourceVerification.change).toBe("string")
     expect(JSON.stringify(loop.sourceVerification)).not.toMatch(/fixed|resolved|success/i)
   })
 })
 
-describe("deriveSourceVerification: alignment is not change", () => {
+describe("deriveSourceVerification: value change on explicit bindings", () => {
   // Intervention performed 2026-10-02; before < performed <= after.
-  const binding = (findingState: string, bindingId = "b-linked", targetId = "t-1") => ({ bindingId, targetId, findingState })
-  const srcObs = (id: string, completedAt: string, digest: string | null, collectionState = "FETCHED") => ({
+  // Approved value is $59 throughout (alignment reuses the finding).
+  const binding = (findingState: string, bindingId = "b-linked", targetId = "t-1", comparator = "MONEY") => ({
+    bindingId, targetId, findingState, comparator,
+  })
+  const srcObs = (id: string, completedAt: string, digest: string | null, collectionState = "FETCHED", targetId = "t-1") => ({
     id,
-    targetId: "t-1",
+    targetId,
     collectionState,
     failure: collectionState === "FAILED" ? "TIMEOUT" : null,
     completedAt,
     bodyDigest: digest,
   })
+  const val = (bindingId: string, observationId: string, extractedValue: string | null, extractionState = "OBSERVED") => ({
+    bindingId, observationId, extractedValue, extractionState,
+  })
+  const rel = (bindingId = "b-linked", before: string | null = "o-before") => ({
+    interventionId: "c0000000-0000-4000-8000-000000000001",
+    sourceBindingId: bindingId,
+    beforeSourceObservationId: before,
+  })
   const interventions = [intervention("01")]
   const BEFORE = "2026-10-01T12:00:00.000Z"
   const AFTER = "2026-10-03T12:00:00.000Z"
-
-  it("A. DRIFT before, IN_SYNC after with different digests: CHANGED and IN_SYNC", () => {
-    const v = deriveSourceVerification({
-      interventions,
-      bindings: [binding("IN_SYNC")],
-      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d2")],
-    })
-    expect(v).toMatchObject({ bindingId: "b-linked", alignment: "IN_SYNC", change: "SOURCE_CHANGED", beforeObservationId: "o-before", afterObservationId: "o-after" })
+  const args = (overrides: {
+    relations?: ReturnType<typeof rel>[]
+    bindings?: ReturnType<typeof binding>[]
+    observations?: ReturnType<typeof srcObs>[]
+    values?: ReturnType<typeof val>[]
+  }) => ({
+    interventions,
+    relations: overrides.relations ?? [rel()],
+    bindings: overrides.bindings ?? [binding("IN_SYNC")],
+    observations: overrides.observations ?? [],
+    values: overrides.values ?? [],
   })
 
-  it("B. DRIFT before and after with equal digests: UNCHANGED and DRIFT", () => {
-    const v = deriveSourceVerification({
-      interventions,
+  it("1. before $49, after $59: CHANGED and IN_SYNC", () => {
+    const v = deriveSourceVerification(args({
+      bindings: [binding("IN_SYNC")],
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d2")],
+      values: [val("b-linked", "o-before", "49 USD"), val("b-linked", "o-after", "59 USD")],
+    }))
+    expect(v).toMatchObject({
+      bindingId: "b-linked", alignment: "IN_SYNC", change: "SOURCE_CHANGED",
+      beforeObservationId: "o-before", afterObservationId: "o-after",
+      beforeValue: "49 USD", afterValue: "59 USD",
+    })
+  })
+
+  it("2. before $49, after $39: CHANGED and DRIFT", () => {
+    const v = deriveSourceVerification(args({
+      bindings: [binding("DRIFT")],
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d3")],
+      values: [val("b-linked", "o-before", "49 USD"), val("b-linked", "o-after", "39 USD")],
+    }))
+    expect(v).toMatchObject({ alignment: "DRIFT", change: "SOURCE_CHANGED" })
+  })
+
+  it("3. before $49, after $49: UNCHANGED and DRIFT", () => {
+    const v = deriveSourceVerification(args({
       bindings: [binding("DRIFT")],
       observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d1")],
-    })
+      values: [val("b-linked", "o-before", "49 USD"), val("b-linked", "o-after", "49 USD")],
+    }))
     expect(v).toMatchObject({ alignment: "DRIFT", change: "SOURCE_UNCHANGED" })
   })
 
-  it("C. IN_SYNC before and after: UNCHANGED and IN_SYNC", () => {
-    const v = deriveSourceVerification({
-      interventions,
+  it("4. before $59, after $59: UNCHANGED and IN_SYNC", () => {
+    const v = deriveSourceVerification(args({
       bindings: [binding("IN_SYNC")],
       observations: [srcObs("o-before", BEFORE, "d2"), srcObs("o-after", AFTER, "d2")],
-    })
+      values: [val("b-linked", "o-before", "59 USD"), val("b-linked", "o-after", "59 USD")],
+    }))
     expect(v).toMatchObject({ alignment: "IN_SYNC", change: "SOURCE_UNCHANGED" })
   })
 
-  it("changed-but-still-wrong source counts as CHANGED, never as correction", () => {
-    const v = deriveSourceVerification({
-      interventions,
+  it("5. page bytes change but bound value stays $49: UNCHANGED", () => {
+    const v = deriveSourceVerification(args({
       bindings: [binding("DRIFT")],
-      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d3")],
-    })
-    expect(v.change).toBe("SOURCE_CHANGED")
-    expect(v.alignment).toBe("DRIFT")
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d9-different-bytes")],
+      values: [val("b-linked", "o-before", "49 USD"), val("b-linked", "o-after", "49 USD")],
+    }))
+    expect(v.change).toBe("SOURCE_UNCHANGED")
+    expect(v.documentChanged).toBe(true)
   })
 
-  it("D. no before observation: SOURCE_UNKNOWN", () => {
-    const v = deriveSourceVerification({
-      interventions,
+  it("6. 304 reuse resolves the carried value: UNCHANGED", () => {
+    const v = deriveSourceVerification(args({
+      bindings: [binding("DRIFT")],
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d1", "NOT_MODIFIED")],
+      values: [val("b-linked", "o-before", "49 USD")],
+    }))
+    expect(v).toMatchObject({ change: "SOURCE_UNCHANGED", afterValue: "49 USD" })
+  })
+
+  it("MONEY follows canonicalizer, not strings: $49.00 equals $49", () => {
+    const v = deriveSourceVerification(args({
+      bindings: [binding("DRIFT")],
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d2")],
+      values: [val("b-linked", "o-before", "49 USD"), val("b-linked", "o-after", "$49.00")],
+    }))
+    expect(v.change).toBe("SOURCE_UNCHANGED")
+  })
+
+  it("BOOLEAN and TEXT follow their comparator semantics", () => {
+    const bool = deriveSourceVerification(args({
+      bindings: [binding("DRIFT", "b-linked", "t-1", "BOOLEAN")],
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d2")],
+      values: [val("b-linked", "o-before", "no"), val("b-linked", "o-after", "false")],
+    }))
+    expect(bool.change).toBe("SOURCE_UNCHANGED")
+    const textSame = deriveSourceVerification(args({
+      bindings: [binding("DRIFT", "b-linked", "t-1", "EXACT_TEXT")],
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d2")],
+      values: [val("b-linked", "o-before", "24 hours"), val("b-linked", "o-after", "24 hours")],
+    }))
+    expect(textSame.change).toBe("SOURCE_UNCHANGED")
+    const textDiff = deriveSourceVerification(args({
+      bindings: [binding("DRIFT", "b-linked", "t-1", "EXACT_TEXT")],
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d2")],
+      values: [val("b-linked", "o-before", "24 hours"), val("b-linked", "o-after", "48 hours")],
+    }))
+    expect(textDiff.change).toBe("SOURCE_CHANGED")
+  })
+
+  it("7. before missing: UNKNOWN", () => {
+    const v = deriveSourceVerification(args({
       bindings: [binding("DRIFT")],
       observations: [srcObs("o-after", AFTER, "d2")],
-    })
+      values: [val("b-linked", "o-after", "59 USD")],
+    }))
     expect(v.change).toBe("SOURCE_UNKNOWN")
   })
 
-  it("E. no after observation: SOURCE_NOT_CHECKED", () => {
-    const v = deriveSourceVerification({
-      interventions,
+  it("8. after not checked: NOT_CHECKED", () => {
+    const v = deriveSourceVerification(args({
       bindings: [binding("DRIFT")],
       observations: [srcObs("o-before", BEFORE, "d1")],
-    })
+      values: [val("b-linked", "o-before", "49 USD")],
+    }))
     expect(v).toMatchObject({ change: "SOURCE_NOT_CHECKED", beforeObservationId: "o-before", afterObservationId: null })
   })
 
-  it("F. failed post-intervention fetch: SOURCE_OBSERVATION_FAILED, never unchanged", () => {
-    const v = deriveSourceVerification({
-      interventions,
+  it("9. after fetch failure: OBSERVATION_FAILED, never unchanged", () => {
+    const v = deriveSourceVerification(args({
       bindings: [binding("UNKNOWN")],
-      observations: [
-        srcObs("o-before", BEFORE, "d1"),
-        { ...srcObs("o-failed", AFTER, null, "FAILED"), bodyDigest: null },
-      ],
-    })
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-failed", AFTER, null, "FAILED")],
+      values: [val("b-linked", "o-before", "49 USD")],
+    }))
     expect(v).toMatchObject({ change: "SOURCE_OBSERVATION_FAILED", afterObservationId: "o-failed" })
   })
 
-  it("G. untracked target: SOURCE_UNKNOWN with no binding", () => {
-    const v = deriveSourceVerification({ interventions, bindings: [], observations: [] })
-    expect(v).toMatchObject({ change: "SOURCE_UNKNOWN", bindingId: null })
-  })
-
-  it("H. observations on another binding never decide this binding", () => {
-    const v = deriveSourceVerification({
-      interventions,
-      bindings: [binding("DRIFT", "b-a", "t-a")],
-      observations: [{ ...srcObs("o-other", AFTER, "d9"), targetId: "t-b" }],
-    })
+  it("10. after extraction fails: UNKNOWN", () => {
+    const v = deriveSourceVerification(args({
+      bindings: [binding("DRIFT")],
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d2")],
+      values: [val("b-linked", "o-before", "49 USD"), val("b-linked", "o-after", null, "FAILED")],
+    }))
     expect(v.change).toBe("SOURCE_UNKNOWN")
   })
 
-  it("missing digests refuse the comparison instead of guessing", () => {
-    const v = deriveSourceVerification({
-      interventions,
+  it("11. evidence on another binding alone never decides this binding", () => {
+    const v = deriveSourceVerification(args({
+      relations: [rel("b-a", "o-a-before")],
+      bindings: [binding("DRIFT", "b-a", "t-a")],
+      observations: [{ ...srcObs("o-b-after", AFTER, "d9"), targetId: "t-b" }],
+      values: [{ ...val("b-b", "o-b-after", "59 USD"), bindingId: "b-b" }],
+    }))
+    expect(v.change).toBe("SOURCE_UNKNOWN")
+  })
+
+  it("before without any after reads NOT_CHECKED, not unknown", () => {
+    const v = deriveSourceVerification(args({
+      relations: [rel("b-a", "o-a-before")],
+      bindings: [binding("DRIFT", "b-a", "t-a")],
+      observations: [{ ...srcObs("o-a-before", BEFORE, "d1"), targetId: "t-a" }],
+      values: [val("b-a", "o-a-before", "49 USD")],
+    }))
+    expect(v).toMatchObject({ change: "SOURCE_NOT_CHECKED", beforeObservationId: "o-a-before" })
+  })
+
+  it("12. matching digests without a relation cannot nominate a binding", () => {
+    const v = deriveSourceVerification(args({
+      relations: [],
       bindings: [binding("DRIFT")],
-      observations: [srcObs("o-before", BEFORE, null), srcObs("o-after", AFTER, "d2")],
-    })
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d2")],
+      values: [val("b-linked", "o-before", "49 USD"), val("b-linked", "o-after", "59 USD")],
+    }))
+    expect(v).toMatchObject({ change: "SOURCE_UNKNOWN", bindingId: null })
+  })
+
+  it("13. historical intervention without a relation stays UNKNOWN", () => {
+    const v = deriveSourceVerification(args({
+      relations: [],
+      bindings: [],
+      observations: [],
+      values: [],
+    }))
     expect(v.change).toBe("SOURCE_UNKNOWN")
   })
 
   it("disagreeing bindings stay UNKNOWN rather than picking a winner", () => {
-    const v = deriveSourceVerification({
-      interventions,
+    const v = deriveSourceVerification(args({
+      relations: [rel("b-a", "o-a-before"), rel("b-b", "o-b-before")],
       bindings: [binding("IN_SYNC", "b-a", "t-a"), binding("DRIFT", "b-b", "t-b")],
       observations: [
         { ...srcObs("o-a-before", BEFORE, "d1"), targetId: "t-a" },
@@ -352,7 +453,13 @@ describe("deriveSourceVerification: alignment is not change", () => {
         { ...srcObs("o-b-before", BEFORE, "d9"), targetId: "t-b" },
         { ...srcObs("o-b-after", AFTER, "d9"), targetId: "t-b" },
       ],
-    })
+      values: [
+        val("b-a", "o-a-before", "49 USD"),
+        val("b-a", "o-a-after", "59 USD"),
+        val("b-b", "o-b-before", "49 USD"),
+        val("b-b", "o-b-after", "49 USD"),
+      ],
+    }))
     expect(v.change).toBe("SOURCE_UNKNOWN")
     expect(v.bindingId).toBeNull()
   })
@@ -694,7 +801,12 @@ describe("issue loop tenancy", () => {
     sweepUnfulfilledReobservations: () => Effect.succeed(0),
   })
 
-  const env = Layer.mergeAll(BusinessStub, LineageStub, ReadsStub, FactStub, IntentStub, CheckStub, ObsStub)
+  const BindingStub = Layer.succeed(InterventionBindingRepository, {
+    linkInterventionBinding: () => Effect.dieMessage("unused"),
+    listByIssue: () => Effect.succeed([]),
+  })
+
+  const env = Layer.mergeAll(BusinessStub, LineageStub, ReadsStub, FactStub, IntentStub, CheckStub, ObsStub, BindingStub)
 
   it("loads the loop for the owning account", async () => {
     const loop = await Effect.runPromise(loadIssueLoop("acct-a", BIZ, CLAIM).pipe(Effect.provide(env)))

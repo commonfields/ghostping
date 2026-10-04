@@ -68,6 +68,15 @@ describe("recheck AI action", () => {
     expect(page).not.toContain("attempts.filter((a) => a.status")
   })
 
+  it("offers source verification only for linked bindings, honestly otherwise", () => {
+    const page = issuePage()
+    for (const copy of ["Verify source", "Checking source…", "Sources.check", "not linked to a tracked representation"]) {
+      expect(page, `missing copy: ${copy}`).toContain(copy)
+    }
+    expect(page).toContain("The new observation is preserved")
+    expect(page).not.toContain("auto-bind")
+  })
+
   it("marks superseded actions so rechecks link the current head", () => {
     const page = issuePage()
     expect(page).toContain("interventionHeadIds")

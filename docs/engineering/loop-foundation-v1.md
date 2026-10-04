@@ -63,6 +63,14 @@ export validates its own output fail-closed.
   canonical product read model.
 - Recheck UI lists every intervention for history but marks superseded rows
   so new evidence links the current head.
+- Single-active attempts serialize on the parent claim row (SELECT FOR UPDATE
+  in the trigger); concurrent same-issue requests yield exactly one commit.
+- Intervention→binding relations are explicit server-validated rows (never
+  digest/URL inference); before-evidence is captured at record time.
+- Change derives from bound ObservedSourceValue via existing comparators
+  (MONEY/BOOLEAN/EXACT_TEXT); page bytes alone never decide.
+- Long-lived databases converge via additive migration (composite reobservation
+  identity; obsolete columns/constraints dropped where present).
 
 ## Comparability and UNKNOWN
 

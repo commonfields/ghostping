@@ -214,6 +214,76 @@ export const InterventionRepositoryLive = Layer.effect(
 )
 
 // ---------------------------------------------------------------------------
+// Intervention→source-binding links (explicit linkage; lineage only)
+// ---------------------------------------------------------------------------
+// Design note: this is a separate Tag rather than an extension of
+// InterventionRepository so that InterventionRepository.append stays
+// untouched (same signature, same single-transaction intervention +
+// intervention_issues write). The API persists the link sequentially after
+// the append (FK ordering forces append-first); a link that fails its
+// trigger check leaves the intervention as an unlinked action (UNKNOWN
+// downstream), never a rewritten row. Historical interventions without
+// rows read as unlinked and are never backfilled.
+export interface InterventionBindingRow {
+  readonly interventionId: string
+  readonly businessId: string
+  readonly sourceBindingId: string
+  readonly beforeSourceObservationId: string | null
+}
+
+export type LinkInterventionBindingInput = InterventionBindingRow
+
+const InterventionBindingSchema = Schema.Struct({
+  intervention_id: UuidField,
+  business_id: UuidField,
+  source_binding_id: UuidField,
+  before_source_observation_id: NullableUuidField,
+})
+
+const decodeInterventionBinding = (r: unknown): Effect.Effect<InterventionBindingRow, RowDecodeError> =>
+  decodeRow(InterventionBindingSchema, "intervention_source_bindings", r).pipe(
+    Effect.map((d) => ({
+      interventionId: d.intervention_id,
+      businessId: d.business_id,
+      sourceBindingId: d.source_binding_id,
+      beforeSourceObservationId: d.before_source_observation_id,
+    })),
+  )
+
+export class InterventionBindingRepository extends Context.Tag("InterventionBindingRepository")<
+  InterventionBindingRepository,
+  {
+    /** Append-only. The database rejects cross-business bindings,
+     * observations on another target, and failed-collection observations. */
+    readonly linkInterventionBinding: (input: LinkInterventionBindingInput) => DbEffect<InterventionBindingRow>
+    /** Links for interventions recorded on one issue (tenant-scoped join).
+     * Interventions without rows are absent (unlinked, UNKNOWN downstream). */
+    readonly listByIssue: (businessId: string, issueId: string) => DbEffect<ReadonlyArray<InterventionBindingRow>>
+  }
+>() {}
+
+export const InterventionBindingRepositoryLive = Layer.effect(
+  InterventionBindingRepository,
+  Effect.map(PgClient.PgClient, (sql: SqlClient.SqlClient) => ({
+    linkInterventionBinding: (input) =>
+      sql`
+        INSERT INTO intervention_source_bindings (intervention_id, business_id, source_binding_id, before_source_observation_id)
+        VALUES (${input.interventionId}, ${input.businessId}, ${input.sourceBindingId}, ${input.beforeSourceObservationId})
+        RETURNING intervention_id, business_id, source_binding_id, before_source_observation_id`.pipe(
+        Effect.flatMap((rows) => decodeInterventionBinding((rows as Array<unknown>)[0])),
+      ),
+    listByIssue: (businessId, issueId) =>
+      sql`
+        SELECT b.intervention_id, b.business_id, b.source_binding_id, b.before_source_observation_id
+        FROM intervention_source_bindings b JOIN intervention_issues ii ON ii.intervention_id = b.intervention_id
+        WHERE b.business_id = ${businessId} AND ii.issue_id = ${issueId}
+        ORDER BY b.created_at, b.intervention_id, b.source_binding_id`.pipe(
+        Effect.flatMap((rows) => Effect.forEach(rows as Array<unknown>, decodeInterventionBinding)),
+      ),
+  })),
+)
+
+// ---------------------------------------------------------------------------
 // Re-observation links (pure lineage; comparison is derived at export)
 // ---------------------------------------------------------------------------
 export interface ReobservationRow {
@@ -477,8 +547,17 @@ export const ReobservationIntentRepositoryLive = Layer.effect(
         }).pipe(
           // Trigger backstops (measurement identity, single-active race):
           // map marker text to the same typed errors the pre-checks raise.
+          // Trigger violations arrive nested in the driver error cause, so
+          // walk the chain instead of reading only the top message.
           Effect.catchAll((e): Effect.Effect<never, SqlError | ReobservationInterventionMismatch | ReobservationOriginalObservationMismatch | ReobservationAlreadyActive> => {
-            const msg = String((e as { message?: unknown }).message ?? e)
+            const messages: Array<string> = []
+            let cur: unknown = e
+            for (let depth = 0; depth < 4 && cur !== null && typeof cur === "object"; depth++) {
+              const msg = (cur as { message?: unknown }).message
+              if (typeof msg === "string") messages.push(msg)
+              cur = (cur as { cause?: unknown }).cause
+            }
+            const msg = messages.join(" | ")
             if (msg.includes("already has an active re-observation")) {
               return Effect.fail(new ReobservationAlreadyActive({ issueId: input.issueId }))
             }

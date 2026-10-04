@@ -426,6 +426,15 @@ export const Rechecks = {
     }),
 }
 
+export const Sources = {
+  check: (businessId: string, bindingId: string) =>
+    api<{
+      observation: { id: string; collection_state: string; failure: string | null }
+      values: Array<{ id: string; extraction_state: string }>
+      finding: { state: string; reason: string }
+    }>(`/api/businesses/${businessId}/representations/${bindingId}/check`, { method: "POST" }),
+}
+
 export type VerdictCounts = { supported: number; wrong: number; partial: number; unknown: number; unreviewed: number }
 
 export type Analytics = {

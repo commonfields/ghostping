@@ -51,6 +51,7 @@ import {
   QuestionRepositoryLive,
   ReobservationIntentRepositoryLive,
   ReobservationRepositoryLive,
+  collectSourceBinding,
   type DiscoveryRunRow,
   type Session,
 } from "@ghostping/db"
@@ -852,6 +853,29 @@ export const makeRouter = () => {
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
+    // Bounded on-demand source re-collection for one tracked binding.
+    // Synchronous hosted collection: scoped reads, safe fetch outside any
+    // transaction, atomic observation/value persist. Unknown and
+    // cross-business bindings both read as 404 without leaking existence.
+    HttpRouter.post(
+      "/api/businesses/:id/representations/:bindingId/check",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const p = params.params as Record<string, string>
+          const businessId = p["id"] as string
+          const bindingId = p["bindingId"] as string
+          if (!isRouteId(businessId) || !isRouteId(bindingId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          const collected = yield* collectSourceBinding(businessId, bindingId)
+          if (!collected) return yield* json(404, { _tag: "RepresentationNotFound" })
+          return yield* json(200, collected)
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
     HttpRouter.get(
       "/api/businesses/:id/issues/:claimId",
       withSession((session) =>
@@ -897,8 +921,7 @@ export const makeRouter = () => {
             target,
             performedAt: body.performedAt ?? new Date().toISOString(),
             notes: body.notes ?? null,
-            evidenceBeforeDigest: body.evidenceBeforeDigest ?? null,
-            evidenceAfterDigest: body.evidenceAfterDigest ?? null,
+            sourceBindingId: body.sourceBindingId ?? null,
           })
           // Unknown claim, or a claim from another business: 404 without
           // leaking existence.

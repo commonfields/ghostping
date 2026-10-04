@@ -179,7 +179,10 @@ export type CreateJudgmentRequest = typeof CreateJudgmentRequest.Type
 
 // Recorded actions reference the controlled vocabulary from the evidence
 // protocol. The actor is always HUMAN on this route; corrections travel as
-// separate append-only rows and are out of scope here.
+// separate append-only rows and are out of scope here. An action may name
+// the tracked source binding it acted on; before-evidence is resolved
+// server-side from that binding's observations (never client-supplied, so
+// there are no digest fields to spoof).
 export const InterventionTypeLiteral = Schema.Literal(
   "SOURCE_UPDATED",
   "SOURCE_PUBLISHED",
@@ -194,8 +197,7 @@ export const CreateInterventionRequest = Schema.Struct({
   target: NonEmptyTrimmed,
   performedAt: Schema.optional(TimestampString),
   notes: Schema.optional(Schema.NullOr(Schema.String)),
-  evidenceBeforeDigest: Schema.optional(Schema.NullOr(Schema.String)),
-  evidenceAfterDigest: Schema.optional(Schema.NullOr(Schema.String)),
+  sourceBindingId: Schema.optional(Schema.NullOr(Schema.UUID)),
 })
 export type CreateInterventionRequest = typeof CreateInterventionRequest.Type
 
