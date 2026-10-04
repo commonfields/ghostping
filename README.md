@@ -1,8 +1,8 @@
 # Ghostping
 
 [![CI](https://github.com/commonfields/ghostping/actions/workflows/ci.yml/badge.svg)](https://github.com/commonfields/ghostping/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/commonfields/ghostping?display_name=tag&sort=semver&color=7c3aed)](https://github.com/commonfields/ghostping/releases/latest)
-[![License: MIT](https://img.shields.io/github/license/commonfields/ghostping?color=2563eb)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/commonfields/ghostping?display_name=tag&sort=semver)](https://github.com/commonfields/ghostping/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/commonfields/ghostping)](LICENSE)
 [![Node.js 24](https://img.shields.io/badge/Node.js-24-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![pnpm 10.12.1](https://img.shields.io/badge/pnpm-10.12.1-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
 [![Rust stable](https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
@@ -15,45 +15,45 @@ It does not turn incomplete evidence into a score or claim that one change cause
 
 > Observation is not interpretation. Interpretation is not authority. Correlation is not causality. Unknown is not false.
 
+## Contents
+
+- [What it does](#what-it-does)
+- [How it works](#how-it-works)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Architecture](#architecture)
+- [Security and evidence boundaries](#security-and-evidence-boundaries)
+- [Local CLI and desktop app](#local-cli-and-desktop-app)
+- [Development and verification](#development-and-verification)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
+
+## What it does
+
+- **Approved truth:** store the facts a business stands behind, with explicit authority.
+- **Observation:** collect AI answers and web-source evidence with full provenance.
+- **Human review:** compare observations against approved truth and judge material issues.
+- **Recorded correction:** document what was changed on surfaces you control.
+- **Verification:** re-observe the source and AI, then derive `OBSERVED_CORRECTION`, `NO_OBSERVED_CHANGE`, or `INDETERMINATE`.
+- **No forced conclusions:** missing, failed, or ambiguous evidence stays `UNKNOWN` and remains open for the next cycle.
+
 ## How it works
 
 ```mermaid
-%%{init: {"flowchart": {"useMaxWidth": true, "htmlLabels": true, "curve": "linear", "nodeSpacing": 44, "rankSpacing": 52}}}%%
 flowchart TB
-    truth["<b>APPROVED TRUTH</b><br/>Facts the business stands behind"]
-    observe["<b>OBSERVATION</b><br/>AI answers, web sources, and raw evidence"]
-    review["<b>HUMAN REVIEW</b><br/>Compare observed claims with approved truth"]
-    decision{"<b>MATERIAL ISSUE?</b>"}
-    correct["<b>RECORDED CORRECTION</b><br/>Document the action and the surface changed"]
-    verify["<b>VERIFICATION</b><br/>Recheck the source, then re-observe AI"]
-    outcome["<b>DERIVED OUTCOME</b><br/>Correction, no change, or indeterminate"]
-    monitor["<b>CONTINUE OBSERVING</b><br/>No conclusion is forced"]
+    truth["Approved truth<br/>Facts the business stands behind"]
+    observe["Observation<br/>What AI answers and sources say"]
+    review["Human review<br/>Compare observations against approved truth"]
+    correction["Recorded correction<br/>What was changed on surfaces you control"]
+    verification["Verification<br/>Re-observe the source and AI, then derive OBSERVED_CORRECTION, NO_OBSERVED_CHANGE, or INDETERMINATE"]
+    monitor["Continue observing<br/>No issue or unknown stays open for the next cycle"]
 
-    truth --> observe --> review --> decision
-    decision --> correct --> verify --> outcome
-    decision --> monitor
-
-    classDef truth fill:#064E3B,stroke:#34D399,color:#ECFDF5,stroke-width:2px;
-    classDef observe fill:#172554,stroke:#60A5FA,color:#EFF6FF,stroke-width:2px;
-    classDef review fill:#451A03,stroke:#FBBF24,color:#FFFBEB,stroke-width:2px;
-    classDef decision fill:#27272A,stroke:#A1A1AA,color:#FAFAFA,stroke-width:2px;
-    classDef correct fill:#500724,stroke:#F472B6,color:#FDF2F8,stroke-width:2px;
-    classDef verify fill:#2E1065,stroke:#A78BFA,color:#F5F3FF,stroke-width:2px;
-    classDef outcome fill:#111827,stroke:#94A3B8,color:#F8FAFC,stroke-width:2px;
-    classDef monitor fill:#1F2937,stroke:#64748B,color:#F8FAFC,stroke-width:2px;
-
-    class truth truth;
-    class observe observe;
-    class review review;
-    class decision decision;
-    class correct correct;
-    class verify verify;
-    class outcome outcome;
-    class monitor monitor;
-    linkStyle default stroke:#64748B,stroke-width:2px;
+    truth --> observe --> review --> correction --> verification
+    review --> monitor
 ```
 
-Each stage has one responsibility: green is approved truth, blue is collected evidence, amber is human judgment, pink is corrective action, and purple is verification. Ghostping stores the evidence behind every stage in PostgreSQL and derives outcomes as `OBSERVED_CORRECTION`, `NO_OBSERVED_CHANGE`, or `INDETERMINATE`. Later observations begin the same process again without implying causation.
+The flow reads top to bottom, from the smallest input to the broadest result. Each stage has one responsibility: business truth, machine observation, human review, operator action, and verification. Ghostping stores the evidence behind every stage in PostgreSQL. Later observations begin the same process again without implying causation.
 
 ### Design rules
 
@@ -62,7 +62,7 @@ Each stage has one responsibility: green is approved truth, blue is collected ev
 - **People make judgments.** Machines collect observations; reviewers decide what those observations mean.
 - **Verification is not causation.** A before-and-after change can be recorded without claiming what caused it.
 
-## Hosted quick start
+## Quick start
 
 ### Prerequisites
 
@@ -205,6 +205,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before changing provider, prompt-plugin, 
 - [Hosted Effect architecture](docs/engineering/hosted-effect-architecture-v1.md)
 - [Product roadmap](docs/product/roadmap.md)
 - [CLI exit contracts](docs/engineering/cli-exit-contracts.md)
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, code style, and how to submit changes.
 
 ## License
 
