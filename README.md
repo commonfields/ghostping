@@ -18,34 +18,42 @@ It does not turn incomplete evidence into a score or claim that one change cause
 ## How it works
 
 ```mermaid
-%%{init: {"flowchart": {"useMaxWidth": true, "htmlLabels": true, "curve": "basis"}}}%%
-flowchart LR
-    truth["<b>1. Truth</b><br/>Approved facts"]
-    observe["<b>2. Observe</b><br/>AI and source evidence"]
-    review["<b>3. Review</b><br/>Human judgment"]
-    correct["<b>4. Correct</b><br/>Record action"]
-    verify["<b>5. Verify</b><br/>Recheck source and AI"]
+%%{init: {"flowchart": {"useMaxWidth": true, "htmlLabels": true, "curve": "linear", "nodeSpacing": 44, "rankSpacing": 52}}}%%
+flowchart TB
+    truth["<b>APPROVED TRUTH</b><br/>Facts the business stands behind"]
+    observe["<b>OBSERVATION</b><br/>AI answers, web sources, and raw evidence"]
+    review["<b>HUMAN REVIEW</b><br/>Compare observed claims with approved truth"]
+    decision{"<b>MATERIAL ISSUE?</b>"}
+    correct["<b>RECORDED CORRECTION</b><br/>Document the action and the surface changed"]
+    verify["<b>VERIFICATION</b><br/>Recheck the source, then re-observe AI"]
+    outcome["<b>DERIVED OUTCOME</b><br/>Correction, no change, or indeterminate"]
+    monitor["<b>CONTINUE OBSERVING</b><br/>No conclusion is forced"]
 
-    truth --> observe --> review
-    review -->|Issue found| correct --> verify
-    review -. No issue or unknown .-> observe
-    verify -. Re-observe .-> observe
+    truth --> observe --> review --> decision
+    decision --> correct --> verify --> outcome
+    decision --> monitor
 
-    classDef truth fill:#DCFCE7,stroke:#15803D,color:#14532D,stroke-width:2px;
-    classDef observe fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A,stroke-width:2px;
-    classDef review fill:#FEF3C7,stroke:#D97706,color:#78350F,stroke-width:2px;
-    classDef correct fill:#FCE7F3,stroke:#DB2777,color:#831843,stroke-width:2px;
-    classDef verify fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95,stroke-width:2px;
+    classDef truth fill:#064E3B,stroke:#34D399,color:#ECFDF5,stroke-width:2px;
+    classDef observe fill:#172554,stroke:#60A5FA,color:#EFF6FF,stroke-width:2px;
+    classDef review fill:#451A03,stroke:#FBBF24,color:#FFFBEB,stroke-width:2px;
+    classDef decision fill:#27272A,stroke:#A1A1AA,color:#FAFAFA,stroke-width:2px;
+    classDef correct fill:#500724,stroke:#F472B6,color:#FDF2F8,stroke-width:2px;
+    classDef verify fill:#2E1065,stroke:#A78BFA,color:#F5F3FF,stroke-width:2px;
+    classDef outcome fill:#111827,stroke:#94A3B8,color:#F8FAFC,stroke-width:2px;
+    classDef monitor fill:#1F2937,stroke:#64748B,color:#F8FAFC,stroke-width:2px;
 
     class truth truth;
     class observe observe;
     class review review;
+    class decision decision;
     class correct correct;
     class verify verify;
+    class outcome outcome;
+    class monitor monitor;
     linkStyle default stroke:#64748B,stroke-width:2px;
 ```
 
-The diagram scales to the available width and keeps each responsibility distinct: business truth, machine observation, human review, operator action, and verification. Ghostping stores the evidence behind every stage in PostgreSQL and derives outcomes as `OBSERVED_CORRECTION`, `NO_OBSERVED_CHANGE`, or `INDETERMINATE`.
+Each stage has one responsibility: green is approved truth, blue is collected evidence, amber is human judgment, pink is corrective action, and purple is verification. Ghostping stores the evidence behind every stage in PostgreSQL and derives outcomes as `OBSERVED_CORRECTION`, `NO_OBSERVED_CHANGE`, or `INDETERMINATE`. Later observations begin the same process again without implying causation.
 
 ### Design rules
 
