@@ -1,12 +1,21 @@
+import { useState } from "react"
 import { Link, useParams } from "react-router"
+import { toast } from "sonner"
 import { ArrowLeftIcon, BookCheckIcon, LinkIcon, MessageSquareQuoteIcon, TriangleAlertIcon } from "lucide-react"
+import { Alert, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Textarea } from "@/components/ui/textarea"
 import { EmptyState, PageHeader } from "@/components/page"
+import { Spinner } from "@/components/spinner"
 import { ControlBadge, IssueStateBadge, RepresentationStateBadge } from "@/components/status"
-import { Issues, type CitationEvidence } from "@/lib/api"
-import { formatDateTime, sentenceCase } from "@/lib/format"
+import { Interventions, Issues, type CitationEvidence, type Intervention } from "@/lib/api"
+import { errorMessage, formatDateTime, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
 
 const domainOf = (url: string) => {
@@ -142,7 +151,126 @@ export function IssueDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <RecordedActionsCard businessId={id} claimId={claimId} />
     </div>
+  )
+}
+
+const interventionTypes = [
+  "SOURCE_UPDATED",
+  "SOURCE_PUBLISHED",
+  "THIRD_PARTY_CORRECTION_REQUESTED",
+  "KNOWLEDGE_BASE_UPDATED",
+  "STRUCTURED_DATA_UPDATED",
+  "OTHER",
+] as const
+
+function RecordedActionsCard({ businessId, claimId }: { businessId: string; claimId: string }) {
+  const { data, loading, reload } = useApi(`interventions:${claimId}`, () => Interventions.list(businessId, claimId))
+  const [type, setType] = useState<string>("SOURCE_UPDATED")
+  const [target, setTarget] = useState("")
+  const [notes, setNotes] = useState("")
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const actions: Intervention[] = data?.interventions ?? []
+
+  return (
+    <Card className="shadow-(--float-shadow)">
+      <CardHeader>
+        <CardTitle>Recorded actions</CardTitle>
+        <CardDescription>
+          Actions taken for this issue, recorded by hand. Recording an action keeps a log; it changes no verdict and no observation.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading ? (
+          <Skeleton className="h-20 rounded-lg" />
+        ) : actions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No actions recorded for this issue yet.</p>
+        ) : (
+          <ul className="space-y-3">
+            {actions.map((a) => (
+              <li key={a.id} className="space-y-1 rounded-lg border px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">{sentenceCase(a.type)}</Badge>
+                  <span className="text-sm font-medium break-words">{a.target}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{formatDateTime(a.performedAt)}</p>
+                {a.notes ? <p className="text-sm">{a.notes}</p> : null}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form
+          className="grid gap-4 border-t pt-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setPending(true)
+            setError(null)
+            Interventions.create(businessId, claimId, { type, target: target.trim(), notes: notes.trim() || null })
+              .then(() => {
+                toast.success("Action recorded")
+                setTarget("")
+                setNotes("")
+                void reload()
+              })
+              .catch((err: unknown) => setError(errorMessage(err)))
+              .finally(() => setPending(false))
+          }}
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="action-type">Action type</Label>
+              <Select value={type} onValueChange={setType}>
+                <SelectTrigger id="action-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {interventionTypes.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {sentenceCase(t)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="action-target">Target</Label>
+              <Input
+                id="action-target"
+                value={target}
+                onChange={(e) => setTarget(e.currentTarget.value)}
+                placeholder="https://example.com/pricing"
+              />
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="action-notes">Notes</Label>
+            <Textarea
+              id="action-notes"
+              rows={2}
+              value={notes}
+              onChange={(e) => setNotes(e.currentTarget.value)}
+              placeholder="Optional. What was done, in one line."
+            />
+          </div>
+          {error ? (
+            <Alert variant="destructive">
+              <TriangleAlertIcon />
+              <AlertTitle className="font-normal">{error}</AlertTitle>
+            </Alert>
+          ) : null}
+          <div className="flex justify-end">
+            <Button type="submit" size="sm" disabled={pending || !target.trim()}>
+              {pending ? <Spinner /> : null}
+              Record action
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   )
 }
 

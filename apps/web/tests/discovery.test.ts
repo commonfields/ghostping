@@ -80,6 +80,22 @@ describe("discovery candidates", () => {
     expect(page).toContain("View truth")
   })
 
+  it("shows why each candidate matched with locator and snippet evidence", async () => {
+    const page = await readAppFile("routes/discovery.tsx")
+    expect(page).toContain("c.evidence")
+    expect(page).toContain("e.locator")
+    expect(page).toContain("e.snippet")
+    expect(page).toContain("text-muted-foreground")
+  })
+
+  it("types candidate evidence with surface, locator, snippet, and relation", async () => {
+    const api = await readAppFile("lib/api.ts")
+    expect(api).toContain("DiscoveryCandidateEvidence")
+    expect(api).toContain("evidence")
+    expect(api).toContain("locator")
+    expect(api).toContain("snippet")
+  })
+
   it("labels matches current/historical/multiple, never drift or in-sync", async () => {
     const page = await readAppFile("routes/discovery.tsx")
     for (const label of ["Current value found", "Historical value found", "Multiple known values"]) {

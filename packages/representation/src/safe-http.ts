@@ -493,6 +493,17 @@ export const safeFetch = async (rawUrl: string, options: SafeFetchOptions = {}):
         continue
       }
       const contentType = res.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() ?? null
+      if (status < 200 || status >= 300) {
+        // Error statuses carry no parseable representation: the outcome is
+        // determined by status, never by a mismatched error-page content
+        // type (e.g. a 404 text/html page is NOT_FOUND-equivalent transport
+        // noise, not an unsupported document). The byte ceiling above still
+        // applies uniformly to error bodies.
+        return {
+          ...failEvidence({ requestedUrl, current, startedAt, completedAt: now(), status, headers: res.headers, failure: "NETWORK_ERROR", redirectChain }),
+          contentType,
+        }
+      }
       if (limits.acceptedContentTypes !== null && contentType !== null && !limits.acceptedContentTypes.some((a) => contentType === a)) {
         const completedAt = now()
         return {
@@ -513,12 +524,6 @@ export const safeFetch = async (rawUrl: string, options: SafeFetchOptions = {}):
           failure: "UNSUPPORTED_CONTENT_TYPE",
           redirectChain,
           outOfScopeRedirect: null,
-        }
-      }
-      if (status < 200 || status >= 300) {
-        return {
-          ...failEvidence({ requestedUrl, current, startedAt, completedAt: now(), status, headers: res.headers, failure: "NETWORK_ERROR", redirectChain }),
-          contentType,
         }
       }
       const completedAt = now()
