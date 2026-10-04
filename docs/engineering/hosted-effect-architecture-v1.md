@@ -1,3 +1,7 @@
+> Historical architecture snapshot. Hosted provider execution was replaced by
+> [Effect runtime V1](effect-runtime-v1.md). The IPC and configuration examples
+> below describe the former implementation; use the current runtime guide.
+
 # Hosted Effect Architecture V1
 
 ## Why Effect

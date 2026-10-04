@@ -7,12 +7,15 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint src --max-warnings 0",
+    "lint": "eslint src scripts --max-warnings 0",
     "test": "vitest run --passWithNoTests",
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "effect": "3.22.2"
+    "effect": "3.22.2",
+    "@ghostping/config": "workspace:*",
+    "@effect/platform": "0.97.2",
+    "@effect/platform-node": "0.108.2"
   },
   "devDependencies": {
     "@types/node": "24.10.1",

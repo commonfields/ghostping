@@ -10,6 +10,17 @@ Ghostping is evolving into an evidence system that separates what a business aut
 
 The existing CLI still measures mention, citation, and recommendation behavior and can draft content. Its local audit history lives in SQLite. The hosted evidence engine uses PostgreSQL. These legacy features remain available, but their directional scores are not authoritative truth.
 
+## Hosted product
+
+The hosted product is AI Brand Accuracy / Representation Integrity: React UI,
+Effect API, Effect worker, and PostgreSQL. Hosted provider execution is
+Effect-native (`mock` and one pinned `9router` model); it needs Node 24 and
+pnpm 10.12.1, with no Rust binary or subprocess bridge. The local CLI and
+Tauri app documented below remain separate supported Rust products.
+
+See [Effect runtime architecture and setup](docs/engineering/effect-runtime-v1.md)
+and [the reachability assay](docs/engineering/effect-runtime-assay-v1.md).
+
 ## Evidence Protocol V1
 
 The canonical portable protocol is in [`packages/protocol`](packages/protocol), with generated schemas in [`schemas/ghostping`](schemas/ghostping) and shared Rust/TypeScript fixtures in [`fixtures/evidence-protocol-v1`](fixtures/evidence-protocol-v1). See [`docs/protocol/README.md`](docs/protocol/README.md).

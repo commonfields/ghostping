@@ -7,8 +7,8 @@ import {
   HttpServerResponse,
 } from "@effect/platform"
 import { Effect, Schema } from "effect"
-import { randomUUID } from "node:crypto"
-import pg from "pg"
+import { SqlClient } from "@effect/sql"
+import { AppBaseUrl } from "@ghostping/config"
 import {
   CreateBusinessRequest,
   CreateClaimRequest,
@@ -22,6 +22,7 @@ import {
   SupersedeFactRequest,
 } from "@ghostping/contracts"
 import {
+  AuthRepository,
   BusinessRepository,
   BusinessRepositoryLive,
   CheckRunRepository,
@@ -35,6 +36,7 @@ import {
   DiscoveryRunRepositoryLive,
   DiscoveryScopeRepository,
   DiscoveryScopeRepositoryLive,
+  EmailTaken,
   FactRepository,
   FactRepositoryLive,
   JudgmentRepository,
@@ -46,6 +48,7 @@ import {
   QuestionRepository,
   QuestionRepositoryLive,
   type DiscoveryRunRow,
+  type Session,
 } from "@ghostping/db"
 import { MATCHER_VERSION, POLICY_VERSION } from "@ghostping/discovery"
 import { AuthorityError } from "@ghostping/db"
@@ -116,11 +119,6 @@ const sessionOf = (req: {
     : null
 }
 
-interface Session {
-  readonly userId: string
-  readonly accountId: string
-}
-
 // Claims joined to their observation and the head of their judgment chain.
 const CLAIMS_CTE = `
   WITH claim_rows AS (
@@ -141,14 +139,15 @@ const verdictCounts = (where: string) => `
   count(*) FILTER (WHERE ${where} AND verdict = 'INSUFFICIENT_EVIDENCE')::int AS unknown,
   count(*) FILTER (WHERE ${where} AND verdict = 'UNREVIEWED')::int AS unreviewed`
 
-const loadAnalytics = async (pool: pg.Pool, businessId: string, days: number) => {
-  const now = new Date()
-  const start = new Date(now.getTime() - days * 86_400_000)
-  const prevStart = new Date(start.getTime() - days * 86_400_000)
-  const args = [businessId, start.toISOString(), prevStart.toISOString()]
+const loadAnalytics = (businessId: string, days: number) =>
+  Effect.gen(function*() {
+    const sql = yield* SqlClient.SqlClient
+    const now = new Date()
+    const start = new Date(now.getTime() - days * 86_400_000)
+    const prevStart = new Date(start.getTime() - days * 86_400_000)
+    const args: Array<string> = [businessId, start.toISOString(), prevStart.toISOString()]
 
-  const [runTotals, claimTotals, daily, providers, questions, facts] = await Promise.all([
-    pool.query(
+    const runTotalRows = (yield* sql.unsafe(
       `SELECT
          count(*) FILTER (WHERE queued_at >= $2)::int AS checks,
          count(*) FILTER (WHERE queued_at >= $2 AND status = 'SUCCEEDED')::int AS succeeded,
@@ -157,15 +156,15 @@ const loadAnalytics = async (pool: pg.Pool, businessId: string, days: number) =>
          count(*) FILTER (WHERE queued_at >= $3 AND queued_at < $2 AND status = 'SUCCEEDED')::int AS prev_succeeded
        FROM check_runs WHERE business_id = $1`,
       args,
-    ),
-    pool.query(
+    )) as Array<Record<string, number>>
+    const claimTotalRows = (yield* sql.unsafe(
       `${CLAIMS_CTE}
        SELECT ${verdictCounts("collected_at >= $2")},
               ${verdictCounts("collected_at >= $3 AND collected_at < $2").replace(/ AS (\w+)/g, " AS prev_$1")}
        FROM claim_rows`,
       args,
-    ),
-    pool.query(
+    )) as Array<Record<string, number>>
+    const dailyRows = (yield* sql.unsafe(
       `${CLAIMS_CTE},
        day_series AS (SELECT generate_series(($2::timestamptz AT TIME ZONE 'UTC')::date, (now() AT TIME ZONE 'UTC')::date, interval '1 day')::date AS day),
        runs AS (
@@ -184,8 +183,8 @@ const loadAnalytics = async (pool: pg.Pool, businessId: string, days: number) =>
        FROM day_series d LEFT JOIN runs r ON r.day = d.day LEFT JOIN claims c ON c.day = d.day
        ORDER BY d.day`,
       args.slice(0, 2),
-    ),
-    pool.query(
+    )) as Array<Record<string, unknown>>
+    const providerRows = (yield* sql.unsafe(
       `${CLAIMS_CTE},
        answers AS (
          SELECT provider, count(*)::int AS answers FROM observations
@@ -198,8 +197,8 @@ const loadAnalytics = async (pool: pg.Pool, businessId: string, days: number) =>
        FROM answers a FULL OUTER JOIN claims c ON c.provider = a.provider
        ORDER BY answers DESC`,
       args.slice(0, 2),
-    ),
-    pool.query(
+    )) as Array<Record<string, unknown>>
+    const questionRows = (yield* sql.unsafe(
       `${CLAIMS_CTE}
        SELECT q.id, q.prompt, q.label,
               (SELECT count(*)::int FROM check_runs r WHERE r.question_id = q.id AND r.queued_at >= $2) AS checks,
@@ -211,8 +210,8 @@ const loadAnalytics = async (pool: pg.Pool, businessId: string, days: number) =>
        GROUP BY q.id
        ORDER BY wrong DESC, partial DESC, checks DESC`,
       args.slice(0, 2),
-    ),
-    pool.query(
+    )) as Array<Record<string, unknown>>
+    const factRows = (yield* sql.unsafe(
       `${CLAIMS_CTE}
        SELECT f.id, f.predicate, f.value_text, f.status, ${verdictCounts("true")}
        FROM claim_rows cr
@@ -222,73 +221,58 @@ const loadAnalytics = async (pool: pg.Pool, businessId: string, days: number) =>
        GROUP BY f.id
        ORDER BY wrong DESC, partial DESC`,
       args.slice(0, 2),
-    ),
-  ])
+    )) as Array<Record<string, unknown>>
 
-  const rt = runTotals.rows[0] as Record<string, number>
-  const ct = claimTotals.rows[0] as Record<string, number>
-  return {
-    range: { days, from: start.toISOString(), to: now.toISOString() },
-    current: {
-      checks: rt["checks"] ?? 0,
-      answers: rt["succeeded"] ?? 0,
-      failed: rt["failed"] ?? 0,
-      supported: ct["supported"] ?? 0,
-      wrong: ct["wrong"] ?? 0,
-      partial: ct["partial"] ?? 0,
-      unknown: ct["unknown"] ?? 0,
-      unreviewed: ct["unreviewed"] ?? 0,
-    },
-    previous: {
-      checks: rt["prev_checks"] ?? 0,
-      answers: rt["prev_succeeded"] ?? 0,
-      supported: ct["prev_supported"] ?? 0,
-      wrong: ct["prev_wrong"] ?? 0,
-      partial: ct["prev_partial"] ?? 0,
-      unknown: ct["prev_unknown"] ?? 0,
-      unreviewed: ct["prev_unreviewed"] ?? 0,
-    },
-    daily: daily.rows,
-    providers: providers.rows,
-    questions: questions.rows.map((r: Record<string, unknown>) => ({
-      ...r,
-      last_checked_at: r["last_checked_at"] ? new Date(r["last_checked_at"] as string).toISOString() : null,
-    })),
-    facts: facts.rows,
-  }
-}
-
-// Direct pg pool for auth/session lookups (small, explicit; repositories own the rest).
-const getSession = (pool: pg.Pool, sessionId: string): Promise<Session | null> =>
-  pool
-    .query(`SELECT user_id, account_id FROM sessions WHERE id = $1 AND expires_at > now()`, [sessionId])
-    .then((r) => {
-      const row = r.rows[0] as { user_id: string; account_id: string } | undefined
-      return row ? { userId: row.user_id, accountId: row.account_id } : null
-    })
-
-const requireSession = (pool: pg.Pool) =>
-  Effect.flatMap(HttpServerRequest.HttpServerRequest, (req) => {
-    const sid = sessionOf(req as unknown as { headers: Record<string, string | undefined> })
-    if (!sid) return Effect.fail({ _tag: "NotAuthenticated" as const })
-    return Effect.tryPromise({
-      try: () => getSession(pool, sid),
-      catch: () => ({ _tag: "Unknown" as const }),
-    }).pipe(
-      Effect.flatMap((s) => (s ? Effect.succeed({ session: s, sessionId: sid }) : Effect.fail({ _tag: "NotAuthenticated" as const }))),
-    )
+    const rt = runTotalRows[0] as Record<string, number>
+    const ct = claimTotalRows[0] as Record<string, number>
+    return {
+      range: { days, from: start.toISOString(), to: now.toISOString() },
+      current: {
+        checks: rt["checks"] ?? 0,
+        answers: rt["succeeded"] ?? 0,
+        failed: rt["failed"] ?? 0,
+        supported: ct["supported"] ?? 0,
+        wrong: ct["wrong"] ?? 0,
+        partial: ct["partial"] ?? 0,
+        unknown: ct["unknown"] ?? 0,
+        unreviewed: ct["unreviewed"] ?? 0,
+      },
+      previous: {
+        checks: rt["prev_checks"] ?? 0,
+        answers: rt["prev_succeeded"] ?? 0,
+        supported: ct["prev_supported"] ?? 0,
+        wrong: ct["prev_wrong"] ?? 0,
+        partial: ct["prev_partial"] ?? 0,
+        unknown: ct["prev_unknown"] ?? 0,
+        unreviewed: ct["prev_unreviewed"] ?? 0,
+      },
+      daily: dailyRows,
+      providers: providerRows,
+      questions: questionRows.map((r: Record<string, unknown>) => ({
+        ...r,
+        last_checked_at: r["last_checked_at"] ? new Date(r["last_checked_at"] as string).toISOString() : null,
+      })),
+      facts: factRows,
+    }
   })
 
-export const makeRouter = (pool: pg.Pool) => {
+const requireSession = Effect.flatMap(HttpServerRequest.HttpServerRequest, (req) => {
+  const sid = sessionOf(req as unknown as { headers: Record<string, string | undefined> })
+  if (!sid) return Effect.fail({ _tag: "NotAuthenticated" as const })
+  return Effect.gen(function*() {
+    const auth = yield* AuthRepository
+    const s = yield* auth.getSession(sid)
+    if (!s) return yield* Effect.fail({ _tag: "NotAuthenticated" as const })
+    return { session: s, sessionId: sid }
+  })
+})
+
+export const makeRouter = () => {
   const router = HttpRouter.empty
 
   const withSession = <A, E, R>(
     run: (session: Session) => Effect.Effect<A, E, R>,
-  ): Effect.Effect<
-    A,
-    E | { readonly _tag: "NotAuthenticated" } | { readonly _tag: "Unknown" },
-    R | HttpServerRequest.HttpServerRequest
-  > => Effect.flatMap(requireSession(pool), ({ session }) => run(session))
+  ) => Effect.flatMap(requireSession, ({ session }) => run(session))
 
   const api = router.pipe(
     // ---- auth ----
@@ -307,50 +291,15 @@ export const makeRouter = (pool: pg.Pool) => {
         } catch {
           return yield* json(422, { _tag: "InvalidFactValue", reason: "password too short" })
         }
-        const c = yield* Effect.tryPromise({
-          try: async () => {
-            const client = await pool.connect()
-            try {
-              await client.query("BEGIN")
-              const accountName = String(body.accountName ?? `${email} account`)
-              const a = await client.query(`INSERT INTO accounts (name) VALUES ($1) RETURNING id`, [accountName])
-              const accountId: string = a.rows[0]["id"]
-              let userId: string
-              try {
-                const u = await client.query(`INSERT INTO users (email, password_hash) VALUES ($1,$2) RETURNING id`, [
-                  email,
-                  passwordHash,
-                ])
-                userId = u.rows[0]["id"]
-              } catch (e: unknown) {
-                const msg = e instanceof Error ? e.message : String(e)
-                if (/duplicate|unique/i.test(msg)) {
-                  const err = new Error("conflict") as Error & { code?: string }
-                  err.code = "CONFLICT"
-                  throw err
-                }
-                throw e
-              }
-              await client.query(`INSERT INTO account_users (account_id, user_id) VALUES ($1,$2)`, [accountId, userId])
-              const sessionId = randomUUID()
-              await client.query(
-                `INSERT INTO sessions (id, user_id, account_id, expires_at) VALUES ($1,$2,$3, now() + interval '30 days')`,
-                [sessionId, userId, accountId],
-              )
-              await client.query("COMMIT")
-              return { accountId, userId, sessionId }
-            } catch (e) {
-              await client.query("ROLLBACK")
-              throw e
-            } finally {
-              client.release()
-            }
-          },
-          catch: (e) => e as unknown,
-        })
-        if ((c as { code?: string }).code === "CONFLICT") return yield* json(409, { _tag: "Conflict", message: "email taken" })
-        const { sessionId, accountId, userId } = c as { sessionId: string; accountId: string; userId: string }
-        const secure = (process.env["APP_BASE_URL"] ?? "").startsWith("https://")
+        const accountName = String(body.accountName ?? `${email} account`)
+        const auth = yield* AuthRepository
+        const created = yield* auth.signup({ email, passwordHash, accountName }).pipe(
+          Effect.catchAll((e) => (e instanceof EmailTaken ? Effect.succeed(null) : Effect.fail(e))),
+        )
+        if (!created) return yield* json(409, { _tag: "Conflict", message: "email taken" })
+        const { sessionId, accountId, userId } = created
+        const baseUrl = yield* AppBaseUrl
+        const secure = baseUrl.startsWith("https://")
         return yield* json(
           200,
           { userId, accountId },
@@ -366,31 +315,17 @@ export const makeRouter = (pool: pg.Pool) => {
         if (!body) return yield* json(422, malformed)
         const email = String(body.email ?? "").trim().toLowerCase()
         const password = String(body.password ?? "")
-        const found = yield* Effect.tryPromise({
-          try: () =>
-            pool.query(`SELECT u.id, u.password_hash, au.account_id FROM users u JOIN account_users au ON au.user_id = u.id WHERE u.email = $1 LIMIT 1`, [email]),
-          catch: () => ({ rows: [] }) as unknown as pg.QueryResult,
-        })
-        const row = (found as pg.QueryResult).rows[0] as
-          | { id: string; password_hash: string; account_id: string }
-          | undefined
-        if (!row || !verifyPassword(password, row.password_hash)) {
+        const auth = yield* AuthRepository
+        const row = yield* auth.signinLookup(email)
+        if (!row || !verifyPassword(password, row.passwordHash)) {
           return yield* json(401, { _tag: "NotAuthenticated" })
         }
-        const sessionId = randomUUID()
-        yield* Effect.tryPromise({
-          try: () =>
-            pool.query(`INSERT INTO sessions (id, user_id, account_id, expires_at) VALUES ($1,$2,$3, now() + interval '30 days')`, [
-              sessionId,
-              row.id,
-              row.account_id,
-            ]),
-          catch: () => undefined,
-        })
-        const secure = (process.env["APP_BASE_URL"] ?? "").startsWith("https://")
+        const sessionId = yield* auth.createSession({ userId: row.id, accountId: row.accountId })
+        const baseUrl = yield* AppBaseUrl
+        const secure = baseUrl.startsWith("https://")
         return yield* json(
           200,
-          { userId: row.id, accountId: row.account_id },
+          { userId: row.id, accountId: row.accountId },
           { "Set-Cookie": sessionCookieHeader(sessionId, secure) },
         )
       }),
@@ -401,7 +336,8 @@ export const makeRouter = (pool: pg.Pool) => {
         const req = yield* HttpServerRequest.HttpServerRequest
         const sid = sessionOf(req as unknown as { headers: Record<string, string | undefined> })
         if (sid) {
-          yield* Effect.tryPromise({ try: () => pool.query(`DELETE FROM sessions WHERE id = $1`, [sid]), catch: () => undefined })
+          const auth = yield* AuthRepository
+          yield* auth.deleteSession(sid).pipe(Effect.ignore)
         }
         return yield* json(200, { ok: true }, { "Set-Cookie": clearedCookieHeader() })
       }),
@@ -409,7 +345,7 @@ export const makeRouter = (pool: pg.Pool) => {
     HttpRouter.get(
       "/api/auth/me",
       Effect.gen(function*() {
-        const s = yield* requireSession(pool).pipe(Effect.catchAll(() => Effect.succeed(null)))
+        const s = yield* requireSession.pipe(Effect.catchAll(() => Effect.succeed(null)))
         if (!s) return yield* json(401, { _tag: "NotAuthenticated" })
         return yield* json(200, { userId: s.session.userId, accountId: s.session.accountId })
       }),
@@ -678,7 +614,7 @@ export const makeRouter = (pool: pg.Pool) => {
           const runs = yield* CheckRunRepository
           // Every execution creates a CheckRun QUEUED; worker claims it.
           // provider is schema-restricted to mock|9router; the 9router model
-          // pin is enforced inside the Rust worker, not here.
+          // pin is enforced by the Effect provider adapter.
           const row = yield* runs.enqueue({ businessId, questionId, provider, requestedModel })
           return yield* json(200, { checkRun: row })
         }),
@@ -688,53 +624,34 @@ export const makeRouter = (pool: pg.Pool) => {
     HttpRouter.get(
       "/api/observations/:observationId",
       Effect.gen(function*() {
-        const s = yield* requireSession(pool).pipe(Effect.catchAll(() => Effect.succeed(null)))
+        const s = yield* requireSession.pipe(Effect.catchAll(() => Effect.succeed(null)))
         if (!s) return yield* json(401, { _tag: "NotAuthenticated" })
         const params = yield* HttpRouter.RouteContext
         const observationId = (params.params as Record<string, string>)["observationId"] as string
         if (!isRouteId(observationId)) return yield* json(422, malformed)
-        const obs = yield* ObservationRepository
+        const sql = yield* SqlClient.SqlClient
         // Account scoping: observation's business must belong to session account.
-        const biz = yield* BusinessRepository
-        const businesses = yield* biz.list(s.session.accountId)
-        const ids = new Set(businesses.map((b) => b.id))
-        const full = yield* Effect.tryPromise({
-          try: () =>
-            pool.query(
-              `SELECT o.*, b.account_id FROM observations o JOIN businesses b ON b.id = o.business_id WHERE o.id = $1`,
-              [observationId],
-            ),
-          catch: () => ({ rows: [] }) as unknown as pg.QueryResult,
-        })
-        const row = (full as pg.QueryResult).rows[0] as
-          | { account_id: string; business_id: string }
-          | undefined
+        const fullRows = (yield* sql.unsafe(
+          `SELECT o.*, b.account_id FROM observations o JOIN businesses b ON b.id = o.business_id WHERE o.id = $1`,
+          [observationId],
+        )) as Array<Record<string, unknown>>
+        const row = fullRows[0] as { account_id: string; business_id: string } | undefined
         if (!row || row.account_id !== s.session.accountId) {
           return yield* json(404, { _tag: "ObservationNotFound" })
         }
-        void ids
-        const claims = yield* ClaimRepository
         // Load claims for this observation + judgments for issue context.
-        const allClaims = yield* Effect.tryPromise({
-          try: () =>
-            pool.query(`SELECT * FROM candidate_claims WHERE observation_id = $1 ORDER BY created_at ASC`, [observationId]),
-          catch: () => ({ rows: [] }) as unknown as pg.QueryResult,
-        })
-        void obs
-        void claims
+        const claimRows = (yield* sql.unsafe(
+          `SELECT * FROM candidate_claims WHERE observation_id = $1 ORDER BY created_at ASC`,
+          [observationId],
+        )) as Array<Record<string, unknown>>
         const citations = yield* citationEvidenceForObservation(s.session.accountId, String(row.business_id), observationId)
+        const obsRows = (yield* sql.unsafe(
+          `SELECT o.*, r.content_text AS raw_text FROM observations o JOIN raw_evidence r ON r.id = o.raw_evidence_id WHERE o.id = $1`,
+          [observationId],
+        )) as Array<Record<string, unknown>>
         return yield* json(200, {
-          observation: (yield* Effect.tryPromise({
-            try: () =>
-              pool
-                .query(
-                  `SELECT o.*, r.content_text AS raw_text FROM observations o JOIN raw_evidence r ON r.id = o.raw_evidence_id WHERE o.id = $1`,
-                  [observationId],
-                )
-                .then((r) => r.rows[0]),
-            catch: () => null,
-          })) as unknown,
-          claims: (allClaims as pg.QueryResult).rows,
+          observation: obsRows[0] as unknown,
+          claims: claimRows,
           // Provider-returned citations exactly as stored, with tracked
           // representation matches where canonical URLs agree.
           citations: citations ?? [],
@@ -751,17 +668,12 @@ export const makeRouter = (pool: pg.Pool) => {
           const observationId = body.observationId
           const text = body.text.trim()
           if (!text) return yield* json(422, { _tag: "InvalidFactValue", reason: "claim text required" })
-          const found = yield* Effect.tryPromise({
-            try: () =>
-              pool.query(
-                `SELECT o.business_id, b.account_id FROM observations o JOIN businesses b ON b.id = o.business_id WHERE o.id = $1`,
-                [observationId],
-              ),
-            catch: () => ({ rows: [] }) as unknown as pg.QueryResult,
-          })
-          const r = (found as pg.QueryResult).rows[0] as
-            | { business_id: string; account_id: string }
-            | undefined
+          const sql = yield* SqlClient.SqlClient
+          const foundRows = (yield* sql.unsafe(
+            `SELECT o.business_id, b.account_id FROM observations o JOIN businesses b ON b.id = o.business_id WHERE o.id = $1`,
+            [observationId],
+          )) as Array<Record<string, unknown>>
+          const r = foundRows[0] as { business_id: string; account_id: string } | undefined
           if (!r || r.account_id !== session.accountId) return yield* json(404, { _tag: "ObservationNotFound" })
           const claims = yield* ClaimRepository
           // Manual transcription only; no automatic extraction, no invented offsets.
@@ -784,17 +696,12 @@ export const makeRouter = (pool: pg.Pool) => {
           if (!body) return yield* json(422, malformed)
           const claimId = body.claimId
           const verdict = body.verdict
-          const found = yield* Effect.tryPromise({
-            try: () =>
-              pool.query(
-                `SELECT c.business_id, b.account_id FROM candidate_claims c JOIN businesses b ON b.id = c.business_id WHERE c.id = $1`,
-                [claimId],
-              ),
-            catch: () => ({ rows: [] }) as unknown as pg.QueryResult,
-          })
-          const r = (found as pg.QueryResult).rows[0] as
-            | { business_id: string; account_id: string }
-            | undefined
+          const sql = yield* SqlClient.SqlClient
+          const foundRows = (yield* sql.unsafe(
+            `SELECT c.business_id, b.account_id FROM candidate_claims c JOIN businesses b ON b.id = c.business_id WHERE c.id = $1`,
+            [claimId],
+          )) as Array<Record<string, unknown>>
+          const r = foundRows[0] as { business_id: string; account_id: string } | undefined
           if (!r || r.account_id !== session.accountId) return yield* json(404, { _tag: "ClaimNotFound" })
           const judgments = yield* JudgmentRepository
           const row = yield* judgments.create({
@@ -872,10 +779,7 @@ export const makeRouter = (pool: pg.Pool) => {
           const days = Number(daysParam)
           if (!Number.isInteger(days) || days < 1 || days > 365) return yield* json(422, malformed)
 
-          const data = yield* Effect.tryPromise({
-            try: () => loadAnalytics(pool, businessId, days),
-            catch: () => ({ _tag: "Unknown" as const }),
-          })
+          const data = yield* loadAnalytics(businessId, days)
           return yield* json(200, { analytics: data })
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
@@ -891,19 +795,16 @@ export const makeRouter = (pool: pg.Pool) => {
           if (!(yield* biz.getScoped(session.accountId, businessId))) {
             return yield* json(404, { _tag: "BusinessNotFound" })
           }
-          const counts = yield* Effect.tryPromise({
-            try: () =>
-              pool.query(
-                `SELECT
+          const sql = yield* SqlClient.SqlClient
+          const countRows = (yield* sql.unsafe(
+            `SELECT
                    (SELECT count(*) FROM check_runs WHERE business_id = $1 AND status = 'SUCCEEDED') AS completed,
                    (SELECT max(o.collected_at) FROM observations o WHERE o.business_id = $1) AS last_checked,
                    (SELECT count(*) FROM candidate_claims c LEFT JOIN human_judgments j ON j.claim_id = c.id AND NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id) WHERE c.business_id = $1 AND j.id IS NULL) AS unreviewed,
                    (SELECT count(*) FROM candidate_claims c JOIN human_judgments j ON j.claim_id = c.id AND NOT EXISTS (SELECT 1 FROM human_judgments child WHERE child.supersedes_id = j.id) WHERE c.business_id = $1 AND j.verdict IN ('CONTRADICTED','PARTIAL','INSUFFICIENT_EVIDENCE')) AS needs_attention`,
-                [businessId],
-              ),
-            catch: () => ({ rows: [{}] }) as unknown as pg.QueryResult,
-          })
-          return yield* json(200, { overview: (counts as pg.QueryResult).rows[0] })
+            [businessId],
+          )) as Array<Record<string, unknown>>
+          return yield* json(200, { overview: countRows[0] })
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),

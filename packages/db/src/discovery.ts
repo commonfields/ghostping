@@ -12,11 +12,24 @@
 // Pure crawl policy (scope validation, robots, sitemaps, frontier order,
 // matching, authority snapshots) lives in @ghostping/discovery; this module
 // is storage only and never parses HTML or fetches.
-import { Context, Data, Effect, Layer } from "effect"
+import { Context, Data, Effect, Layer, Schema } from "effect"
 import { PgClient } from "@effect/sql-pg"
 import type { SqlClient } from "@effect/sql"
 import type { SqlError } from "@effect/sql/SqlError"
 import type { DbEffect } from "./repositories.js"
+import {
+  BooleanField,
+  NullableIntField,
+  NullableTextField,
+  NullableTimestampField,
+  NullableUuidField,
+  RowDecodeError,
+  TextField,
+  TimestampField,
+  UuidField,
+  IntField,
+  decodeRow,
+} from "./row-codecs.js"
 
 const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v))
 
@@ -41,16 +54,30 @@ export interface DiscoveryScopeRow {
   readonly createdAt: string
 }
 
-const mapScope = (r: Record<string, unknown>): DiscoveryScopeRow => ({
-  id: String(r["id"]),
-  businessId: String(r["business_id"]),
-  rootUrl: String(r["root_url"]),
-  canonicalOrigin: String(r["canonical_origin"]),
-  pathPrefix: String(r["path_prefix"]),
-  enabled: Boolean(r["enabled"]),
-  ownershipAssertion: String(r["ownership_assertion"] ?? "OPERATOR_ASSERTED_OWNED"),
-  createdAt: iso(r["created_at"]),
+const DiscoveryScopeSchema = Schema.Struct({
+  id: UuidField,
+  business_id: UuidField,
+  root_url: TextField,
+  canonical_origin: TextField,
+  path_prefix: TextField,
+  enabled: BooleanField,
+  ownership_assertion: NullableTextField,
+  created_at: TimestampField,
 })
+
+const decodeScope = (r: unknown): Effect.Effect<DiscoveryScopeRow, RowDecodeError> =>
+  decodeRow(DiscoveryScopeSchema, "discovery_scopes", r).pipe(
+    Effect.map((d) => ({
+      id: d.id,
+      businessId: d.business_id,
+      rootUrl: d.root_url,
+      canonicalOrigin: d.canonical_origin,
+      pathPrefix: d.path_prefix,
+      enabled: d.enabled,
+      ownershipAssertion: d.ownership_assertion ?? "OPERATOR_ASSERTED_OWNED",
+      createdAt: iso(d.created_at),
+    })),
+  )
 
 export class DiscoveryScopeRepository extends Context.Tag("DiscoveryScopeRepository")<
   DiscoveryScopeRepository,
@@ -66,17 +93,18 @@ export const DiscoveryScopeRepositoryLive = Layer.effect(
   Effect.map(PgClient.PgClient, (sql: SqlClient.SqlClient) => ({
     create: (input) =>
       sql`INSERT INTO discovery_scopes (business_id, root_url, canonical_origin, path_prefix) VALUES (${input.businessId}, ${input.rootUrl}, ${input.canonicalOrigin}, ${input.pathPrefix}) RETURNING *`.pipe(
-        Effect.map((rows) => mapScope((rows as Array<Record<string, unknown>>)[0] as Record<string, unknown>)),
+        Effect.flatMap((rows) => decodeScope((rows as Array<unknown>)[0])),
       ),
     listByBusiness: (businessId: string) =>
       sql`SELECT * FROM discovery_scopes WHERE business_id = ${businessId} ORDER BY created_at ASC`.pipe(
-        Effect.map((rows) => (rows as Array<Record<string, unknown>>).map(mapScope)),
+        Effect.flatMap((rows) => Effect.forEach(rows as Array<unknown>, decodeScope)),
       ),
     getScoped: (businessId: string, scopeId: string) =>
       sql`SELECT * FROM discovery_scopes WHERE id = ${scopeId} AND business_id = ${businessId}`.pipe(
-        Effect.map((rows) => {
-          const r = (rows as Array<Record<string, unknown>>)[0]
-          return r ? mapScope(r) : null
+        Effect.flatMap((rows) => {
+          const r = (rows as Array<unknown>)[0]
+          if (!r) return Effect.succeed(null as DiscoveryScopeRow | null)
+          return decodeScope(r)
         }),
       ),
   })),
@@ -111,28 +139,54 @@ export interface DiscoveryRunRow {
   readonly candidatesFound: number
 }
 
-const mapRun = (r: Record<string, unknown>): DiscoveryRunRow => ({
-  id: String(r["id"]),
-  businessId: String(r["business_id"]),
-  scopeId: String(r["scope_id"]),
-  authoritySnapshotDigest: (r["authority_snapshot_digest"] as string | null) ?? null,
-  matcherVersion: String(r["matcher_version"] ?? DEFAULT_MATCHER_VERSION),
-  policyVersion: String(r["policy_version"] ?? DEFAULT_POLICY_VERSION),
-  state: String(r["state"]) as DiscoveryRunState,
-  queuedAt: iso(r["queued_at"]),
-  startedAt: (r["started_at"] as unknown) == null ? null : iso(r["started_at"]),
-  completedAt: (r["completed_at"] as unknown) == null ? null : iso(r["completed_at"]),
-  heartbeatAt: (r["heartbeat_at"] as unknown) == null ? null : iso(r["heartbeat_at"]),
-  attemptCount: Number(r["attempt_count"] ?? 0),
-  failureClass: (r["failure_class"] as string | null) ?? null,
-  failureDetailSafe: (r["failure_detail_safe"] as string | null) ?? null,
-  pagesFetched: Number(r["pages_fetched"] ?? 0),
-  pagesNotModified: Number(r["pages_not_modified"] ?? 0),
-  pagesFailed: Number(r["pages_failed"] ?? 0),
-  pagesSkippedRobots: Number(r["pages_skipped_robots"] ?? 0),
-  bytesDownloaded: Number(r["bytes_downloaded"] ?? 0),
-  candidatesFound: Number(r["candidates_found"] ?? 0),
+const DiscoveryRunSchema = Schema.Struct({
+  id: UuidField,
+  business_id: UuidField,
+  scope_id: UuidField,
+  authority_snapshot_digest: NullableTextField,
+  matcher_version: NullableTextField,
+  policy_version: NullableTextField,
+  state: TextField,
+  queued_at: TimestampField,
+  started_at: NullableTimestampField,
+  completed_at: NullableTimestampField,
+  heartbeat_at: NullableTimestampField,
+  attempt_count: NullableIntField,
+  failure_class: NullableTextField,
+  failure_detail_safe: NullableTextField,
+  pages_fetched: NullableIntField,
+  pages_not_modified: NullableIntField,
+  pages_failed: NullableIntField,
+  pages_skipped_robots: NullableIntField,
+  bytes_downloaded: NullableIntField,
+  candidates_found: NullableIntField,
 })
+
+const decodeDiscoveryRun = (r: unknown): Effect.Effect<DiscoveryRunRow, RowDecodeError> =>
+  decodeRow(DiscoveryRunSchema, "discovery_runs", r).pipe(
+    Effect.map((d) => ({
+      id: d.id,
+      businessId: d.business_id,
+      scopeId: d.scope_id,
+      authoritySnapshotDigest: d.authority_snapshot_digest,
+      matcherVersion: d.matcher_version ?? DEFAULT_MATCHER_VERSION,
+      policyVersion: d.policy_version ?? DEFAULT_POLICY_VERSION,
+      state: d.state as DiscoveryRunState,
+      queuedAt: iso(d.queued_at),
+      startedAt: d.started_at == null ? null : iso(d.started_at),
+      completedAt: d.completed_at == null ? null : iso(d.completed_at),
+      heartbeatAt: d.heartbeat_at == null ? null : iso(d.heartbeat_at),
+      attemptCount: Number(d.attempt_count ?? 0),
+      failureClass: d.failure_class,
+      failureDetailSafe: d.failure_detail_safe,
+      pagesFetched: Number(d.pages_fetched ?? 0),
+      pagesNotModified: Number(d.pages_not_modified ?? 0),
+      pagesFailed: Number(d.pages_failed ?? 0),
+      pagesSkippedRobots: Number(d.pages_skipped_robots ?? 0),
+      bytesDownloaded: Number(d.bytes_downloaded ?? 0),
+      candidatesFound: Number(d.candidates_found ?? 0),
+    })),
+  )
 
 /** A second active (QUEUED or RUNNING) run for the same scope. Maps to HTTP 409. */
 export class DiscoveryActiveRunConflict extends Data.TaggedError("DiscoveryActiveRunConflict")<{
@@ -152,7 +206,7 @@ export class DiscoveryRunRepository extends Context.Tag("DiscoveryRunRepository"
   DiscoveryRunRepository,
   {
     /** Enqueue a run. Fails with DiscoveryActiveRunConflict when the scope already has one. */
-    readonly enqueue: (input: { businessId: string; scopeId: string; matcherVersion?: string; policyVersion?: string }) => Effect.Effect<DiscoveryRunRow, SqlError | DiscoveryActiveRunConflict>
+    readonly enqueue: (input: { businessId: string; scopeId: string; matcherVersion?: string; policyVersion?: string }) => Effect.Effect<DiscoveryRunRow, SqlError | RowDecodeError | DiscoveryActiveRunConflict>
     readonly listByScope: (businessId: string, scopeId: string) => DbEffect<ReadonlyArray<DiscoveryRunRow>>
     readonly getScoped: (businessId: string, runId: string) => DbEffect<DiscoveryRunRow | null>
     /** Scoped atomic claim: oldest QUEUED for this scope -> RUNNING. */
@@ -188,13 +242,16 @@ export const DiscoveryRunRepositoryLive = Layer.effect(
           return yield* Effect.fail(new DiscoveryActiveRunConflict({ activeRunId: String(found["id"]) }))
         }
         const insert = sql`INSERT INTO discovery_runs (business_id, scope_id, matcher_version, policy_version) VALUES (${input.businessId}, ${input.scopeId}, ${input.matcherVersion ?? DEFAULT_MATCHER_VERSION}, ${input.policyVersion ?? DEFAULT_POLICY_VERSION}) RETURNING *`.pipe(
-          Effect.map((rows) => mapRun((rows as Array<Record<string, unknown>>)[0] as Record<string, unknown>)),
+          Effect.flatMap((rows) => decodeDiscoveryRun((rows as Array<unknown>)[0])),
         )
         // Race backstop: the partial unique index rejects a concurrent
         // duplicate; translate it into the same typed conflict.
         return yield* insert.pipe(
           Effect.catchAll((e) =>
             Effect.gen(function*() {
+              // RowDecodeError from our own insert is a real decode failure,
+              // not a conflict: propagate it instead of masking as 409.
+              if (e instanceof RowDecodeError) return yield* Effect.fail(e)
               const retry = (yield* sql`SELECT id FROM discovery_runs WHERE scope_id = ${input.scopeId} AND state IN ('QUEUED','RUNNING') LIMIT 1`) as Array<Record<string, unknown>>
               const r = retry[0]
               if (r) return yield* Effect.fail(new DiscoveryActiveRunConflict({ activeRunId: String(r["id"]) }))
@@ -205,13 +262,14 @@ export const DiscoveryRunRepositoryLive = Layer.effect(
       }),
     listByScope: (businessId: string, scopeId: string) =>
       sql`SELECT * FROM discovery_runs WHERE business_id = ${businessId} AND scope_id = ${scopeId} ORDER BY queued_at DESC LIMIT 100`.pipe(
-        Effect.map((rows) => (rows as Array<Record<string, unknown>>).map(mapRun)),
+        Effect.flatMap((rows) => Effect.forEach(rows as Array<unknown>, decodeDiscoveryRun)),
       ),
     getScoped: (businessId: string, runId: string) =>
       sql`SELECT * FROM discovery_runs WHERE id = ${runId} AND business_id = ${businessId}`.pipe(
-        Effect.map((rows) => {
-          const r = (rows as Array<Record<string, unknown>>)[0]
-          return r ? mapRun(r) : null
+        Effect.flatMap((rows) => {
+          const r = (rows as Array<unknown>)[0]
+          if (!r) return Effect.succeed(null as DiscoveryRunRow | null)
+          return decodeDiscoveryRun(r)
         }),
       ),
     claimOne: (businessId: string, scopeId: string) =>
@@ -229,10 +287,10 @@ export const DiscoveryRunRepositoryLive = Layer.effect(
           SET state = 'RUNNING', started_at = COALESCE(started_at, now()), heartbeat_at = now()
           FROM candidate
           WHERE r.id = candidate.id AND r.state = 'QUEUED'
-          RETURNING r.*`) as Array<Record<string, unknown>>
+          RETURNING r.*`) as Array<unknown>
         const r = rows[0]
         if (!r) return null
-        return mapRun(r)
+        return yield* decodeDiscoveryRun(r)
       }),
     claimAny: () =>
       Effect.gen(function*() {
@@ -249,10 +307,10 @@ export const DiscoveryRunRepositoryLive = Layer.effect(
           SET state = 'RUNNING', started_at = COALESCE(started_at, now()), heartbeat_at = now()
           FROM candidate
           WHERE r.id = candidate.id AND r.state = 'QUEUED'
-          RETURNING r.*`) as Array<Record<string, unknown>>
+          RETURNING r.*`) as Array<unknown>
         const r = rows[0]
         if (!r) return null
-        return mapRun(r)
+        return yield* decodeDiscoveryRun(r)
       }),
     heartbeat: (businessId: string, runId: string) =>
       // Guarded: heartbeats on terminal rows are ignored, never reopening them.
@@ -295,21 +353,40 @@ export interface DiscoveryFrontierRow {
   readonly leaseAt: string | null
 }
 
-const mapFrontier = (r: Record<string, unknown>): DiscoveryFrontierRow => ({
-  id: String(r["id"]),
-  runId: String(r["run_id"]),
-  businessId: String(r["business_id"]),
-  canonicalUrl: String(r["canonical_url"]),
-  requestedUrl: String(r["requested_url"]),
-  discoveredVia: String(r["discovered_via"]),
-  parentUrl: (r["parent_url"] as string | null) ?? null,
-  depth: Number(r["depth"] ?? 0),
-  state: String(r["state"]) as DiscoveryFrontierState,
-  skipReason: (r["skip_reason"] as string | null) ?? null,
-  orderKey: String(r["order_key"] ?? ""),
-  attempts: Number(r["attempts"] ?? 0),
-  leaseAt: (r["lease_at"] as unknown) == null ? null : iso(r["lease_at"]),
+const DiscoveryFrontierSchema = Schema.Struct({
+  id: UuidField,
+  run_id: UuidField,
+  business_id: UuidField,
+  canonical_url: TextField,
+  requested_url: TextField,
+  discovered_via: TextField,
+  parent_url: NullableTextField,
+  depth: NullableIntField,
+  state: TextField,
+  skip_reason: NullableTextField,
+  order_key: NullableTextField,
+  attempts: NullableIntField,
+  lease_at: NullableTimestampField,
 })
+
+const decodeFrontier = (r: unknown): Effect.Effect<DiscoveryFrontierRow, RowDecodeError> =>
+  decodeRow(DiscoveryFrontierSchema, "discovery_frontier", r).pipe(
+    Effect.map((d) => ({
+      id: d.id,
+      runId: d.run_id,
+      businessId: d.business_id,
+      canonicalUrl: d.canonical_url,
+      requestedUrl: d.requested_url,
+      discoveredVia: d.discovered_via,
+      parentUrl: d.parent_url,
+      depth: Number(d.depth ?? 0),
+      state: d.state as DiscoveryFrontierState,
+      skipReason: d.skip_reason,
+      orderKey: d.order_key ?? "",
+      attempts: Number(d.attempts ?? 0),
+      leaseAt: d.lease_at == null ? null : iso(d.lease_at),
+    })),
+  )
 
 export interface DiscoveryFrontierEntry {
   readonly canonicalUrl: string
@@ -414,9 +491,10 @@ export const DiscoveryFrontierRepositoryLive = Layer.effect(
             LIMIT 1
             FOR UPDATE SKIP LOCKED
           ) AND f.state = 'PENDING'
-          RETURNING f.*`) as Array<Record<string, unknown>>
+          RETURNING f.*`) as Array<unknown>
         const r = rows[0]
-        return r ? mapFrontier(r) : null
+        if (!r) return null
+        return yield* decodeFrontier(r)
       }),
     markDone: (businessId: string, frontierId: string) =>
       sql`UPDATE discovery_frontier SET state = 'DONE' WHERE id = ${frontierId} AND business_id = ${businessId} AND state = 'IN_PROGRESS'`.pipe(Effect.asVoid),
@@ -450,8 +528,8 @@ export const DiscoveryFrontierRepositoryLive = Layer.effect(
       sql.withTransaction(
         Effect.gen(function*() {
           const o = input.observation
-          const obsRows = (yield* sql`INSERT INTO discovery_observations (business_id, scope_id, run_id, resource_kind, requested_url, canonical_url, final_url, discovered_via, parent_url, depth, started_at, completed_at, http_status, content_type, etag, last_modified, body_digest, body_bytes, collection_state, failure) VALUES (${input.businessId}, ${o.scopeId}, ${o.runId}, ${o.resourceKind}, ${o.requestedUrl}, ${o.canonicalUrl}, ${o.finalUrl}, ${o.discoveredVia}, ${o.parentUrl ?? null}, ${o.depth ?? 0}, ${o.startedAt}::timestamptz, ${o.completedAt}::timestamptz, ${o.httpStatus ?? null}, ${o.contentType ?? null}, ${o.etag ?? null}, ${o.lastModified ?? null}, ${o.bodyDigest ?? null}, ${o.bodyBytes ?? 0}, ${o.collectionState}, ${o.failure ?? null}) RETURNING id`) as Array<Record<string, unknown>>
-          const observationId = String((obsRows[0] as Record<string, unknown>)["id"])
+          const obsRows = (yield* sql`INSERT INTO discovery_observations (business_id, scope_id, run_id, resource_kind, requested_url, canonical_url, final_url, discovered_via, parent_url, depth, started_at, completed_at, http_status, content_type, etag, last_modified, body_digest, body_bytes, collection_state, failure) VALUES (${input.businessId}, ${o.scopeId}, ${o.runId}, ${o.resourceKind}, ${o.requestedUrl}, ${o.canonicalUrl}, ${o.finalUrl}, ${o.discoveredVia}, ${o.parentUrl ?? null}, ${o.depth ?? 0}, ${o.startedAt}::timestamptz, ${o.completedAt}::timestamptz, ${o.httpStatus ?? null}, ${o.contentType ?? null}, ${o.etag ?? null}, ${o.lastModified ?? null}, ${o.bodyDigest ?? null}, ${o.bodyBytes ?? 0}, ${o.collectionState}, ${o.failure ?? null}) RETURNING id`) as Array<unknown>
+          const observationId = (yield* decodeRow(Schema.Struct({ id: UuidField }), "discovery_observations", obsRows[0])).id
           for (const m of input.matches) {
             yield* sql`INSERT INTO discovery_matches (business_id, run_id, page_observation_id, lineage_root_fact_id, matched_fact_id, matched_fact_version, matched_value, match_surface, evidence_locator, evidence_snippet, relation_at_scan, matcher_version, reused_from_match_id) VALUES (${input.businessId}, ${o.runId}, ${observationId}, ${m.lineageRootFactId}, ${m.matchedFactId}, ${m.matchedFactVersion}, ${m.matchedValue}, ${m.matchSurface}, ${m.evidenceLocator}, ${m.evidenceSnippet.slice(0, 512)}, ${m.relationAtScan}, ${m.matcherVersion}, ${m.reusedFromMatchId ?? null})`
           }
@@ -500,30 +578,58 @@ export interface DiscoveryObservationRow {
   readonly createdAt: string
 }
 
-const mapObservation = (r: Record<string, unknown>): DiscoveryObservationRow => ({
-  id: String(r["id"]),
-  businessId: String(r["business_id"]),
-  scopeId: String(r["scope_id"]),
-  runId: String(r["run_id"]),
-  resourceKind: String(r["resource_kind"]),
-  requestedUrl: String(r["requested_url"]),
-  canonicalUrl: String(r["canonical_url"]),
-  finalUrl: String(r["final_url"]),
-  discoveredVia: String(r["discovered_via"]),
-  parentUrl: (r["parent_url"] as string | null) ?? null,
-  depth: Number(r["depth"] ?? 0),
-  startedAt: iso(r["started_at"]),
-  completedAt: iso(r["completed_at"]),
-  httpStatus: (r["http_status"] as number | null) === null ? null : Number(r["http_status"]),
-  contentType: (r["content_type"] as string | null) ?? null,
-  etag: (r["etag"] as string | null) ?? null,
-  lastModified: (r["last_modified"] as string | null) ?? null,
-  bodyDigest: (r["body_digest"] as string | null) ?? null,
-  bodyBytes: Number(r["body_bytes"] ?? 0),
-  collectionState: String(r["collection_state"]),
-  failure: (r["failure"] as string | null) ?? null,
-  createdAt: iso(r["created_at"]),
+const DiscoveryObservationSchema = Schema.Struct({
+  id: UuidField,
+  business_id: UuidField,
+  scope_id: UuidField,
+  run_id: UuidField,
+  resource_kind: TextField,
+  requested_url: TextField,
+  canonical_url: TextField,
+  final_url: TextField,
+  discovered_via: TextField,
+  parent_url: NullableTextField,
+  depth: NullableIntField,
+  started_at: TimestampField,
+  completed_at: TimestampField,
+  http_status: NullableIntField,
+  content_type: NullableTextField,
+  etag: NullableTextField,
+  last_modified: NullableTextField,
+  body_digest: NullableTextField,
+  body_bytes: NullableIntField,
+  collection_state: TextField,
+  failure: NullableTextField,
+  created_at: TimestampField,
 })
+
+const decodeDiscoveryObservation = (r: unknown): Effect.Effect<DiscoveryObservationRow, RowDecodeError> =>
+  decodeRow(DiscoveryObservationSchema, "discovery_observations", r).pipe(
+    Effect.map((d) => ({
+      id: d.id,
+      businessId: d.business_id,
+      scopeId: d.scope_id,
+      runId: d.run_id,
+      resourceKind: d.resource_kind,
+      requestedUrl: d.requested_url,
+      canonicalUrl: d.canonical_url,
+      finalUrl: d.final_url,
+      discoveredVia: d.discovered_via,
+      parentUrl: d.parent_url,
+      depth: Number(d.depth ?? 0),
+      startedAt: iso(d.started_at),
+      completedAt: iso(d.completed_at),
+      httpStatus: d.http_status === null ? null : Number(d.http_status),
+      contentType: d.content_type,
+      etag: d.etag,
+      lastModified: d.last_modified,
+      bodyDigest: d.body_digest,
+      bodyBytes: Number(d.body_bytes ?? 0),
+      collectionState: d.collection_state,
+      failure: d.failure,
+      createdAt: iso(d.created_at),
+    })),
+  )
 
 export class DiscoveryObservationRepository extends Context.Tag("DiscoveryObservationRepository")<
   DiscoveryObservationRepository,
@@ -544,12 +650,12 @@ export const DiscoveryObservationRepositoryLive = Layer.effect(
   Effect.map(PgClient.PgClient, (sql: SqlClient.SqlClient) => ({
     insert: (input) =>
       Effect.gen(function*() {
-        const rows = (yield* sql`INSERT INTO discovery_observations (business_id, scope_id, run_id, resource_kind, requested_url, canonical_url, final_url, discovered_via, parent_url, depth, started_at, completed_at, http_status, content_type, etag, last_modified, body_digest, body_bytes, collection_state, failure) VALUES (${input.businessId}, ${input.scopeId}, ${input.runId}, ${input.resourceKind}, ${input.requestedUrl}, ${input.canonicalUrl}, ${input.finalUrl}, ${input.discoveredVia}, ${input.parentUrl ?? null}, ${input.depth ?? 0}, ${input.startedAt}::timestamptz, ${input.completedAt}::timestamptz, ${input.httpStatus ?? null}, ${input.contentType ?? null}, ${input.etag ?? null}, ${input.lastModified ?? null}, ${input.bodyDigest ?? null}, ${input.bodyBytes ?? 0}, ${input.collectionState}, ${input.failure ?? null}) RETURNING *`) as Array<Record<string, unknown>>
-        return mapObservation(rows[0] as Record<string, unknown>)
+        const rows = (yield* sql`INSERT INTO discovery_observations (business_id, scope_id, run_id, resource_kind, requested_url, canonical_url, final_url, discovered_via, parent_url, depth, started_at, completed_at, http_status, content_type, etag, last_modified, body_digest, body_bytes, collection_state, failure) VALUES (${input.businessId}, ${input.scopeId}, ${input.runId}, ${input.resourceKind}, ${input.requestedUrl}, ${input.canonicalUrl}, ${input.finalUrl}, ${input.discoveredVia}, ${input.parentUrl ?? null}, ${input.depth ?? 0}, ${input.startedAt}::timestamptz, ${input.completedAt}::timestamptz, ${input.httpStatus ?? null}, ${input.contentType ?? null}, ${input.etag ?? null}, ${input.lastModified ?? null}, ${input.bodyDigest ?? null}, ${input.bodyBytes ?? 0}, ${input.collectionState}, ${input.failure ?? null}) RETURNING *`) as Array<unknown>
+        return yield* decodeDiscoveryObservation(rows[0])
       }),
     listByRun: (businessId: string, runId: string) =>
       sql`SELECT * FROM discovery_observations WHERE business_id = ${businessId} AND run_id = ${runId} ORDER BY created_at ASC`.pipe(
-        Effect.map((rows) => (rows as Array<Record<string, unknown>>).map(mapObservation)),
+        Effect.flatMap((rows) => Effect.forEach(rows as Array<unknown>, decodeDiscoveryObservation)),
       ),
     latestValidators: (businessId, scopeId, canonicalUrl) =>
       Effect.gen(function*() {
@@ -594,23 +700,44 @@ export interface DiscoveryMatchRow {
   readonly createdAt: string
 }
 
-const mapMatch = (r: Record<string, unknown>): DiscoveryMatchRow => ({
-  id: String(r["id"]),
-  businessId: String(r["business_id"]),
-  runId: String(r["run_id"]),
-  pageObservationId: String(r["page_observation_id"]),
-  lineageRootFactId: String(r["lineage_root_fact_id"]),
-  matchedFactId: String(r["matched_fact_id"]),
-  matchedFactVersion: Number(r["matched_fact_version"]),
-  matchedValue: String(r["matched_value"]),
-  matchSurface: String(r["match_surface"]),
-  evidenceLocator: String(r["evidence_locator"]),
-  evidenceSnippet: String(r["evidence_snippet"]),
-  relationAtScan: String(r["relation_at_scan"]),
-  matcherVersion: String(r["matcher_version"]),
-  reusedFromMatchId: (r["reused_from_match_id"] as string | null) ?? null,
-  createdAt: iso(r["created_at"]),
+const DiscoveryMatchSchema = Schema.Struct({
+  id: UuidField,
+  business_id: UuidField,
+  run_id: UuidField,
+  page_observation_id: UuidField,
+  lineage_root_fact_id: UuidField,
+  matched_fact_id: UuidField,
+  matched_fact_version: IntField,
+  matched_value: TextField,
+  match_surface: TextField,
+  evidence_locator: TextField,
+  evidence_snippet: TextField,
+  relation_at_scan: TextField,
+  matcher_version: TextField,
+  reused_from_match_id: NullableUuidField,
+  created_at: TimestampField,
 })
+
+const decodeDiscoveryMatch = (r: unknown): Effect.Effect<DiscoveryMatchRow, RowDecodeError> =>
+  decodeRow(DiscoveryMatchSchema, "discovery_matches", r).pipe(
+    Effect.map((d) => ({
+      id: d.id,
+      businessId: d.business_id,
+      runId: d.run_id,
+      pageObservationId: d.page_observation_id,
+      lineageRootFactId: d.lineage_root_fact_id,
+      matchedFactId: d.matched_fact_id,
+      matchedFactVersion: Number(d.matched_fact_version),
+      matchedValue: d.matched_value,
+      matchSurface: d.match_surface,
+      evidenceLocator: d.evidence_locator,
+      evidenceSnippet: d.evidence_snippet,
+      relationAtScan: d.relation_at_scan,
+      matcherVersion: d.matcher_version,
+      reusedFromMatchId: d.reused_from_match_id,
+      createdAt: iso(d.created_at),
+    })),
+  )
 
 export class DiscoveryMatchRepository extends Context.Tag("DiscoveryMatchRepository")<
   DiscoveryMatchRepository,
@@ -642,14 +769,14 @@ export const DiscoveryMatchRepositoryLive = Layer.effect(
       Effect.gen(function*() {
         const out: DiscoveryMatchRow[] = []
         for (const m of input.matches) {
-          const rows = (yield* sql`INSERT INTO discovery_matches (business_id, run_id, page_observation_id, lineage_root_fact_id, matched_fact_id, matched_fact_version, matched_value, match_surface, evidence_locator, evidence_snippet, relation_at_scan, matcher_version, reused_from_match_id) VALUES (${input.businessId}, ${input.runId}, ${m.pageObservationId}, ${m.lineageRootFactId}, ${m.matchedFactId}, ${m.matchedFactVersion}, ${m.matchedValue}, ${m.matchSurface}, ${m.evidenceLocator}, ${m.evidenceSnippet.slice(0, 512)}, ${m.relationAtScan}, ${m.matcherVersion}, ${m.reusedFromMatchId ?? null}) RETURNING *`) as Array<Record<string, unknown>>
-          out.push(mapMatch(rows[0] as Record<string, unknown>))
+          const rows = (yield* sql`INSERT INTO discovery_matches (business_id, run_id, page_observation_id, lineage_root_fact_id, matched_fact_id, matched_fact_version, matched_value, match_surface, evidence_locator, evidence_snippet, relation_at_scan, matcher_version, reused_from_match_id) VALUES (${input.businessId}, ${input.runId}, ${m.pageObservationId}, ${m.lineageRootFactId}, ${m.matchedFactId}, ${m.matchedFactVersion}, ${m.matchedValue}, ${m.matchSurface}, ${m.evidenceLocator}, ${m.evidenceSnippet.slice(0, 512)}, ${m.relationAtScan}, ${m.matcherVersion}, ${m.reusedFromMatchId ?? null}) RETURNING *`) as Array<unknown>
+          out.push(yield* decodeDiscoveryMatch(rows[0]))
         }
         return out
       }),
     listByRun: (businessId: string, runId: string) =>
       sql`SELECT * FROM discovery_matches WHERE business_id = ${businessId} AND run_id = ${runId} ORDER BY created_at ASC`.pipe(
-        Effect.map((rows) => (rows as Array<Record<string, unknown>>).map(mapMatch)),
+        Effect.flatMap((rows) => Effect.forEach(rows as Array<unknown>, decodeDiscoveryMatch)),
       ),
     latestEffectiveMatches: (input) =>
       Effect.gen(function*() {
@@ -663,11 +790,13 @@ export const DiscoveryMatchRepositoryLive = Layer.effect(
             AND r.authority_snapshot_digest = ${input.authorityDigest}
             AND m.matcher_version = ${input.matcherVersion}
             AND r.state IN ('SUCCEEDED','PARTIAL')
-          ORDER BY r.completed_at DESC, m.created_at ASC`) as Array<Record<string, unknown>>
+          ORDER BY r.completed_at DESC, m.created_at ASC`) as Array<unknown>
         if (rows.length === 0) return [] as ReadonlyArray<DiscoveryMatchRow>
         // Newest compatible run only: matches belong to one effective scan.
-        const newestRun = String((rows[0] as Record<string, unknown>)["run_id"])
-        return rows.filter((r) => String(r["run_id"]) === newestRun).map(mapMatch)
+        const first = yield* decodeDiscoveryMatch(rows[0])
+        const newestRun = first.runId
+        const filtered = rows.filter((r) => (r as Record<string, unknown>)["run_id"] === newestRun || String((r as Record<string, unknown>)["run_id"]) === newestRun)
+        return yield* Effect.forEach(filtered, decodeDiscoveryMatch)
       }),
   })),
 )

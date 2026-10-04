@@ -56,6 +56,9 @@ importers:
       pg:
         specifier: 8.13.1
         version: 8.13.1
+      tsx:
+        specifier: 4.19.2
+        version: 4.19.2
     devDependencies:
       '@types/node':
         specifier: 24.10.1
@@ -63,9 +66,6 @@ importers:
       '@types/pg':
         specifier: 8.11.0
         version: 8.11.0
-      tsx:
-        specifier: 4.19.2
-        version: 4.19.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -160,6 +160,9 @@ importers:
       '@effect/sql-pg':
         specifier: 0.53.0
         version: 0.53.0(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(@effect/sql@0.52.1(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(effect@3.22.2)
+      '@ghostping/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@ghostping/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -175,6 +178,9 @@ importers:
       '@ghostping/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@ghostping/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
       '@ghostping/representation':
         specifier: workspace:*
         version: link:../../packages/representation
@@ -187,6 +193,9 @@ importers:
       pg:
         specifier: 8.13.1
         version: 8.13.1
+      tsx:
+        specifier: 4.19.2
+        version: 4.19.2
     devDependencies:
       '@types/node':
         specifier: 24.10.1
@@ -194,9 +203,6 @@ importers:
       '@types/pg':
         specifier: 8.11.0
         version: 8.11.0
-      tsx:
-        specifier: 4.19.2
-        version: 4.19.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -344,6 +350,15 @@ importers:
 
   packages/providers:
     dependencies:
+      '@effect/platform':
+        specifier: 0.97.2
+        version: 0.97.2(effect@3.22.2)
+      '@effect/platform-node':
+        specifier: 0.108.2
+        version: 0.108.2(@effect/cluster@0.60.2(@effect/platform@0.97.2(effect@3.22.2))(@effect/rpc@0.76.2(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/sql@0.52.1(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/workflow@0.19.1(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(@effect/rpc@0.76.2(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(@effect/rpc@0.76.2(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/sql@0.52.1(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(effect@3.22.2)
+      '@ghostping/config':
+        specifier: workspace:*
+        version: link:../config
       effect:
         specifier: 3.22.2
         version: 3.22.2

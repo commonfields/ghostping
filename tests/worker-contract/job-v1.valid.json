@@ -1,7 +1,0 @@
-{
-  "contract_version": "ghostping-worker-job-v1",
-  "run_id": "RUN-FIXTURE-1",
-  "provider": "mock",
-  "model": null,
-  "prompt": "How much does Northstar cost?"
-}

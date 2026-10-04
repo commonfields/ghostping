@@ -16,7 +16,7 @@ env:
 
 jobs:
   validate:
-    name: fmt / clippy / test / contracts
+    name: CLI fmt / clippy / test / contracts
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -42,17 +42,8 @@ jobs:
       - name: Build the primary CLI
         run: cargo build --locked --bin ghostping
 
-      - name: Build ghostping-worker
-        run: cargo build --locked --bin ghostping-worker
-
       - name: Release build (all targets)
         run: cargo build --release --locked
-
-      - name: ghostping-worker contract tests (mock only, no network)
-        run: cargo test --locked worker_contract
-
-      - name: Cross-language worker fixtures (Rust side)
-        run: cargo test --locked --test worker_contract_fixtures
 
       - name: Evidence protocol fixtures (Rust side)
         run: cargo test --locked --test evidence_protocol_fixtures
@@ -87,21 +78,12 @@ jobs:
       DATABASE_URL: postgres://ghostping:ghostping@localhost:5432/ghostping
       TEST_DATABASE_URL: postgres://ghostping:ghostping@localhost:5432/ghostping
       SESSION_SECRET: ci-test-secret-32-bytes-minimum-xyz
-      GHOSTPING_WORKER_PATH: ${{ github.workspace }}/target/debug/ghostping-worker
+      NINE_ROUTER_ENABLED: "false"
       APP_BASE_URL: http://localhost:3000
       CI: "true"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build ghostping-worker (mock provider only)
-        run: cargo build --locked --bin ghostping-worker
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -126,39 +108,13 @@ jobs:
       - name: Lint (real ESLint, fails on violations)
         run: pnpm lint
 
-      - name: Unit tests (Effect layers, no network)
-        run: pnpm -r --filter "@ghostping/domain" --filter "@ghostping/contracts" --filter "@ghostping/config" --filter "@ghostping/providers" test
+      - name: All workspace tests (PG16, local HTTP fixtures, semantic and architecture guards)
+        run: pnpm test
 
-      - name: Worker + API tests (incl. bounded-retry matrix)
-        run: pnpm --filter @ghostping/worker test && pnpm --filter @ghostping/api test
+      - name: All workspace builds
+        run: pnpm build
 
-      - name: Postgres integration tests (queue ownership, dedupe, judgments)
-        run: pnpm --filter @ghostping/db test
-
-      - name: Web unit tests (incl. no-score guard)
-        run: pnpm --filter @ghostping/web test
-
-      - name: Build web + api + worker
-        run: pnpm --filter @ghostping/web build && pnpm --filter @ghostping/api build && pnpm --filter @ghostping/worker build
-
-      - name: Rust worker build (release, locked)
-        run: cargo build --release --locked --bin ghostping-worker
-
-      - name: Cross-language contract fixtures (TypeScript side)
-        run: pnpm --filter @ghostping/contracts test
-
-      - name: Evidence protocol schemas and fixtures (TypeScript side)
-        run: pnpm --filter @ghostping/protocol test
-
-      - name: Representation graph fixtures (local HTTP, no network)
-        run: pnpm --filter @ghostping/representation test
-
-      - name: Truth projection fixtures (local temp dirs, no network)
-        run: pnpm --filter @ghostping/truth test
-
-      - name: Provider boundary guard (mock only, enforced by tests)
-        run: |
-          pnpm --filter @ghostping/providers test
-          cargo test --locked non_mock_provider_fails_before_any_network_path
-          test "${GHOSTPING_WORKER_PATH}" = "${{ github.workspace }}/target/debug/ghostping-worker"
-          echo "provider boundary enforced: worker supports provider=mock only (see worker_contract non-mock test)"
+      - name: Built hosted runtime smoke (disposable CI database)
+        env:
+          HOSTED_SMOKE_ALLOWED: "1"
+        run: python3 scripts/hosted-runtime-smoke.py

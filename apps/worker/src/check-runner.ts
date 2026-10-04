@@ -1,259 +1,107 @@
-// CheckRunner: claims one QUEUED run (atomic single-statement ownership),
-// invokes the Rust observation engine with a bounded retry policy, persists
-// raw evidence + immutable Observation, transitions RUNNING -> SUCCEEDED |
-// FAILED. Every real worker invocation increments check_runs.attempt_count.
-//
-// Retry semantics (initial attempt + at most 3 retries = at most 4 worker
-// invocations). Retryable: PROVIDER_RATE_LIMITED, PROVIDER_UNAVAILABLE,
-// PROVIDER_TIMEOUT (typed failure classes only). Never retried:
-// PROVIDER_AUTH, PROVIDER_MALFORMED, WORKER_CONTRACT_MISMATCH,
-// WORKER_FAILED, unsupported provider/model, invalid job contract.
-import { Context, Data, Effect, Layer, type Schedule } from "effect"
+// Provider execution stays outside persistence transactions. One registry,
+// bounded typed retries, append-only evidence, and transactional success.
+import { Context, Effect, Layer, Redacted, Schedule } from "effect"
 import type { SqlError } from "@effect/sql/SqlError"
-import pg from "pg"
 import {
-  CheckRunRepository,
-  ObservationRepository,
-  hostedMeasurementContext,
-  QuestionRepository,
-  type RawDigestMismatch,
+  CheckRunRepository, ObservationRepository, ProviderAttemptEvidenceRepository,
+  hostedMeasurementContext, QuestionRepository, type RawDigestMismatch, type RowDecodeError,
 } from "@ghostping/db"
-import { isRetryableFailure, type FailureClass } from "@ghostping/domain"
-import type { WorkerResultV1 } from "@ghostping/contracts"
-import type { MeasurementContextV1 } from "@ghostping/protocol"
 import {
-  ProviderTimeout,
-  RetrySchedule,
-  RustObservationWorker,
-  WorkerContractMismatch,
-  WorkerFailed,
-} from "./rust-worker.js"
-
-// Initial attempt + maximum 3 retries = maximum 4 worker invocations.
-export const MAX_WORKER_ATTEMPTS = 4
-
-type WorkerInvokeError = WorkerContractMismatch | WorkerFailed | ProviderTimeout
-
-// A retryable provider failure: Effect.retry keeps going while this surfaces.
-export class RetryableWorkerFailure extends Data.TaggedError("RetryableWorkerFailure")<{
-  readonly failureClass: FailureClass
-  readonly detail: string
-}> {}
-
-// A terminal failure: Effect.retry stops immediately and the run is FAILED.
-export class TerminalWorkerFailure extends Data.TaggedError("TerminalWorkerFailure")<{
-  readonly failureClass: FailureClass
-  readonly detail: string
-}> {}
-
-// Normalize the Rust worker's string failure_class to the typed taxonomy.
-// Unknown strings fail closed as non-retryable WORKER_FAILED-class detail.
-const KNOWN_FAILURE_CLASSES: ReadonlySet<string> = new Set([
-  "PROVIDER_RATE_LIMITED",
-  "PROVIDER_AUTH",
-  "PROVIDER_UNAVAILABLE",
-  "PROVIDER_TIMEOUT",
-  "PROVIDER_MALFORMED",
-  "WORKER_FAILED",
-  "WORKER_CONTRACT_MISMATCH",
-  "UNKNOWN",
-])
-
-export const toFailureClass = (raw: string | null): FailureClass => {
-  if (raw !== null && KNOWN_FAILURE_CLASSES.has(raw)) return raw as FailureClass
-  if (raw === "NONE") return "UNKNOWN"
-  return "UNKNOWN"
-}
-
-export const classifyResultFailure = (
-  failureClass: string | null,
-  detail: string | null,
-): RetryableWorkerFailure | TerminalWorkerFailure => {
-  const typed = toFailureClass(failureClass)
-  const safe = (detail ?? "worker reported failure").slice(0, 500)
-  return isRetryableFailure(typed)
-    ? new RetryableWorkerFailure({ failureClass: typed, detail: safe })
-    : new TerminalWorkerFailure({ failureClass: typed, detail: safe })
-}
-
-export const classifyInvokeError = (
-  error: WorkerInvokeError,
-): RetryableWorkerFailure | TerminalWorkerFailure => {
-  // Typed error classes only; never infer retryability from free text here.
-  if (error instanceof ProviderTimeout) {
-    return new RetryableWorkerFailure({
-      failureClass: "PROVIDER_TIMEOUT",
-      detail: (error.detail ?? "worker timeout").slice(0, 500),
-    })
+  ProviderRegistry, isProviderError, isRetryableProviderError, type ProviderError,
+} from "@ghostping/providers"
+import type { FailureClass } from "@ghostping/domain"
+import type { MeasurementContextV1 } from "@ghostping/protocol"
+export const MAX_PROVIDER_ATTEMPTS = 4
+export const RetrySchedule = Schedule.intersect(Schedule.exponential("500 millis", 2), Schedule.recurs(3))
+export const providerFailure = (error: ProviderError): { failureClass: FailureClass; detail: string } => {
+  switch (error._tag) {
+    case "ProviderAuth": return { failureClass: "PROVIDER_AUTH", detail: "provider rejected credentials" }
+    case "ProviderRateLimited": return { failureClass: "PROVIDER_RATE_LIMITED", detail: "provider rate limited" }
+    case "ProviderTimeout": return { failureClass: "PROVIDER_TIMEOUT", detail: "provider request timed out" }
+    case "ProviderUnavailable": return { failureClass: "PROVIDER_UNAVAILABLE", detail: "provider unavailable" }
+    case "ProviderMalformed": return { failureClass: "PROVIDER_MALFORMED", detail: "provider returned invalid or oversized bytes" }
+    case "ProviderUnsupported": return { failureClass: "PROVIDER_UNSUPPORTED", detail: "provider or model unavailable for this request" }
+    case "ProviderContractMismatch": return { failureClass: "PROVIDER_CONTRACT_MISMATCH", detail: "provider response did not match its contract" }
   }
-  if (error instanceof WorkerContractMismatch) {
-    return new TerminalWorkerFailure({
-      failureClass: "WORKER_CONTRACT_MISMATCH",
-      detail: (error.detail ?? "worker contract mismatch").slice(0, 500),
-    })
-  }
-  return new TerminalWorkerFailure({
-    failureClass: "WORKER_FAILED",
-    detail: (error.detail ?? "worker failed").slice(0, 500),
-  })
 }
-
-export class CheckRunner extends Context.Tag("CheckRunner")<
-  CheckRunner,
-  { readonly runOnce: () => Effect.Effect<boolean, SqlError | RawDigestMismatch> }
->() {}
-
-export const makeCheckRunnerLive = (
-  retrySchedule: Schedule.Schedule<
-    unknown,
-    RetryableWorkerFailure | TerminalWorkerFailure | SqlError
-  > = RetrySchedule,
-) =>
-  Layer.effect(
-    CheckRunner,
-    Effect.gen(function*() {
-      const runs = yield* CheckRunRepository
-      const questions = yield* QuestionRepository
-      const observations = yield* ObservationRepository
-      const worker = yield* RustObservationWorker
-
-      const runOnce = (): Effect.Effect<boolean, SqlError | RawDigestMismatch> =>
-        Effect.gen(function*() {
-          const claimed = yield* runs.claimOne()
-          if (!claimed) return false
-          const log = (msg: string, extra: Record<string, unknown> = {}) =>
-            Effect.sync(() =>
-              console.log(
-                JSON.stringify({
-                  level: "info",
-                  accountHint: "hosted",
-                  business_id: claimed.businessId,
-                  check_run_id: claimed.id,
-                  gateway: claimed.provider,
-                  requested_model: claimed.requestedModel,
-                  ...extra,
-                  msg,
-                }),
-              ),
-            )
-          yield* log("claimed")
-          // Load question prompt via repository (worker never sees account internals).
-          const q = yield* questions.getScoped(claimed.businessId, claimed.questionId)
-          const prompt = q?.prompt ?? ""
-          const job = {
-            runId: claimed.id,
-            provider: claimed.provider,
-            model: claimed.requestedModel,
-            prompt,
-          }
-
-          // One real worker invocation. attempt_count increments first so
-          // every actual invocation is observable even if the process dies.
-          const attemptOnce: Effect.Effect<
-            { readonly result: WorkerResultV1; readonly attempt: number; readonly latencyMs: number },
-            RetryableWorkerFailure | TerminalWorkerFailure | SqlError
-          > = Effect.gen(function*() {
-            const attempt = yield* runs.recordAttempt(claimed.id)
-            const startedAt = Date.now()
-            const result = yield* worker.invoke(job).pipe(
-              Effect.mapError(
-                (e): RetryableWorkerFailure | TerminalWorkerFailure => classifyInvokeError(e),
-              ),
-            )
-            const latencyMs = Date.now() - startedAt
-            // Per-attempt visibility; never logs secrets or raw bodies.
-            yield* log("attempt", { attempt, latencyMs, status: result.status })
-            if (result.status === "succeeded") return { result, attempt, latencyMs }
-            return yield* Effect.fail(classifyResultFailure(result.failure_class, result.failure_detail_safe))
-          })
-
-          // Bounded retry: RetrySchedule (max 3 retries) composed here, and
-          // only RetryableWorkerFailure keeps retrying. Terminal failures
-          // propagate on first occurrence. SqlError (e.g. recordAttempt
-          // failing) is never swallowed: it propagates to the caller.
-          return yield* attemptOnce.pipe(
-            Effect.retry({
-              schedule: retrySchedule,
-              while: (e) => e._tag === "RetryableWorkerFailure",
-            }),
-            Effect.matchCauseEffect({
-              onFailure: (cause) => {
-                if (cause._tag === "Fail") {
-                  const failure = cause.error
-                  if (
-                    failure instanceof RetryableWorkerFailure ||
-                    failure instanceof TerminalWorkerFailure
-                  ) {
-                    return Effect.gen(function*() {
-                      yield* runs.markFinished(
-                        claimed.id,
-                        "FAILED",
-                        failure.failureClass,
-                        failure.detail,
-                      )
-                      yield* log(`failed:${failure.failureClass}`, {
-                        terminal: failure._tag === "TerminalWorkerFailure",
-                      })
-                      return true
-                    })
-                  }
-                  // SqlError from recordAttempt: propagate typed, never swallow.
-                  return Effect.fail(failure)
-                }
-                // Non-Fail causes (defect/interruption) carry no failure
-                // values; re-raise preserving the cause.
-                return Effect.failCause(cause) as Effect.Effect<never, never>
-              },
-              onSuccess: ({ result: r, attempt, latencyMs }) =>
-                Effect.gen(function*() {
-                  // Protocol provenance. Only providers with a defined surface
-                  // mapping get a context; anything else stays unrecorded
-                  // (exported as UNKNOWN) rather than guessed.
-                  let measurementContext: MeasurementContextV1 | null = null
-                  try {
-                    measurementContext = hostedMeasurementContext({
-                      businessId: claimed.businessId,
-                      questionId: claimed.questionId,
-                      checkRunId: claimed.id,
-                      prompt,
-                      provider: r.provider,
-                      requestedModel: r.requested_model,
-                      observedModel: r.observed_model,
-                      observedAt: r.collected_at,
-                    })
-                  } catch {
-                    measurementContext = null
-                  }
-                  yield* observations.create({
-                    businessId: claimed.businessId,
-                    checkRunId: claimed.id,
-                    provider: r.provider,
-                    requestedModel: r.requested_model,
-                    observedModel: r.observed_model,
-                    collectedAt: r.collected_at,
-                    answerText: r.answer_text ?? "",
-                    retrievalMode: r.retrieval_mode,
-                    rawResponse: r.raw_response,
-                    rawDigest: r.raw_digest,
-                    rawBytesHex: r.raw_bytes_hex ?? null,
-                    rawContentType: r.raw_content_type ?? "application/json",
-                    providerMetadata: r.provider_metadata ?? null,
-                    surfaceIdentity: measurementContext?.surface ?? null,
-                    measurementContext,
-                    synthetic: r.provider === "mock",
-                    citations: r.citations,
-                  })
-                  yield* runs.markFinished(claimed.id, "SUCCEEDED", null, null)
-                  yield* log("succeeded", { attempt, latencyMs })
-                  return true
-                }),
-            }),
-          )
-        })
-      return { runOnce }
-    }),
-  )
-
+export class CheckRunner extends Context.Tag("CheckRunner")<CheckRunner, {
+  readonly runOnce: () => Effect.Effect<boolean, SqlError | RowDecodeError | RawDigestMismatch>
+}>() {}
+export const makeCheckRunnerLive = (retrySchedule: Schedule.Schedule<unknown, ProviderError | SqlError | RowDecodeError | RawDigestMismatch> = RetrySchedule) =>
+  Layer.effect(CheckRunner, Effect.gen(function*() {
+    const runs = yield* CheckRunRepository
+    const questions = yield* QuestionRepository
+    const observations = yield* ObservationRepository
+    const evidence = yield* ProviderAttemptEvidenceRepository
+    const providers = yield* ProviderRegistry
+    return { runOnce: () => Effect.gen(function*() {
+      const claimed = yield* runs.claimOne()
+      if (!claimed) return false
+      const log = (message: string, fields: Record<string, string | number | boolean | null> = {}) => Effect.logInfo(message).pipe(Effect.annotateLogs({
+        business_id: claimed.businessId, check_run_id: claimed.id, provider: claimed.provider,
+        requested_model: claimed.requestedModel, ...fields,
+      }))
+      yield* log("check claimed")
+      const q = yield* questions.getScoped(claimed.businessId, claimed.questionId)
+      if (!q) {
+        yield* runs.markFinished(claimed.id, "FAILED", "UNKNOWN", "question unavailable")
+        return true
+      }
+      const attemptOnce = Effect.gen(function*() {
+        const attempt = yield* runs.recordAttempt(claimed.id)
+        const started = Date.now()
+        const result = yield* providers.observe({ runId: claimed.id, provider: claimed.provider, requestedModel: claimed.requestedModel, prompt: q.prompt }).pipe(
+          Effect.catchAll(error => Effect.gen(function*() {
+            if (error.evidence) {
+              const raw = Redacted.value(error.evidence)
+              yield* evidence.record({
+                checkRunId: claimed.id, businessId: claimed.businessId, attempt,
+                failureClass: providerFailure(error).failureClass, status: error.status ?? null,
+                bytes: raw.rawBytes, digest: raw.rawDigest, contentType: raw.rawContentType,
+                responseMaxBytes: raw.responseMaxBytes,
+              })
+            }
+            yield* log("provider attempt failed", { attempt, latency_ms: Date.now() - started, status: error._tag })
+            return yield* Effect.fail(error)
+          })),
+        )
+        yield* log("provider attempt succeeded", { attempt, latency_ms: Date.now() - started, status: "succeeded", requested_model: result.requestedModel })
+        return result
+      })
+      let attempts = 0
+      const result = yield* attemptOnce.pipe(
+        // Keep the hard ceiling even when a test/custom Schedule is broader.
+        Effect.tapError(() => Effect.sync(() => { attempts++ })),
+        Effect.retry({ schedule: retrySchedule, while: error => attempts < MAX_PROVIDER_ATTEMPTS &&
+          (isProviderError(error) && isRetryableProviderError(error)) }),
+        Effect.either,
+      )
+      if (result._tag === "Left") {
+        const error = result.left
+        if (!isProviderError(error)) return yield* Effect.fail(error)
+        const failure = providerFailure(error)
+        yield* runs.markFinished(claimed.id, "FAILED", failure.failureClass, failure.detail)
+        yield* log("check failed", { status: failure.failureClass })
+        return true
+      }
+      const r = result.right
+      let measurementContext: MeasurementContextV1 | null = null
+      try {
+        measurementContext = hostedMeasurementContext({ businessId: claimed.businessId, questionId: claimed.questionId,
+          checkRunId: claimed.id, prompt: q.prompt, provider: r.provider, requestedModel: r.requestedModel,
+          observedModel: r.observedModel, observedAt: r.collectedAt })
+      } catch { /* Unsupported protocol surface stays unknown. */ }
+      yield* observations.create({
+        businessId: claimed.businessId, checkRunId: claimed.id, provider: r.provider,
+        requestedModel: r.requestedModel, observedModel: r.observedModel, collectedAt: r.collectedAt,
+        answerText: r.answerText, retrievalMode: r.retrievalMode, rawResponse: r.rawResponse,
+        rawDigest: r.rawDigest, rawBytesHex: Buffer.from(r.rawBytes).toString("hex"), rawContentType: r.rawContentType,
+        rawResponseMaxBytes: r.responseMaxBytes, providerMetadata: r.providerMetadata,
+        surfaceIdentity: measurementContext?.surface ?? null, measurementContext, synthetic: r.synthetic,
+        citations: r.citations, completeRun: true,
+      })
+      yield* log("check succeeded", { status: "SUCCEEDED" })
+      return true
+    }) }
+  }))
 export const CheckRunnerLive = makeCheckRunnerLive()
-
-export const makeTestPool = (url: string) => new pg.Pool({ connectionString: url })

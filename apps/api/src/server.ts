@@ -1,10 +1,10 @@
 import { HttpServer } from "@effect/platform"
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
-import { Effect, Layer, Redacted } from "effect"
+import { Config, Effect, Layer } from "effect"
 import { PgClient } from "@effect/sql-pg"
 import { createServer } from "node:http"
-import pg from "pg"
 import {
+  AuthRepositoryLive,
   BusinessRepositoryLive,
   CheckRunRepositoryLive,
   ClaimRepositoryLive,
@@ -21,16 +21,8 @@ import {
 } from "@ghostping/db"
 import { makeRouter } from "./router.js"
 
-const databaseUrl = process.env["DATABASE_URL"] ?? ""
-const port = Number(process.env["PORT"] ?? "3001")
-if (!databaseUrl) {
-  console.error("DATABASE_URL is required")
-  process.exit(1)
-}
-
-const pool = new pg.Pool({ connectionString: databaseUrl })
-const PgLive = PgClient.layer({ url: Redacted.make(databaseUrl) })
 const Repos = Layer.mergeAll(
+  AuthRepositoryLive,
   BusinessRepositoryLive,
   FactRepositoryLive,
   QuestionRepositoryLive,
@@ -45,14 +37,27 @@ const Repos = Layer.mergeAll(
   DiscoveryObservationRepositoryLive,
   DiscoveryMatchRepositoryLive,
 )
-// Wire Postgres into the repositories (sequential), then serve.
-const ReposProvided = Layer.provideMerge(Repos, PgLive)
 
-const router = makeRouter(pool)
+// Only what the API consumes: requiring unused keys (session secret,
+// worker path) at boot would be a regression for dev and deploy.
+const ApiConfig = Config.all({
+  databaseUrl: Config.redacted("DATABASE_URL"),
+  port: Config.integer("PORT").pipe(Config.withDefault(3001)),
+  appBaseUrl: Config.string("APP_BASE_URL").pipe(Config.withDefault("http://localhost:3000")),
+})
 
-const ServerLive = HttpServer.serve(router).pipe(
-  Layer.provide(ReposProvided),
-  Layer.provide(NodeHttpServer.layer(() => createServer(), { port })),
+const main = Effect.flatMap(ApiConfig, (config) =>
+  Effect.gen(function*() {
+    yield* Effect.logInfo(`API listening on port ${config.port}`)
+    const PgLive = PgClient.layer({ url: config.databaseUrl })
+    // Wire Postgres into the repositories (sequential), then serve.
+    const ReposProvided = Layer.provideMerge(Repos, PgLive)
+    const ServerLive = HttpServer.serve(makeRouter()).pipe(
+      Layer.provide(ReposProvided),
+      Layer.provide(NodeHttpServer.layer(() => createServer(), { port: config.port })),
+    )
+    yield* Layer.launch(ServerLive)
+  }),
 )
 
-NodeRuntime.runMain(Layer.launch(ServerLive).pipe(Effect.orDie))
+NodeRuntime.runMain(main)

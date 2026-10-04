@@ -2,9 +2,39 @@
 // observations/values (append-only evidence). Findings are derived.
 import { SqlClient } from "@effect/sql"
 import { PgClient } from "@effect/sql-pg"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
+import {
+  BooleanField,
+  TextField,
+  TimestampField,
+  UuidField,
+  decodeRow,
+} from "./row-codecs.js"
 
-const iso = (v: unknown): string => new Date(String(v)).toISOString()
+const iso = (v: Date | string): string => new Date(String(v)).toISOString()
+
+const RepresentationTargetSchema = Schema.Struct({
+  id: UuidField,
+  business_id: UuidField,
+  url: TextField,
+  control: TextField,
+  enabled: BooleanField,
+  created_at: TimestampField,
+})
+
+const decodeRepresentationTarget = (r: unknown) =>
+  decodeRow(RepresentationTargetSchema, "source_targets", r).pipe(
+    Effect.map(
+      (d): SourceTargetRow => ({
+        id: d.id,
+        businessId: d.business_id,
+        url: d.url,
+        control: d.control,
+        enabled: d.enabled,
+        createdAt: iso(d.created_at),
+      }),
+    ),
+  )
 
 export interface SourceTargetRow {
   readonly id: string
@@ -28,14 +58,13 @@ export const SourceTargetRepositoryLive = Layer.effect(
   Effect.map(PgClient.PgClient, (sql: SqlClient.SqlClient) => ({
     create: (input) =>
       Effect.gen(function*() {
-        const rows = (yield* sql`INSERT INTO source_targets (business_id, url, control, enabled) VALUES (${input.businessId}, ${input.url}, ${input.control}, ${input.enabled ?? true}) RETURNING *`) as Array<Record<string, unknown>>
-        const r = rows[0]!
-        return { id: String(r["id"]), businessId: String(r["business_id"]), url: String(r["url"]), control: String(r["control"]), enabled: Boolean(r["enabled"]), createdAt: iso(r["created_at"]) } as SourceTargetRow
+        const rows = (yield* sql`INSERT INTO source_targets (business_id, url, control, enabled) VALUES (${input.businessId}, ${input.url}, ${input.control}, ${input.enabled ?? true}) RETURNING *`) as Array<unknown>
+        return yield* decodeRepresentationTarget(rows[0])
       }),
     listByBusiness: (businessId: string) =>
       Effect.gen(function*() {
-        const rows = (yield* sql`SELECT * FROM source_targets WHERE business_id = ${businessId} ORDER BY created_at ASC`) as Array<Record<string, unknown>>
-        return rows.map((r) => ({ id: String(r["id"]), businessId: String(r["business_id"]), url: String(r["url"]), control: String(r["control"]), enabled: Boolean(r["enabled"]), createdAt: iso(r["created_at"]) }) as SourceTargetRow)
+        const rows = (yield* sql`SELECT * FROM source_targets WHERE business_id = ${businessId} ORDER BY created_at ASC`) as Array<unknown>
+        return yield* Effect.forEach(rows, decodeRepresentationTarget)
       }),
   })),
 )
