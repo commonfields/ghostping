@@ -969,6 +969,9 @@ export const makeRouter = () => {
         Effect.catchTag("ReobservationInterventionMismatch", (e) =>
           json(422, { _tag: "ReobservationInterventionMismatch", reason: e.reason }),
         ),
+        Effect.catchTag("ReobservationAlreadyActive", () =>
+          json(409, { _tag: "ReobservationAlreadyActive", reason: "a recheck is already queued or running for this issue" }),
+        ),
         Effect.catchTag("ReobservationOriginalObservationMismatch", (e) =>
           json(422, { _tag: "ReobservationOriginalObservationMismatch", reason: e.reason }),
         ),

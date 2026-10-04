@@ -235,13 +235,97 @@ run("postgres re-observation intents v1", () => {
     )).rows[0]["n"]).toBe(0)
   })
 
-  it("failed checks never create re-observation rows", async () => {
-    const biz = await setupBusiness()
+  it("failed checks never create re-observation rows", async () => {    const biz = await setupBusiness()
     const before = await observe(biz, "$29/month", "2026-10-01T00:00:00.000Z")
     const issueId = await claim(biz.businessId, before.observationId, "$29/month")
     const failedRunId = (await pool.query(`INSERT INTO check_runs (business_id, question_id, status, failure_class) VALUES ($1,$2,'FAILED','PROVIDER_TIMEOUT') RETURNING id`, [biz.businessId, biz.questionId])).rows[0]["id"] as string
     await intent({ businessId: biz.businessId, issueId, originalObservationId: before.observationId, interventionId: null, checkRunId: failedRunId })
     expect(await finalize(failedRunId)).toBeNull()
     expect((await pool.query(`SELECT count(*)::int AS n FROM reobservations WHERE issue_id = $1`, [issueId])).rows[0]["n"]).toBe(0)
+  })
+
+  describe("atomic recheck creation", () => {
+    const atomic = (businessId: string, issueId: string, originalObservationId: string, interventionId: string | null) =>
+      runFx(Effect.flatMap(ReobservationIntentRepository, (r) =>
+        r.enqueueReobservation({ businessId, issueId, originalObservationId, interventionId, createdByUserId: USER })))
+
+    it("success commits one CheckRun and one intent repeating the original identity", async () => {
+      const biz = await setupBusiness()
+      const before = await observe(biz, "$29/month", "2026-10-01T00:00:00.000Z")
+      const issueId = await claim(biz.businessId, before.observationId, "$29/month")
+      const created = await atomic(biz.businessId, issueId, before.observationId, null)
+      expect(created).not.toBeNull()
+      expect(created?.intent.checkRunId).toBe(created?.checkRun.id)
+      const run = (await pool.query(`SELECT question_id, provider, requested_model FROM check_runs WHERE id = $1`, [created!.checkRun.id])).rows[0]
+      const orig = (await pool.query(`SELECT question_id, provider, requested_model FROM check_runs WHERE id = $1`, [before.runId])).rows[0]
+      expect({ q: run["question_id"], p: run["provider"], m: run["requested_model"] }).toEqual({ q: orig["question_id"], p: orig["provider"], m: orig["requested_model"] })
+      expect(created?.checkRun.status).toBe("QUEUED")
+    })
+
+    it("intent validation failure commits neither run nor intent", async () => {
+      const biz = await setupBusiness()
+      const before = await observe(biz, "$29/month", "2026-10-01T00:00:00.000Z")
+      const issueId = await claim(biz.businessId, before.observationId, "$29/month")
+      const otherClaim = await claim(biz.businessId, before.observationId, "other words")
+      const unrelated = await runFx(Effect.flatMap(InterventionRepository, (r) => r.append(intervention(biz.businessId, [otherClaim]))))
+      const runsBefore = (await pool.query(`SELECT count(*)::int AS n FROM check_runs WHERE business_id = $1`, [biz.businessId])).rows[0]["n"] as number
+      const exit = await Effect.runPromiseExit(
+        Effect.flatMap(ReobservationIntentRepository, (r) =>
+          r.enqueueReobservation({ businessId: biz.businessId, issueId, originalObservationId: before.observationId, interventionId: unrelated.id, createdByUserId: USER }),
+        ).pipe((fx) => Effect.provide(fx, ctx)),
+      )
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect((await pool.query(`SELECT count(*)::int AS n FROM check_runs WHERE business_id = $1`, [biz.businessId])).rows[0]["n"]).toBe(runsBefore)
+      expect((await pool.query(`SELECT count(*)::int AS n FROM reobservation_intents WHERE issue_id = $1`, [issueId])).rows[0]["n"]).toBe(0)
+    })
+
+    it("a second active attempt fails typed; terminal attempts do not block", async () => {
+      const biz = await setupBusiness()
+      const before = await observe(biz, "$29/month", "2026-10-01T00:00:00.000Z")
+      const issueId = await claim(biz.businessId, before.observationId, "$29/month")
+      const first = await atomic(biz.businessId, issueId, before.observationId, null)
+      expect(first).not.toBeNull()
+      const dup = await Effect.runPromiseExit(
+        Effect.flatMap(ReobservationIntentRepository, (r) =>
+          r.enqueueReobservation({ businessId: biz.businessId, issueId, originalObservationId: before.observationId, interventionId: null, createdByUserId: USER }),
+        ).pipe((fx) => Effect.provide(fx, ctx)),
+      )
+      expect(Exit.isFailure(dup)).toBe(true)
+      if (dup._tag === "Failure" && dup.cause._tag === "Fail") {
+        expect(String((dup.cause.error as { _tag?: string })?._tag)).toBe("ReobservationAlreadyActive")
+      }
+      expect((await pool.query(`SELECT count(*)::int AS n FROM reobservation_intents WHERE issue_id = $1`, [issueId])).rows[0]["n"]).toBe(1)
+      await pool.query(`UPDATE check_runs SET status = 'SUCCEEDED', completed_at = now() WHERE id = $1`, [first!.checkRun.id])
+      const second = await atomic(biz.businessId, issueId, before.observationId, null)
+      expect(second).not.toBeNull()
+      expect(second?.checkRun.id).not.toBe(first?.checkRun.id)
+    })
+  })
+
+  describe("measurement identity backstop", () => {
+    const directIntent = (businessId: string, issueId: string, originalObservationId: string, checkRunId: string) =>
+      pool.query(
+        `INSERT INTO reobservation_intents (business_id, issue_id, original_observation_id, check_run_id, created_by_user_id) VALUES ($1,$2,$3,$4,$5)`,
+        [businessId, issueId, originalObservationId, checkRunId, USER],
+      )
+
+    it("direct writes with mismatched question/provider/model are rejected", async () => {
+      const biz = await setupBusiness()
+      const before = await observe(biz, "$29/month", "2026-10-01T00:00:00.000Z")
+      const issueId = await claim(biz.businessId, before.observationId, "$29/month")
+      const otherQuestion = (await pool.query(`INSERT INTO buyer_questions (business_id, prompt) VALUES ($1,'Other question') RETURNING id`, [biz.businessId])).rows[0]["id"] as string
+      const badQuestion = (await pool.query(`INSERT INTO check_runs (business_id, question_id, provider, status) VALUES ($1,$2,'mock','QUEUED') RETURNING id`, [biz.businessId, otherQuestion])).rows[0]["id"] as string
+      await expect(directIntent(biz.businessId, issueId, before.observationId, badQuestion)).rejects.toThrow(/different question/)
+      const badProvider = (await pool.query(`INSERT INTO check_runs (business_id, question_id, provider, status) VALUES ($1,$2,'9router','QUEUED') RETURNING id`, [biz.businessId, biz.questionId])).rows[0]["id"] as string
+      await expect(directIntent(biz.businessId, issueId, before.observationId, badProvider)).rejects.toThrow(/different provider/)
+      const badModel = (await pool.query(`INSERT INTO check_runs (business_id, question_id, provider, requested_model, status) VALUES ($1,$2,'mock','model-x','QUEUED') RETURNING id`, [biz.businessId, biz.questionId])).rows[0]["id"] as string
+      await expect(directIntent(biz.businessId, issueId, before.observationId, badModel)).rejects.toThrow(/different requested model/)
+      const otherBiz = await setupBusiness()
+      const foreignRun = (await pool.query(`INSERT INTO check_runs (business_id, question_id, status) VALUES ($1,$2,'QUEUED') RETURNING id`, [otherBiz.businessId, otherBiz.questionId])).rows[0]["id"] as string
+      await expect(directIntent(biz.businessId, issueId, before.observationId, foreignRun)).rejects.toThrow()
+      const goodRun = (await pool.query(`INSERT INTO check_runs (business_id, question_id, provider, status) VALUES ($1,$2,'mock','QUEUED') RETURNING id`, [biz.businessId, biz.questionId])).rows[0]["id"] as string
+      await directIntent(biz.businessId, issueId, before.observationId, goodRun)
+      expect((await pool.query(`SELECT count(*)::int AS n FROM reobservation_intents WHERE check_run_id = $1`, [goodRun])).rows[0]["n"]).toBe(1)
+    })
   })
 })

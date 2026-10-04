@@ -33,10 +33,15 @@ import {
   type Verdict,
 } from "@ghostping/protocol"
 import {
+  CheckRunRepository,
   EvidenceLineageRepository,
+  ObservationRepository,
   ProductReadRepository,
+  ReobservationIntentRepository,
   hostedQuestionVersion,
+  type CheckRunRow,
   type InterventionRow,
+  type ReobservationIntentRow,
   type ReobservationRow,
 } from "@ghostping/db"
 import { issueStateOf, loadRepresentations, scopedBusiness } from "./reads.js"
@@ -46,12 +51,15 @@ import { issueStateOf, loadRepresentations, scopedBusiness } from "./reads.js"
 // ---------------------------------------------------------------------------
 
 /** Source verification states for one issue. Derived, never asserted. */
-export type SourceVerificationState =
+export type SourceChangeState =
   | "SOURCE_NOT_CHECKED"
-  | "SOURCE_OBSERVED_UNCHANGED"
-  | "SOURCE_OBSERVED_CHANGED"
+  | "SOURCE_CHANGED"
+  | "SOURCE_UNCHANGED"
   | "SOURCE_OBSERVATION_FAILED"
   | "SOURCE_UNKNOWN"
+
+/** Current agreement between latest tracked evidence and approved truth. */
+export type SourceAlignmentState = "IN_SYNC" | "DRIFT" | "UNKNOWN"
 
 /**
  * The only outcome sentences the loop may render. Every display string in
@@ -66,12 +74,18 @@ export const LOOP_DISPLAY_COPY = {
   needsReview: "Needs review",
 } as const
 
-const SOURCE_DETAIL: Record<SourceVerificationState, string> = {
+const SOURCE_DETAIL: Record<SourceChangeState, string> = {
   SOURCE_NOT_CHECKED: "No action has been recorded for this issue, so there is no source follow-up to report.",
   SOURCE_UNKNOWN: "The source state cannot be established from tracked evidence, so it stays unknown.",
-  SOURCE_OBSERVED_UNCHANGED: "Tracked source evidence linked to the action still shows the approved value.",
-  SOURCE_OBSERVED_CHANGED: "Tracked source evidence linked to the action shows a value different from the approved value.",
+  SOURCE_CHANGED: "Tracked source evidence differs across the recorded action.",
+  SOURCE_UNCHANGED: "Tracked source evidence is equivalent across the recorded action.",
   SOURCE_OBSERVATION_FAILED: "The linked source observation failed to collect, so the source state is unknown.",
+}
+
+export const SOURCE_ALIGNMENT_COPY: Record<SourceAlignmentState, string> = {
+  IN_SYNC: "Current source state: in sync with approved truth",
+  DRIFT: "Current source state: differs from approved truth",
+  UNKNOWN: "Current source state: unknown",
 }
 
 // ---------------------------------------------------------------------------
@@ -116,18 +130,29 @@ export interface LoopJudgmentInput {
 }
 
 /**
- * Explicit structured linkage between a recorded action and tracked source
- * evidence. The loader establishes links by content digest only; free-text
- * action targets are never string-matched to source URLs, so an unlinked
- * action keeps SOURCE_UNKNOWN instead of a guessed binding.
+ * Tracked source evidence for change derivation. The loader supplies every
+ * observation of digest-linked candidate bindings; derivation orders them
+ * around the intervention instead of guessing from free-text URLs.
  */
-export interface LoopSourceLinkInput {
-  readonly observationId: string
-  readonly bindingId: string | null
-  readonly findingState: string
+export interface LoopSourceObservationInput {
+  readonly id: string
+  readonly targetId: string
   readonly collectionState: string
   readonly failure: string | null
   readonly completedAt: string
+  readonly bodyDigest: string | null
+}
+
+/**
+ * Candidate tracked bindings for one issue: bindings whose observations
+ * share content digests with recorded action evidence. Free-text action
+ * targets are never string-matched to source URLs, so an action with no
+ * digest-linked binding keeps SOURCE_UNKNOWN instead of a guessed binding.
+ */
+export interface LoopSourceBindingInput {
+  readonly bindingId: string
+  readonly targetId: string
+  readonly findingState: string
 }
 
 // ---------------------------------------------------------------------------
@@ -170,11 +195,17 @@ export interface LoopComparisonDto {
 }
 
 export interface LoopAttemptDto {
-  readonly id: string
+  readonly intentId: string
   readonly interventionId: string | null
-  readonly observationId: string
-  readonly createdAt: string
-  readonly status: "COMPLETED" | "PENDING"
+  readonly checkRunId: string
+  readonly state: "QUEUED" | "RUNNING" | "FAILED" | "COMPLETED" | "FINALIZING"
+  readonly queuedAt: string | null
+  readonly startedAt: string | null
+  readonly completedAt: string | null
+  readonly failureClass: string | null
+  readonly failureDetailSafe: string | null
+  readonly observationId: string | null
+  readonly reobservationId: string | null
 }
 
 export interface LoopCompletedDto {
@@ -201,10 +232,12 @@ export interface IssueLoopDto {
   } | null
   readonly interventions: ReadonlyArray<InterventionRow>
   readonly sourceVerification: {
-    readonly state: SourceVerificationState
+    readonly bindingId: string | null
+    readonly alignment: SourceAlignmentState
+    readonly change: SourceChangeState
+    readonly beforeObservationId: string | null
+    readonly afterObservationId: string | null
     readonly detail: string
-    readonly linkedBindingId: string | null
-    readonly linkedObservationId: string | null
   }
   readonly reobservationAttempts: ReadonlyArray<LoopAttemptDto>
   readonly completedReobservations: ReadonlyArray<LoopCompletedDto>
@@ -305,60 +338,138 @@ const buildSide = (
   verdict: judgment ? toLoopVerdict(judgment.verdict) : null,
 })
 
+const toAlignment = (v: unknown): SourceAlignmentState =>
+  v === "IN_SYNC" ? "IN_SYNC" : v === "DRIFT" ? "DRIFT" : "UNKNOWN"
+
+interface PerBindingVerdict {
+  readonly bindingId: string
+  readonly alignment: SourceAlignmentState
+  readonly change: SourceChangeState
+  readonly beforeObservationId: string | null
+  readonly afterObservationId: string | null
+}
+
 /**
- * Source verification from recorded actions plus explicit digest links.
- * No link is ever inferred from free-text URLs, and the answer is a state
- * string, never a manual boolean.
+ * Source verification from recorded actions plus tracked evidence, split
+ * into two independent dimensions:
+ *
+ * - alignment: does the latest observed representation agree with approved
+ *   truth (reuses RepresentationFinding, never duplicated here);
+ * - change: did source evidence change across the intervention boundary,
+ *   proven by before/after observations of the SAME tracked binding.
+ *
+ * Change law (V1, strict): both sides must be successful observations
+ * (FETCHED/NOT_MODIFIED) carrying non-null body digests, ordered around the
+ * latest intervention's performed_at (before <= performed, after >=
+ * performed). Digest equality decides; anything weaker is UNKNOWN, never a
+ * guess. Digest comparison is exact bytes, never URL or cross-binding
+ * matching: the binding identity anchors every comparison.
  */
 export const deriveSourceVerification = (args: {
   readonly interventions: ReadonlyArray<InterventionRow>
-  readonly links: ReadonlyArray<LoopSourceLinkInput>
+  readonly bindings: ReadonlyArray<LoopSourceBindingInput>
+  readonly observations: ReadonlyArray<LoopSourceObservationInput>
 }): IssueLoopDto["sourceVerification"] => {
-  if (args.interventions.length === 0) {
-    return { state: "SOURCE_NOT_CHECKED", detail: SOURCE_DETAIL.SOURCE_NOT_CHECKED, linkedBindingId: null, linkedObservationId: null }
+  const none = (change: SourceChangeState): IssueLoopDto["sourceVerification"] => ({
+    bindingId: null,
+    alignment: "UNKNOWN",
+    change,
+    beforeObservationId: null,
+    afterObservationId: null,
+    detail: SOURCE_DETAIL[change],
+  })
+  if (args.interventions.length === 0) return none("SOURCE_NOT_CHECKED")
+  const anchor = [...args.interventions].sort((a, b) =>
+    a.performedAt < b.performedAt ? -1 : a.performedAt > b.performedAt ? 1
+    : a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1
+    : a.id < b.id ? -1 : 1,
+  ).at(-1)
+  if (!anchor) return none("SOURCE_UNKNOWN")
+  const orderedBindings = [...args.bindings].sort((a, b) => (a.bindingId < b.bindingId ? -1 : 1))
+  if (orderedBindings.length === 0) return none("SOURCE_UNKNOWN")
+  const isSuccess = (o: LoopSourceObservationInput): boolean =>
+    o.collectionState === "FETCHED" || o.collectionState === "NOT_MODIFIED"
+  const verdicts: PerBindingVerdict[] = []
+  for (const b of orderedBindings) {
+    const mine = args.observations
+      .filter((o) => o.targetId === b.targetId)
+      .sort((a, c) => (a.completedAt < c.completedAt ? -1 : a.completedAt > c.completedAt ? 1 : a.id < c.id ? -1 : 1))
+    const alignment = toAlignment(b.findingState)
+    const before = [...mine].reverse().find((o) => isSuccess(o) && o.completedAt <= anchor.performedAt) ?? null
+    const afterSuccess = mine.find((o) => isSuccess(o) && o.completedAt >= anchor.performedAt) ?? null
+    if (before !== null && afterSuccess !== null) {
+      if (before.bodyDigest === null || afterSuccess.bodyDigest === null) {
+        verdicts.push({ bindingId: b.bindingId, alignment, change: "SOURCE_UNKNOWN", beforeObservationId: before.id, afterObservationId: afterSuccess.id })
+      } else if (before.bodyDigest.toLowerCase() === afterSuccess.bodyDigest.toLowerCase()) {
+        verdicts.push({ bindingId: b.bindingId, alignment, change: "SOURCE_UNCHANGED", beforeObservationId: before.id, afterObservationId: afterSuccess.id })
+      } else {
+        verdicts.push({ bindingId: b.bindingId, alignment, change: "SOURCE_CHANGED", beforeObservationId: before.id, afterObservationId: afterSuccess.id })
+      }
+      continue
+    }
+    const failedAfter = mine.find((o) => !isSuccess(o) && o.completedAt >= anchor.performedAt) ?? null
+    if (failedAfter !== null) {
+      verdicts.push({ bindingId: b.bindingId, alignment, change: "SOURCE_OBSERVATION_FAILED", beforeObservationId: before?.id ?? null, afterObservationId: failedAfter.id })
+      continue
+    }
+    const anyAfter = mine.find((o) => o.completedAt >= anchor.performedAt) ?? null
+    if (before === null && anyAfter === null) {
+      // Nothing collected around the action on this binding at all.
+      verdicts.push({ bindingId: b.bindingId, alignment, change: "SOURCE_UNKNOWN", beforeObservationId: null, afterObservationId: null })
+      continue
+    }
+    if (anyAfter === null) {
+      verdicts.push({ bindingId: b.bindingId, alignment, change: "SOURCE_NOT_CHECKED", beforeObservationId: before?.id ?? null, afterObservationId: null })
+      continue
+    }
+    verdicts.push({ bindingId: b.bindingId, alignment, change: "SOURCE_UNKNOWN", beforeObservationId: before?.id ?? null, afterObservationId: afterSuccess?.id ?? null })
   }
-  if (args.links.length === 0) {
-    return { state: "SOURCE_UNKNOWN", detail: SOURCE_DETAIL.SOURCE_UNKNOWN, linkedBindingId: null, linkedObservationId: null }
-  }
-  const ordered = [...args.links].sort((a, b) =>
-    a.completedAt < b.completedAt ? -1 : a.completedAt > b.completedAt ? 1
-    : a.observationId < b.observationId ? -1 : a.observationId > b.observationId ? 1
-    : (a.bindingId ?? "") < (b.bindingId ?? "") ? -1 : 1,
-  )
-  const latest = ordered.at(-1)
-  if (!latest) {
-    return { state: "SOURCE_UNKNOWN", detail: SOURCE_DETAIL.SOURCE_UNKNOWN, linkedBindingId: null, linkedObservationId: null }
-  }
-  if (latest.failure !== null || latest.collectionState === "FAILED") {
+  const decisive = verdicts.filter((v) => v.change === "SOURCE_CHANGED" || v.change === "SOURCE_UNCHANGED")
+  const distinct = [...new Set(decisive.map((v) => v.change))].sort()
+  if (distinct.length === 1) {
+    const winner = decisive.find((v) => v.change === distinct[0])!
     return {
-      state: "SOURCE_OBSERVATION_FAILED",
-      detail: SOURCE_DETAIL.SOURCE_OBSERVATION_FAILED,
-      linkedBindingId: latest.bindingId,
-      linkedObservationId: latest.observationId,
+      bindingId: winner.bindingId,
+      alignment: winner.alignment,
+      change: winner.change,
+      beforeObservationId: winner.beforeObservationId,
+      afterObservationId: winner.afterObservationId,
+      detail: SOURCE_DETAIL[winner.change],
     }
   }
-  if (latest.findingState === "IN_SYNC") {
+  if (distinct.length > 1) {
     return {
-      state: "SOURCE_OBSERVED_UNCHANGED",
-      detail: SOURCE_DETAIL.SOURCE_OBSERVED_UNCHANGED,
-      linkedBindingId: latest.bindingId,
-      linkedObservationId: latest.observationId,
+      bindingId: null,
+      alignment: "UNKNOWN",
+      change: "SOURCE_UNKNOWN",
+      beforeObservationId: null,
+      afterObservationId: null,
+      detail: "Tracked bindings disagree across the recorded action, so the source change stays unknown.",
     }
   }
-  if (latest.findingState === "DRIFT") {
+  const failed = verdicts.find((v) => v.change === "SOURCE_OBSERVATION_FAILED") ?? null
+  if (failed) {
     return {
-      state: "SOURCE_OBSERVED_CHANGED",
-      detail: SOURCE_DETAIL.SOURCE_OBSERVED_CHANGED,
-      linkedBindingId: latest.bindingId,
-      linkedObservationId: latest.observationId,
+      bindingId: failed.bindingId,
+      alignment: failed.alignment,
+      change: failed.change,
+      beforeObservationId: failed.beforeObservationId,
+      afterObservationId: failed.afterObservationId,
+      detail: SOURCE_DETAIL[failed.change],
     }
   }
-  return {
-    state: "SOURCE_UNKNOWN",
-    detail: SOURCE_DETAIL.SOURCE_UNKNOWN,
-    linkedBindingId: latest.bindingId,
-    linkedObservationId: latest.observationId,
+  const notChecked = verdicts.find((v) => v.change === "SOURCE_NOT_CHECKED") ?? null
+  if (notChecked) {
+    return {
+      bindingId: notChecked.bindingId,
+      alignment: notChecked.alignment,
+      change: notChecked.change,
+      beforeObservationId: notChecked.beforeObservationId,
+      afterObservationId: notChecked.afterObservationId,
+      detail: SOURCE_DETAIL[notChecked.change],
+    }
   }
+  return none("SOURCE_UNKNOWN")
 }
 
 const comparisonCopy = (c: {
@@ -463,7 +574,12 @@ export const buildIssueLoop = (args: {
   readonly interventions: ReadonlyArray<InterventionRow>
   readonly reobservations: ReadonlyArray<ReobservationRow>
   readonly afterObservations: ReadonlyMap<string, LoopObservationInput>
-  readonly sourceLinks: ReadonlyArray<LoopSourceLinkInput>
+  readonly sourceBindings: ReadonlyArray<LoopSourceBindingInput>
+  readonly sourceObservations: ReadonlyArray<LoopSourceObservationInput>
+  readonly intents: ReadonlyArray<ReobservationIntentRow>
+  readonly checkRuns: ReadonlyMap<string, CheckRunRow>
+  /** Observation id per check run id, for runs that produced one. */
+  readonly runObservations: ReadonlyMap<string, string>
 }): IssueLoopDto => {
   const judgmentRefs = toJudgmentRefs(args.judgments)
   const claimRefs = toClaimRefs(args.claims)
@@ -474,16 +590,85 @@ export const buildIssueLoop = (args: {
   const ordered = [...args.reobservations].sort((a, b) =>
     a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1,
   )
-  const attempts: LoopAttemptDto[] = ordered.map((r) => ({
-    id: r.id,
-    interventionId: r.interventionId,
-    observationId: r.observationId,
-    createdAt: r.createdAt,
-    status: args.afterObservations.has(r.observationId) ? "COMPLETED" : "PENDING",
-  }))
+  const unknowns: ExplicitUnknownDto[] = []
+  // Attempts derive from durable intents joined to their check runs, never
+  // from finalized links alone: QUEUED/RUNNING/FAILED attempts stay visible
+  // with their evidence. SUCCEEDED with a link is COMPLETED; SUCCEEDED with
+  // an observation but no link yet is FINALIZING (the sweeper finalizes it;
+  // a genuinely crashed window, not an outcome).
+  const linkByObservationId = new Map(args.reobservations.map((r) => [r.observationId, r] as const))
+  const orderedIntents = [...args.intents].sort((a, b) =>
+    a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1,
+  )
+  const attempts: LoopAttemptDto[] = []
+  for (const intent of orderedIntents) {
+    const run = args.checkRuns.get(intent.checkRunId)
+    if (!run) {
+      unknowns.push({ subjectId: intent.id, field: "recheck_attempt" })
+      continue
+    }
+    const observationId = args.runObservations.get(intent.checkRunId) ?? null
+    const link = observationId === null ? undefined : linkByObservationId.get(observationId)
+    if (run.status === "QUEUED" || run.status === "RUNNING") {
+      attempts.push({
+        intentId: intent.id,
+        interventionId: intent.interventionId,
+        checkRunId: run.id,
+        state: run.status,
+        queuedAt: run.queuedAt,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt,
+        failureClass: null,
+        failureDetailSafe: null,
+        observationId: null,
+        reobservationId: null,
+      })
+    } else if (run.status === "FAILED") {
+      attempts.push({
+        intentId: intent.id,
+        interventionId: intent.interventionId,
+        checkRunId: run.id,
+        state: "FAILED",
+        queuedAt: run.queuedAt,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt,
+        failureClass: run.failureClass,
+        failureDetailSafe: run.failureDetailSafe,
+        observationId,
+        reobservationId: null,
+      })
+    } else if (link) {
+      attempts.push({
+        intentId: intent.id,
+        interventionId: intent.interventionId,
+        checkRunId: run.id,
+        state: "COMPLETED",
+        queuedAt: run.queuedAt,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt,
+        failureClass: null,
+        failureDetailSafe: null,
+        observationId,
+        reobservationId: link.id,
+      })
+    } else {
+      attempts.push({
+        intentId: intent.id,
+        interventionId: intent.interventionId,
+        checkRunId: run.id,
+        state: "FINALIZING",
+        queuedAt: run.queuedAt,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt,
+        failureClass: null,
+        failureDetailSafe: null,
+        observationId,
+        reobservationId: null,
+      })
+    }
+  }
 
   const completed: LoopCompletedDto[] = []
-  const unknowns: ExplicitUnknownDto[] = []
   if (beforeJudgment === null) unknowns.push({ subjectId: args.claim.id, field: "verdict" })
   if (toLoopMeasurementContext(args.originalObservation) === null) {
     unknowns.push({ subjectId: args.originalObservation.id, field: "measurement_context" })
@@ -545,7 +730,7 @@ export const buildIssueLoop = (args: {
         ? { id: beforeJudgment.id, verdict: originalVerdict, notes: beforeJudgment.notes, createdAt: beforeJudgment.createdAt }
         : null,
     interventions: args.interventions,
-    sourceVerification: deriveSourceVerification({ interventions: args.interventions, links: args.sourceLinks }),
+    sourceVerification: deriveSourceVerification({ interventions: args.interventions, bindings: args.sourceBindings, observations: args.sourceObservations }),
     reobservationAttempts: attempts,
     completedReobservations: completed,
     latestComparison,
@@ -660,45 +845,56 @@ export const loadIssueLoop = (accountId: string, businessId: string, claimId: st
 
     // Source linkage by content digest only. A recorded action carries
     // optional evidence digests; a tracked source observation carries a body
-    // digest. Equal digests link them. Free-text targets are never
-    // string-matched to source URLs, so unlinked actions stay UNKNOWN.
+    // digest. Equal digests nominate candidate bindings. Free-text targets
+    // are never string-matched to source URLs. Change derivation then uses
+    // every observation of those bindings ordered around the action — never
+    // global digest matching across unrelated bindings.
     const wanted = new Set<string>()
     for (const iv of lineage.interventions) {
       if (iv.evidenceBeforeDigest !== null) wanted.add(iv.evidenceBeforeDigest.toLowerCase())
       if (iv.evidenceAfterDigest !== null) wanted.add(iv.evidenceAfterDigest.toLowerCase())
     }
-    const sourceLinks: LoopSourceLinkInput[] = []
+    const sourceBindings: LoopSourceBindingInput[] = []
+    const sourceObservations: LoopSourceObservationInput[] = []
     if (wanted.size > 0) {
       const reads = yield* ProductReadRepository
       const representations = (yield* loadRepresentations(accountId, businessId)) ?? []
       const sourceObs = yield* reads.observations(businessId)
+      const linkedTargetIds = new Set<string>()
       for (const so of sourceObs) {
-        if (so.bodyDigest === null || !wanted.has(so.bodyDigest.toLowerCase())) continue
-        const linked = representations.filter(
-          (r) =>
-            r.effective_observation?.observation_id === so.id || r.latest_successful_check?.observation_id === so.id,
-        )
-        if (linked.length === 0) {
-          sourceLinks.push({
-            observationId: so.id,
-            bindingId: null,
-            findingState: "UNKNOWN",
-            collectionState: so.collectionState,
-            failure: so.failure,
-            completedAt: so.completedAt,
-          })
-        }
-        for (const rep of linked) {
-          sourceLinks.push({
-            observationId: so.id,
-            bindingId: rep.binding_id,
-            findingState: rep.finding.state,
-            collectionState: so.collectionState,
-            failure: so.failure,
-            completedAt: so.completedAt,
-          })
-        }
+        if (so.bodyDigest !== null && wanted.has(so.bodyDigest.toLowerCase())) linkedTargetIds.add(so.sourceTargetId)
       }
+      for (const rep of representations) {
+        if (!linkedTargetIds.has(rep.source.target_id)) continue
+        sourceBindings.push({ bindingId: rep.binding_id, targetId: rep.source.target_id, findingState: rep.finding.state })
+      }
+      for (const so of sourceObs) {
+        if (!linkedTargetIds.has(so.sourceTargetId)) continue
+        const completedAt = so.completedAt
+        if (completedAt === null) continue
+        sourceObservations.push({
+          id: so.id,
+          targetId: so.sourceTargetId,
+          collectionState: so.collectionState,
+          failure: so.failure,
+          completedAt,
+          bodyDigest: so.bodyDigest,
+        })
+      }
+    }
+
+    const intentsRepo = yield* ReobservationIntentRepository
+    const intentRows = yield* intentsRepo.listByIssue(businessId, claimId)
+    const runsRepo = yield* CheckRunRepository
+    const obsRepo = yield* ObservationRepository
+    const checkRuns = new Map<string, CheckRunRow>()
+    const runObservations = new Map<string, string>()
+    for (const intent of intentRows) {
+      const run = yield* runsRepo.getScoped(businessId, intent.checkRunId)
+      if (!run) continue
+      checkRuns.set(run.id, run)
+      const obs = yield* obsRepo.getByCheckRun(run.id)
+      if (obs && obs.businessId === businessId) runObservations.set(run.id, obs.id)
     }
 
     return buildIssueLoop({
@@ -709,6 +905,10 @@ export const loadIssueLoop = (accountId: string, businessId: string, claimId: st
       interventions: lineage.interventions,
       reobservations: lineage.reobservations,
       afterObservations,
-      sourceLinks,
+      sourceBindings,
+      sourceObservations,
+      intents: intentRows,
+      checkRuns,
+      runObservations,
     })
   })

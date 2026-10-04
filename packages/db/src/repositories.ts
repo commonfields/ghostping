@@ -377,7 +377,7 @@ const CheckRunSchema = Schema.Struct({
   attempt_count: NullableIntField,
 })
 
-const decodeCheckRun = (row: unknown): Effect.Effect<CheckRunRow, RowDecodeError> =>
+export const decodeCheckRun = (row: unknown): Effect.Effect<CheckRunRow, RowDecodeError> =>
   decodeRow(CheckRunSchema, "check_runs", row).pipe(
     Effect.map((d) => ({
       id: d.id,

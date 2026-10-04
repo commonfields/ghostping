@@ -197,6 +197,9 @@ function RecordedActionsCard({ businessId, claimId }: { businessId: string; clai
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="secondary">{sentenceCase(a.type)}</Badge>
                   <span className="text-sm font-medium break-words">{a.target}</span>
+                  {a.supersedesId ? (
+                    <span className="text-xs text-muted-foreground">superseded — history only</span>
+                  ) : null}
                 </div>
                 <p className="text-xs text-muted-foreground">{formatDateTime(a.performedAt)}</p>
                 {a.notes ? <p className="text-sm">{a.notes}</p> : null}
@@ -276,12 +279,33 @@ function RecordedActionsCard({ businessId, claimId }: { businessId: string; clai
   )
 }
 
-const sourceVerificationCopy: Record<string, string> = {
+const sourceChangeCopy: Record<string, string> = {
   SOURCE_NOT_CHECKED: "Source not checked",
-  SOURCE_OBSERVED_UNCHANGED: "Source observed unchanged",
-  SOURCE_OBSERVED_CHANGED: "Source observed changed",
-  SOURCE_OBSERVATION_FAILED: "Source observation failed",
-  SOURCE_UNKNOWN: "Source unknown",
+  SOURCE_CHANGED: "Source changed",
+  SOURCE_UNCHANGED: "Source unchanged",
+  SOURCE_OBSERVATION_FAILED: "Source check failed",
+  SOURCE_UNKNOWN: "Source change unknown",
+}
+
+const sourceAlignmentCopy: Record<string, string> = {
+  IN_SYNC: "Current source state: in sync",
+  DRIFT: "Current source state: drift",
+  UNKNOWN: "Current source state: unknown",
+}
+
+const attemptStateCopy: Record<string, string> = {
+  QUEUED: "Recheck queued",
+  RUNNING: "Recheck in progress",
+  FAILED: "Recheck failed",
+  COMPLETED: "Recheck observed",
+  FINALIZING: "Finalizing recheck",
+}
+
+/** Interventions superseded by a correction stay listed (history) but are
+ * marked so new rechecks link the current head, not an old row. */
+const interventionHeadIds = (list: Array<{ id: string; supersedesId: string | null }>): Set<string> => {
+  const superseded = new Set(list.flatMap((a) => (a.supersedesId ? [a.supersedesId] : [])))
+  return new Set(list.filter((a) => !superseded.has(a.id)).map((a) => a.id))
 }
 
 function IssueLoopSection({ businessId, claimId }: { businessId: string; claimId: string }) {
@@ -294,8 +318,10 @@ function IssueLoopSection({ businessId, claimId }: { businessId: string; claimId
   const comparison = loop?.latestComparison ?? null
   const completed = loop?.completedReobservations ?? []
   const attempts = loop?.reobservationAttempts ?? []
-  const queued = attempts.filter((a) => a.status !== "COMPLETED")
+  const activeAttempt = attempts.find((a) => a.state === "QUEUED" || a.state === "RUNNING" || a.state === "FINALIZING") ?? null
+  const failedAttempts = attempts.filter((a) => a.state === "FAILED")
   const latestAfter = completed.at(-1)?.after ?? null
+  const headIds = interventionHeadIds(loop?.interventions ?? [])
 
   // Chronological stages: AI observed → reviewed → issue → action →
   // source check → AI recheck → review → outcome.
@@ -319,16 +345,20 @@ function IssueLoopSection({ businessId, claimId }: { businessId: string; claimId
         },
         {
           label: "Source check",
-          detail: `${sourceVerificationCopy[loop.sourceVerification.state] ?? loop.sourceVerification.state}. ${loop.sourceVerification.detail}`,
+          detail: `${sourceChangeCopy[loop.sourceVerification.change] ?? loop.sourceVerification.change}. ${
+            sourceAlignmentCopy[loop.sourceVerification.alignment] ?? loop.sourceVerification.alignment
+          }. ${loop.sourceVerification.detail}`,
         },
         {
           label: "AI recheck",
           detail:
-            completed.length === 0
-              ? queued.length > 0
-                ? "Recheck queued"
-                : "Not rechecked yet"
-              : `${completed.length} recheck${completed.length === 1 ? "" : "s"} observed`,
+            activeAttempt !== null
+              ? (attemptStateCopy[activeAttempt.state] ?? activeAttempt.state)
+              : completed.length === 0
+                ? failedAttempts.length > 0
+                  ? `Recheck failed${failedAttempts.length === 1 && failedAttempts[0]?.failureClass ? ` (${failedAttempts[0].failureClass})` : ""}. A new recheck starts a fresh attempt; failures are never re-observed outcomes.`
+                  : "Not rechecked yet"
+                : `${completed.length} recheck${completed.length === 1 ? "" : "s"} observed`,
         },
         {
           label: "Review",
@@ -407,6 +437,7 @@ function IssueLoopSection({ businessId, claimId }: { businessId: string; claimId
                   {(loop?.interventions ?? []).map((a) => (
                     <SelectItem key={a.id} value={a.id}>
                       {sentenceCase(a.type)} — {a.target}
+                      {headIds.has(a.id) ? "" : " (superseded)"}
                     </SelectItem>
                   ))}
                 </SelectContent>

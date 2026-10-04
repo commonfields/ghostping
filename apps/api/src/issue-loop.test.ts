@@ -8,10 +8,15 @@ import { Effect, Layer } from "effect"
 import { knownValue, PROTOCOL_VERSION, schemaId, surfaceForWorker } from "@ghostping/protocol"
 import {
   BusinessRepository,
+  CheckRunRepository,
   EvidenceLineageRepository,
   FactRepository,
+  ObservationRepository,
   ProductReadRepository,
+  ReobservationIntentRepository,
+  type CheckRunRow,
   type InterventionRow,
+  type ReobservationIntentRow,
   type ReobservationRow,
 } from "@ghostping/db"
 import {
@@ -125,7 +130,11 @@ const baseArgs = () => ({
   interventions: [] as InterventionRow[],
   reobservations: [] as ReobservationRow[],
   afterObservations: new Map<string, LoopObservationInput>(),
-  sourceLinks: [],
+  sourceBindings: [],
+  sourceObservations: [],
+  intents: [],
+  checkRuns: new Map(),
+  runObservations: new Map(),
 })
 
 describe("issue loop is derived, never stored", () => {
@@ -208,44 +217,229 @@ describe("UNKNOWN preservation", () => {
 
   it("unlinked actions stay SOURCE_UNKNOWN, never a guessed binding", () => {
     const loop = buildIssueLoop({ ...baseArgs(), interventions: [intervention("01")] })
-    expect(loop.sourceVerification.state).toBe("SOURCE_UNKNOWN")
-    expect(loop.sourceVerification.linkedBindingId).toBeNull()
+    expect(loop.sourceVerification.change).toBe("SOURCE_UNKNOWN")
+    expect(loop.sourceVerification.bindingId).toBeNull()
     expect(loop.explicitUnknowns).toContainEqual({ subjectId: CLAIM, field: "outcome_after_intervention" })
   })
 
   it("no actions means SOURCE_NOT_CHECKED with no outcome unknown", () => {
     const loop = buildIssueLoop({ ...baseArgs(), judgments: [] })
-    expect(loop.sourceVerification).toMatchObject({ state: "SOURCE_NOT_CHECKED", linkedBindingId: null, linkedObservationId: null })
+    expect(loop.sourceVerification).toMatchObject({ change: "SOURCE_NOT_CHECKED", bindingId: null, beforeObservationId: null, afterObservationId: null })
     expect(loop.explicitUnknowns.some((u) => u.field === "outcome_after_intervention")).toBe(false)
     expect(loop.explicitUnknowns.some((u) => u.field === "causal_attribution")).toBe(false)
   })
 
-  it("source verification is a state string, never a manual boolean", () => {
+  it("source verification is states, never a manual boolean", () => {
     const loop = buildIssueLoop({ ...baseArgs(), interventions: [intervention("01")] })
-    expect(Object.keys(loop.sourceVerification).sort()).toEqual(["detail", "linkedBindingId", "linkedObservationId", "state"])
-    expect(typeof loop.sourceVerification.state).toBe("string")
+    expect(Object.keys(loop.sourceVerification).sort()).toEqual(["afterObservationId", "alignment", "beforeObservationId", "bindingId", "change", "detail"])
+    expect(typeof loop.sourceVerification.change).toBe("string")
     expect(JSON.stringify(loop.sourceVerification)).not.toMatch(/fixed|resolved|success/i)
   })
 })
 
-describe("deriveSourceVerification", () => {
-  const link = (findingState: string, extra?: { collectionState?: string; failure?: string | null }) => ({
-    observationId: "o-linked",
-    bindingId: "b-linked",
-    findingState,
-    collectionState: extra?.collectionState ?? "FETCHED",
-    failure: extra?.failure ?? null,
-    completedAt: "2026-10-02T12:00:00.000Z",
+describe("deriveSourceVerification: alignment is not change", () => {
+  // Intervention performed 2026-10-02; before < performed <= after.
+  const binding = (findingState: string, bindingId = "b-linked", targetId = "t-1") => ({ bindingId, targetId, findingState })
+  const srcObs = (id: string, completedAt: string, digest: string | null, collectionState = "FETCHED") => ({
+    id,
+    targetId: "t-1",
+    collectionState,
+    failure: collectionState === "FAILED" ? "TIMEOUT" : null,
+    completedAt,
+    bodyDigest: digest,
+  })
+  const interventions = [intervention("01")]
+  const BEFORE = "2026-10-01T12:00:00.000Z"
+  const AFTER = "2026-10-03T12:00:00.000Z"
+
+  it("A. DRIFT before, IN_SYNC after with different digests: CHANGED and IN_SYNC", () => {
+    const v = deriveSourceVerification({
+      interventions,
+      bindings: [binding("IN_SYNC")],
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d2")],
+    })
+    expect(v).toMatchObject({ bindingId: "b-linked", alignment: "IN_SYNC", change: "SOURCE_CHANGED", beforeObservationId: "o-before", afterObservationId: "o-after" })
   })
 
-  it("maps linked tracked evidence to the observed states", () => {
-    const interventions = [intervention("01")]
-    expect(deriveSourceVerification({ interventions, links: [link("IN_SYNC")] }).state).toBe("SOURCE_OBSERVED_UNCHANGED")
-    expect(deriveSourceVerification({ interventions, links: [link("DRIFT")] }).state).toBe("SOURCE_OBSERVED_CHANGED")
-    expect(deriveSourceVerification({ interventions, links: [link("IN_SYNC", { collectionState: "FAILED", failure: "TIMEOUT" })] }).state).toBe(
-      "SOURCE_OBSERVATION_FAILED",
+  it("B. DRIFT before and after with equal digests: UNCHANGED and DRIFT", () => {
+    const v = deriveSourceVerification({
+      interventions,
+      bindings: [binding("DRIFT")],
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d1")],
+    })
+    expect(v).toMatchObject({ alignment: "DRIFT", change: "SOURCE_UNCHANGED" })
+  })
+
+  it("C. IN_SYNC before and after: UNCHANGED and IN_SYNC", () => {
+    const v = deriveSourceVerification({
+      interventions,
+      bindings: [binding("IN_SYNC")],
+      observations: [srcObs("o-before", BEFORE, "d2"), srcObs("o-after", AFTER, "d2")],
+    })
+    expect(v).toMatchObject({ alignment: "IN_SYNC", change: "SOURCE_UNCHANGED" })
+  })
+
+  it("changed-but-still-wrong source counts as CHANGED, never as correction", () => {
+    const v = deriveSourceVerification({
+      interventions,
+      bindings: [binding("DRIFT")],
+      observations: [srcObs("o-before", BEFORE, "d1"), srcObs("o-after", AFTER, "d3")],
+    })
+    expect(v.change).toBe("SOURCE_CHANGED")
+    expect(v.alignment).toBe("DRIFT")
+  })
+
+  it("D. no before observation: SOURCE_UNKNOWN", () => {
+    const v = deriveSourceVerification({
+      interventions,
+      bindings: [binding("DRIFT")],
+      observations: [srcObs("o-after", AFTER, "d2")],
+    })
+    expect(v.change).toBe("SOURCE_UNKNOWN")
+  })
+
+  it("E. no after observation: SOURCE_NOT_CHECKED", () => {
+    const v = deriveSourceVerification({
+      interventions,
+      bindings: [binding("DRIFT")],
+      observations: [srcObs("o-before", BEFORE, "d1")],
+    })
+    expect(v).toMatchObject({ change: "SOURCE_NOT_CHECKED", beforeObservationId: "o-before", afterObservationId: null })
+  })
+
+  it("F. failed post-intervention fetch: SOURCE_OBSERVATION_FAILED, never unchanged", () => {
+    const v = deriveSourceVerification({
+      interventions,
+      bindings: [binding("UNKNOWN")],
+      observations: [
+        srcObs("o-before", BEFORE, "d1"),
+        { ...srcObs("o-failed", AFTER, null, "FAILED"), bodyDigest: null },
+      ],
+    })
+    expect(v).toMatchObject({ change: "SOURCE_OBSERVATION_FAILED", afterObservationId: "o-failed" })
+  })
+
+  it("G. untracked target: SOURCE_UNKNOWN with no binding", () => {
+    const v = deriveSourceVerification({ interventions, bindings: [], observations: [] })
+    expect(v).toMatchObject({ change: "SOURCE_UNKNOWN", bindingId: null })
+  })
+
+  it("H. observations on another binding never decide this binding", () => {
+    const v = deriveSourceVerification({
+      interventions,
+      bindings: [binding("DRIFT", "b-a", "t-a")],
+      observations: [{ ...srcObs("o-other", AFTER, "d9"), targetId: "t-b" }],
+    })
+    expect(v.change).toBe("SOURCE_UNKNOWN")
+  })
+
+  it("missing digests refuse the comparison instead of guessing", () => {
+    const v = deriveSourceVerification({
+      interventions,
+      bindings: [binding("DRIFT")],
+      observations: [srcObs("o-before", BEFORE, null), srcObs("o-after", AFTER, "d2")],
+    })
+    expect(v.change).toBe("SOURCE_UNKNOWN")
+  })
+
+  it("disagreeing bindings stay UNKNOWN rather than picking a winner", () => {
+    const v = deriveSourceVerification({
+      interventions,
+      bindings: [binding("IN_SYNC", "b-a", "t-a"), binding("DRIFT", "b-b", "t-b")],
+      observations: [
+        { ...srcObs("o-a-before", BEFORE, "d1"), targetId: "t-a" },
+        { ...srcObs("o-a-after", AFTER, "d2"), targetId: "t-a" },
+        { ...srcObs("o-b-before", BEFORE, "d9"), targetId: "t-b" },
+        { ...srcObs("o-b-after", AFTER, "d9"), targetId: "t-b" },
+      ],
+    })
+    expect(v.change).toBe("SOURCE_UNKNOWN")
+    expect(v.bindingId).toBeNull()
+  })
+})
+
+describe("reobservation attempts derive from durable intents", () => {
+  const RUN_Q = "11111111-1111-4111-8111-111111111111"
+  const INTENT = (n: string, runId: string): ReobservationIntentRow => ({
+    id: `d0000000-0000-4000-8000-0000000000${n}`,
+    businessId: BIZ,
+    issueId: CLAIM,
+    originalObservationId: OBS_BEFORE,
+    interventionId: null,
+    checkRunId: runId,
+    createdByUserId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    createdAt: "2026-10-02T00:00:00.000Z",
+  })
+  const RUN = (id: string, status: string): CheckRunRow => ({
+    id,
+    businessId: BIZ,
+    questionId: QUESTION,
+    provider: "mock",
+    requestedModel: "model-x",
+    status,
+    queuedAt: "2026-10-02T01:00:00.000Z",
+    startedAt: status === "QUEUED" ? null : "2026-10-02T01:01:00.000Z",
+    completedAt: status === "QUEUED" || status === "RUNNING" ? null : "2026-10-02T01:02:00.000Z",
+    failureClass: status === "FAILED" ? "PROVIDER_TIMEOUT" : null,
+    failureDetailSafe: status === "FAILED" ? "provider request timed out" : null,
+    attemptCount: 1,
+  })
+  const withAttempts = (
+    intents: ReobservationIntentRow[],
+    runs: CheckRunRow[],
+    obsByRun: ReadonlyMap<string, string> = new Map(),
+    links: ReobservationRow[] = [],
+  ) =>
+    buildIssueLoop({
+      ...baseArgs(),
+      interventions: [intervention("01")],
+      intents,
+      checkRuns: new Map(runs.map((r) => [r.id, r])),
+      runObservations: obsByRun,
+      reobservations: links,
+    }).reobservationAttempts
+
+  it("1. intent + QUEUED run reads QUEUED with no observation or link", () => {
+    const [a] = withAttempts([INTENT("01", RUN_Q)], [RUN(RUN_Q, "QUEUED")])
+    expect(a).toMatchObject({ intentId: INTENT("01", RUN_Q).id, checkRunId: RUN_Q, state: "QUEUED", observationId: null, reobservationId: null })
+  })
+
+  it("2. intent + RUNNING run reads RUNNING", () => {
+    const [a] = withAttempts([INTENT("01", RUN_Q)], [RUN(RUN_Q, "RUNNING")])
+    expect(a?.state).toBe("RUNNING")
+  })
+
+  it("3. intent + FAILED run reads FAILED with failure class and no outcome", () => {
+    const [a] = withAttempts([INTENT("01", RUN_Q)], [RUN(RUN_Q, "FAILED")], new Map([[RUN_Q, OBS_AFTER]]))
+    expect(a).toMatchObject({ state: "FAILED", failureClass: "PROVIDER_TIMEOUT", observationId: OBS_AFTER, reobservationId: null })
+  })
+
+  it("4. SUCCEEDED + observation + link reads COMPLETED", () => {
+    const [a] = withAttempts(
+      [INTENT("01", RUN_Q)],
+      [RUN(RUN_Q, "SUCCEEDED")],
+      new Map([[RUN_Q, OBS_AFTER]]),
+      [reobservation(REOBS, OBS_AFTER)],
     )
-    expect(deriveSourceVerification({ interventions, links: [link("UNKNOWN")] }).state).toBe("SOURCE_UNKNOWN")
+    expect(a).toMatchObject({ state: "COMPLETED", observationId: OBS_AFTER, reobservationId: REOBS })
+  })
+
+  it("SUCCEEDED + observation without a link reads FINALIZING, never completed", () => {
+    const [a] = withAttempts([INTENT("01", RUN_Q)], [RUN(RUN_Q, "SUCCEEDED")], new Map([[RUN_Q, OBS_AFTER]]), [])
+    expect(a?.state).toBe("FINALIZING")
+  })
+
+  it("5+6. historical attempts keep chronology; failed then successful both retained", () => {
+    const r1 = { ...RUN("11111111-1111-4111-8111-111111111112", "FAILED") }
+    const r2 = { ...RUN("11111111-1111-4111-8111-111111111113", "SUCCEEDED") }
+    const list = withAttempts(
+      [INTENT("01", r1.id), INTENT("02", r2.id)],
+      [r1, r2],
+      new Map([[r2.id, OBS_AFTER]]),
+      [reobservation(REOBS, OBS_AFTER)],
+    )
+    expect(list.map((a) => a.state)).toEqual(["FAILED", "COMPLETED"])
+    expect(list.map((a) => a.intentId)).toEqual([INTENT("01", r1.id).id, INTENT("02", r2.id).id])
   })
 })
 
@@ -475,7 +669,32 @@ describe("issue loop tenancy", () => {
     activeOverlapping: () => Effect.succeed([]),
   })
 
-  const env = Layer.mergeAll(BusinessStub, LineageStub, ReadsStub, FactStub)
+  const IntentStub = Layer.succeed(ReobservationIntentRepository, {
+    createIntent: () => Effect.dieMessage("unused"),
+    enqueueReobservation: () => Effect.dieMessage("unused"),
+    listByIssue: () => Effect.succeed([]),
+    resolveIntent: () => Effect.succeed(null),
+  })
+
+  const CheckStub = Layer.succeed(CheckRunRepository, {
+    enqueue: () => Effect.dieMessage("unused"),
+    listByBusiness: () => Effect.succeed([]),
+    getScoped: () => Effect.succeed(null),
+    claimOne: () => Effect.succeed(null),
+    markRunning: () => Effect.void,
+    recordAttempt: () => Effect.succeed(1),
+    markFinished: () => Effect.void,
+  })
+
+  const ObsStub = Layer.succeed(ObservationRepository, {
+    create: () => Effect.dieMessage("unused"),
+    getScoped: () => Effect.succeed(null),
+    getByCheckRun: () => Effect.succeed(null),
+    finalizeReobservationForCheckRun: () => Effect.succeed(null),
+    sweepUnfulfilledReobservations: () => Effect.succeed(0),
+  })
+
+  const env = Layer.mergeAll(BusinessStub, LineageStub, ReadsStub, FactStub, IntentStub, CheckStub, ObsStub)
 
   it("loads the loop for the owning account", async () => {
     const loop = await Effect.runPromise(loadIssueLoop("acct-a", BIZ, CLAIM).pipe(Effect.provide(env)))

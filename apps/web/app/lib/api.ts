@@ -387,8 +387,27 @@ export type IssueLoop = {
   originalObservation: LoopSide
   originalJudgment: { id: string; verdict: string; notes: string | null; createdAt: string } | null
   interventions: Intervention[]
-  sourceVerification: { state: string; detail: string; linkedBindingId: string | null; linkedObservationId: string | null }
-  reobservationAttempts: Array<{ id: string; interventionId: string | null; observationId: string; createdAt: string; status: string }>
+  sourceVerification: {
+    bindingId: string | null
+    alignment: string
+    change: string
+    beforeObservationId: string | null
+    afterObservationId: string | null
+    detail: string
+  }
+  reobservationAttempts: Array<{
+    intentId: string
+    interventionId: string | null
+    checkRunId: string
+    state: string
+    queuedAt: string | null
+    startedAt: string | null
+    completedAt: string | null
+    failureClass: string | null
+    failureDetailSafe: string | null
+    observationId: string | null
+    reobservationId: string | null
+  }>
   completedReobservations: Array<{ id: string; interventionId: string | null; observationId: string; createdAt: string; after: LoopSide }>
   latestComparison: LoopComparison | null
   explicitUnknowns: Array<{ subjectId: string; field: string }>

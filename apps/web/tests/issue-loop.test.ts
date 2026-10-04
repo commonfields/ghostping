@@ -47,14 +47,32 @@ describe("recheck AI action", () => {
     }
   })
 
-  it("shows queued, failed, and review-needed states with existing components", () => {
+  it("shows queued, running, failed, and review-needed states with existing components", () => {
     const page = issuePage()
     expect(page).toContain("Recheck queued")
+    expect(page).toContain("Recheck in progress")
+    expect(page).toContain("Recheck failed")
+    expect(page).toContain("Finalizing recheck")
     expect(page).toContain("Needs review")
     expect(page).toContain("recheckError")
     for (const pattern of ["<Card", "<Button", "<Alert", "<Select", "<Skeleton", "formatDateTime"]) {
       expect(page, `missing pattern: ${pattern}`).toContain(pattern)
     }
+  })
+
+  it("derives recheck state from the canonical attempt DTO, never by inference", () => {
+    const page = issuePage()
+    for (const fragment of ["activeAttempt", "failedAttempts", "attemptStateCopy", "FINALIZING"]) {
+      expect(page, `missing fragment: ${fragment}`).toContain(fragment)
+    }
+    expect(page).not.toContain("attempts.filter((a) => a.status")
+  })
+
+  it("marks superseded actions so rechecks link the current head", () => {
+    const page = issuePage()
+    expect(page).toContain("interventionHeadIds")
+    expect(page).toContain("(superseded)")
+    expect(page).toContain("superseded — history only")
   })
 })
 
@@ -83,6 +101,19 @@ describe("issue timeline", () => {
   it("adds no new sidebar section", () => {
     expect(workspaceNavOrder).toEqual(["overview", "issues", "representations", "truth", "checks"])
     expect(issuePage()).not.toContain("workspaceNav")
+  })
+})
+
+describe("source alignment is never collapsed into source change", () => {
+  it("renders both dimensions with distinct labels", () => {
+    const page = issuePage()
+    for (const copy of ["Source changed", "Source unchanged", "Source change unknown", "Current source state:"]) {
+      expect(page, `missing copy: ${copy}`).toContain(copy)
+    }
+    expect(page).toContain("sourceChangeCopy")
+    expect(page).toContain("sourceAlignmentCopy")
+    expect(page).not.toContain("SOURCE_OBSERVED_UNCHANGED")
+    expect(page).not.toContain("SOURCE_OBSERVED_CHANGED")
   })
 })
 
