@@ -387,7 +387,7 @@ function Breadcrumbs() {
     const detail = parts[3]
     if ((section === "issues" || section === "representations") && detail) {
       const parent = section === "issues" ? "Issues" : "Representations"
-      const child = section === "issues" ? "Issue" : "Representation"
+      const child = section === "issues" ? "Issue" : detail === "discovery" ? "Discovery" : "Representation"
       crumbs.push({ label: parent, to: `${base}/${section}` })
       crumbs.push({ label: child })
     } else {

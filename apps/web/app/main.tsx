@@ -13,6 +13,7 @@ import { SignIn, SignUp } from "./routes/auth"
 import { Home } from "./routes/home"
 import { BusinessLayout, Overview } from "./routes/business"
 import { ChecksPage } from "./routes/checks"
+import { DiscoveryPage } from "./routes/discovery"
 import { IssueDetailPage } from "./routes/issue"
 import { IssuesPage } from "./routes/issues"
 import { ObservationPage } from "./routes/observation"
@@ -49,6 +50,7 @@ function App() {
               <Route path="issues" element={<IssuesPage />} />
               <Route path="issues/:claimId" element={<IssueDetailPage />} />
               <Route path="representations" element={<RepresentationsPage />} />
+              <Route path="representations/discovery" element={<DiscoveryPage />} />
               <Route path="representations/:bindingId" element={<RepresentationDetailPage />} />
             </Route>
             <Route path="/observations/:observationId" element={<ObservationPage />} />

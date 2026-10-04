@@ -307,7 +307,7 @@ export const assertLinearLineage = (
 }
 
 /** Scoped business or null (404 without leaking existence). */
-const scopedBusiness = (accountId: string, businessId: string) =>
+export const scopedBusiness = (accountId: string, businessId: string) =>
   Effect.gen(function*() {
     const biz = yield* BusinessRepository
     return yield* biz.getScoped(accountId, businessId)

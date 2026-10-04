@@ -8,6 +8,11 @@ import {
   BusinessRepositoryLive,
   CheckRunRepositoryLive,
   ClaimRepositoryLive,
+  DiscoveryFrontierRepositoryLive,
+  DiscoveryMatchRepositoryLive,
+  DiscoveryObservationRepositoryLive,
+  DiscoveryRunRepositoryLive,
+  DiscoveryScopeRepositoryLive,
   FactRepositoryLive,
   JudgmentRepositoryLive,
   ObservationRepositoryLive,
@@ -34,6 +39,11 @@ const Repos = Layer.mergeAll(
   ClaimRepositoryLive,
   JudgmentRepositoryLive,
   ProductReadRepositoryLive,
+  DiscoveryScopeRepositoryLive,
+  DiscoveryRunRepositoryLive,
+  DiscoveryFrontierRepositoryLive,
+  DiscoveryObservationRepositoryLive,
+  DiscoveryMatchRepositoryLive,
 )
 // Wire Postgres into the repositories (sequential), then serve.
 const ReposProvided = Layer.provideMerge(Repos, PgLive)
