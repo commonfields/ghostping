@@ -13,12 +13,15 @@ import {
   DiscoveryObservationRepositoryLive,
   DiscoveryRunRepositoryLive,
   DiscoveryScopeRepositoryLive,
+  EvidenceLineageRepositoryLive,
   FactRepositoryLive,
   InterventionRepositoryLive,
   JudgmentRepositoryLive,
   ObservationRepositoryLive,
   ProductReadRepositoryLive,
   QuestionRepositoryLive,
+  ReobservationIntentRepositoryLive,
+  ReobservationRepositoryLive,
 } from "@ghostping/db"
 import { makeRouter } from "./router.js"
 
@@ -33,8 +36,12 @@ const Repos = Layer.mergeAll(
   InterventionRepositoryLive,
   JudgmentRepositoryLive,
   ProductReadRepositoryLive,
+  QuestionRepositoryLive,
+  ReobservationIntentRepositoryLive,
+  ReobservationRepositoryLive,
   DiscoveryScopeRepositoryLive,
   DiscoveryRunRepositoryLive,
+  EvidenceLineageRepositoryLive,
   DiscoveryFrontierRepositoryLive,
   DiscoveryObservationRepositoryLive,
   DiscoveryMatchRepositoryLive,

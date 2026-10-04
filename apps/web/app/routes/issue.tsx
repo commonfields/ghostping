@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { EmptyState, PageHeader } from "@/components/page"
 import { Spinner } from "@/components/spinner"
 import { ControlBadge, IssueStateBadge, RepresentationStateBadge } from "@/components/status"
-import { Interventions, Issues, type CitationEvidence, type Intervention } from "@/lib/api"
+import { Interventions, Issues, Rechecks, type CitationEvidence, type Intervention, type IssueLoop } from "@/lib/api"
 import { errorMessage, formatDateTime, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
 
@@ -153,6 +153,8 @@ export function IssueDetailPage() {
       </Card>
 
       <RecordedActionsCard businessId={id} claimId={claimId} />
+
+      <IssueLoopSection businessId={id} claimId={claimId} />
     </div>
   )
 }
@@ -271,6 +273,165 @@ function RecordedActionsCard({ businessId, claimId }: { businessId: string; clai
         </form>
       </CardContent>
     </Card>
+  )
+}
+
+const sourceVerificationCopy: Record<string, string> = {
+  SOURCE_NOT_CHECKED: "Source not checked",
+  SOURCE_OBSERVED_UNCHANGED: "Source observed unchanged",
+  SOURCE_OBSERVED_CHANGED: "Source observed changed",
+  SOURCE_OBSERVATION_FAILED: "Source observation failed",
+  SOURCE_UNKNOWN: "Source unknown",
+}
+
+function IssueLoopSection({ businessId, claimId }: { businessId: string; claimId: string }) {
+  const { data, loading, error, reload } = useApi(`loop:${claimId}`, () => Rechecks.getLoop(businessId, claimId))
+  const loop: IssueLoop | null = data?.loop ?? null
+  const [interventionId, setInterventionId] = useState("none")
+  const [recheckPending, setRecheckPending] = useState(false)
+  const [recheckError, setRecheckError] = useState<string | null>(null)
+
+  const comparison = loop?.latestComparison ?? null
+  const completed = loop?.completedReobservations ?? []
+  const attempts = loop?.reobservationAttempts ?? []
+  const queued = attempts.filter((a) => a.status !== "COMPLETED")
+  const latestAfter = completed.at(-1)?.after ?? null
+
+  // Chronological stages: AI observed → reviewed → issue → action →
+  // source check → AI recheck → review → outcome.
+  const stages: Array<{ label: string; detail: string }> = loop
+    ? [
+        {
+          label: "AI observed",
+          detail: `${sentenceCase(loop.originalObservation.provider)} on ${formatDateTime(loop.originalObservation.collectedAt)}`,
+        },
+        {
+          label: "Reviewed",
+          detail: loop.originalJudgment ? `Verdict ${sentenceCase(loop.originalJudgment.verdict)}` : "Needs review",
+        },
+        { label: "Issue", detail: sentenceCase(loop.issue.state) },
+        {
+          label: "Action",
+          detail:
+            loop.interventions.length === 0
+              ? "No actions recorded"
+              : `${loop.interventions.length} recorded action${loop.interventions.length === 1 ? "" : "s"}`,
+        },
+        {
+          label: "Source check",
+          detail: `${sourceVerificationCopy[loop.sourceVerification.state] ?? loop.sourceVerification.state}. ${loop.sourceVerification.detail}`,
+        },
+        {
+          label: "AI recheck",
+          detail:
+            completed.length === 0
+              ? queued.length > 0
+                ? "Recheck queued"
+                : "Not rechecked yet"
+              : `${completed.length} recheck${completed.length === 1 ? "" : "s"} observed`,
+        },
+        {
+          label: "Review",
+          detail:
+            latestAfter === null ? "Not rechecked yet" : latestAfter.verdict ? sentenceCase(latestAfter.verdict) : "Needs review",
+        },
+        {
+          label: "Outcome",
+          detail: comparison ? `${comparison.displayCopy}. ${comparison.comparabilityExplanation}` : "Not rechecked yet",
+        },
+      ]
+    : []
+
+  return (
+    <>
+      <Card className="shadow-(--float-shadow)">
+        <CardHeader>
+          <CardTitle>Issue timeline</CardTitle>
+          <CardDescription>Each stage in the order it happened. New observations never rewrite earlier stages.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <Skeleton className="h-40 rounded-lg" />
+          ) : !loop ? (
+            <p className="text-sm text-muted-foreground">
+              {error ? "The issue timeline is unavailable right now." : "No timeline for this issue yet."}
+            </p>
+          ) : (
+            <ol className="space-y-4">
+              {stages.map((s) => (
+                <li key={s.label} className="flex gap-3">
+                  <span aria-hidden="true" className="mt-1.5 size-2 shrink-0 rounded-full bg-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">{s.label}</p>
+                    <p className="text-sm text-muted-foreground">{s.detail}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-(--float-shadow)">
+        <CardHeader>
+          <CardTitle>Recheck AI</CardTitle>
+          <CardDescription>
+            Ask for a fresh AI observation of the same question. A recheck only adds a new observation for review; it changes
+            no verdict and no recorded action.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="grid gap-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              setRecheckPending(true)
+              setRecheckError(null)
+              Rechecks.create(businessId, claimId, { interventionId: interventionId === "none" ? null : interventionId })
+                .then(() => {
+                  toast.success("Recheck requested")
+                  void reload()
+                })
+                .catch((err: unknown) => setRecheckError(errorMessage(err)))
+                .finally(() => setRecheckPending(false))
+            }}
+          >
+            <div className="grid gap-2">
+              <Label htmlFor="recheck-intervention">Linked action (optional)</Label>
+              <Select value={interventionId} onValueChange={setInterventionId}>
+                <SelectTrigger id="recheck-intervention">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No specific action</SelectItem>
+                  {(loop?.interventions ?? []).map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {sentenceCase(a.type)} — {a.target}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {recheckError ? (
+              <Alert variant="destructive">
+                <TriangleAlertIcon />
+                <AlertTitle className="font-normal">{recheckError}</AlertTitle>
+              </Alert>
+            ) : null}
+            <div className="flex items-center justify-end gap-3">
+              {recheckPending ? <p className="text-sm text-muted-foreground">Requesting recheck…</p> : null}
+              <Button type="submit" size="sm" disabled={recheckPending}>
+                {recheckPending ? <Spinner /> : null}
+                Recheck AI
+              </Button>
+            </div>
+          </form>
+          <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+            Every rechecked answer waits for a reviewer before it can be compared: unreviewed rechecks stay at Needs review.
+          </p>
+        </CardContent>
+      </Card>
+    </>
   )
 }
 

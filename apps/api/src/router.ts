@@ -16,6 +16,7 @@ import {
   CreateInterventionRequest,
   CreateJudgmentRequest,
   CreateQuestionRequest,
+  CreateReobservationRequest,
   decodeRouteId,
   RunCheckRequest,
   SignInRequest,
@@ -48,6 +49,8 @@ import {
   ProductReadRepositoryLive,
   QuestionRepository,
   QuestionRepositoryLive,
+  ReobservationIntentRepositoryLive,
+  ReobservationRepositoryLive,
   type DiscoveryRunRow,
   type Session,
 } from "@ghostping/db"
@@ -64,6 +67,8 @@ import {
   loadRepresentations,
 } from "./reads.js"
 import { loadInterventions, recordIntervention } from "./interventions.js"
+import { loadIssueLoop } from "./issue-loop.js"
+import { listRecheckAttempts, requestRecheck } from "./reobservations.js"
 import {
   clearedCookieHeader,
   hashPassword,
@@ -928,6 +933,92 @@ export const makeRouter = () => {
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
+    // Durable rechecks for one issue. POST derives the question, provider,
+    // and requested model from the issue lineage and enqueues a QUEUED
+    // check run plus its intent; the body carries at most an optional
+    // intervention link. GET lists attempts (intents plus check statuses
+    // plus finalized lineage links). Observed comparison stays derived at
+    // read time; nothing here asserts an outcome.
+    HttpRouter.post(
+      "/api/businesses/:id/issues/:claimId/reobservations",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const p = params.params as Record<string, string>
+          const businessId = p["id"] as string
+          const claimId = p["claimId"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          // Malformed ids read as unknown claims (404), never opaque SQL errors.
+          if (!isRouteId(claimId)) return yield* json(404, { _tag: "IssueNotFound" })
+          const body = decodeRequest(CreateReobservationRequest, (yield* readJson) as unknown)
+          if (!body) return yield* json(422, malformed)
+          const created = yield* requestRecheck(businessId, claimId, session.userId, {
+            interventionId: body.interventionId ?? null,
+          })
+          // Unknown claim, or a claim from another business: 404 without
+          // leaking existence.
+          if (!created) return yield* json(404, { _tag: "IssueNotFound" })
+          return yield* json(200, { checkRun: created.checkRun, intent: created.intent })
+        }),
+      ).pipe(
+        // An unrelated intervention is an expected input problem (422), never 500.
+        Effect.catchTag("ReobservationInterventionMismatch", (e) =>
+          json(422, { _tag: "ReobservationInterventionMismatch", reason: e.reason }),
+        ),
+        Effect.catchTag("ReobservationOriginalObservationMismatch", (e) =>
+          json(422, { _tag: "ReobservationOriginalObservationMismatch", reason: e.reason }),
+        ),
+        Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown)),
+      ),
+    ),
+    HttpRouter.get(
+      "/api/businesses/:id/issues/:claimId/reobservations",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const p = params.params as Record<string, string>
+          const businessId = p["id"] as string
+          const claimId = p["claimId"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          if (!isRouteId(claimId)) return yield* json(404, { _tag: "IssueNotFound" })
+          const attempts = yield* listRecheckAttempts(businessId, claimId)
+          if (!attempts) return yield* json(404, { _tag: "IssueNotFound" })
+          return yield* json(200, { attempts })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    // Derived issue loop: the issue beside its recorded actions, linked
+    // source verification, re-observation attempts, and the latest
+    // before/after comparison. Read-only; the vocabulary stays inside the
+    // allowed outcome map defined in issue-loop.ts.
+    HttpRouter.get(
+      "/api/businesses/:id/issues/:claimId/loop",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const p = params.params as Record<string, string>
+          const businessId = p["id"] as string
+          const claimId = p["claimId"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          if (!isRouteId(claimId)) return yield* json(404, { _tag: "IssueNotFound" })
+          const loop = yield* loadIssueLoop(session.accountId, businessId, claimId)
+          if (!loop) return yield* json(404, { _tag: "IssueNotFound" })
+          return yield* json(200, { loop })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
     HttpRouter.get(
       "/api/businesses/:id/facts/:factId/history",
       withSession((session) =>
@@ -1160,6 +1251,8 @@ export const RepoLayers = {
   ObservationRepositoryLive,
   ClaimRepositoryLive,
   JudgmentRepositoryLive,
+  ReobservationIntentRepositoryLive,
+  ReobservationRepositoryLive,
   ProductReadRepositoryLive,
   DiscoveryScopeRepositoryLive,
   DiscoveryRunRepositoryLive,

@@ -21,6 +21,7 @@
     "@ghostping/db": "workspace:*",
     "@ghostping/discovery": "workspace:*",
     "@ghostping/domain": "workspace:*",
+    "@ghostping/protocol": "workspace:*",
     "@ghostping/representation": "workspace:*",
     "effect": "3.22.2",
     "pg": "8.13.1",

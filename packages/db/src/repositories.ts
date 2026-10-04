@@ -8,6 +8,11 @@ import type { SqlClient } from "@effect/sql"
 import { SqlError } from "@effect/sql/SqlError"
 import { AuthorityError } from "./truth.js"
 import {
+  finalizeReobservationLinkForCheckRun,
+  sweepUnfulfilledReobservationLinks,
+  type ReobservationRow,
+} from "./evidence.js"
+import {
   BooleanField,
   IntField,
   NullableIntField,
@@ -536,6 +541,21 @@ export class ObservationRepository extends Context.Tag("ObservationRepository")<
     }) => Effect.Effect<ObservationRow, SqlError | RowDecodeError | RawDigestMismatch>
     readonly getScoped: (businessId: string, id: string) => DbEffect<ObservationRow | null>
     readonly getByCheckRun: (checkRunId: string) => DbEffect<ObservationRow | null>
+    /**
+     * Idempotent re-observation link for one check run (insert-or-select;
+     * null unless the check SUCCEEDED with an intent and an observation).
+     * Failed checks never produce rows.
+     */
+    readonly finalizeReobservationForCheckRun: (
+      checkRunId: string,
+    ) => Effect.Effect<ReobservationRow | null, SqlError | RowDecodeError>
+    /**
+     * Deterministic recovery for SUCCEEDED runs with unfulfilled intents.
+     * Bounded per call; returns how many links were fulfilled.
+     */
+    readonly sweepUnfulfilledReobservations: (
+      limit?: number,
+    ) => Effect.Effect<number, SqlError | RowDecodeError>
   }
 >() {}
 
@@ -651,6 +671,12 @@ export const ObservationRepositoryLive = Layer.effect(
             const finished = yield* sql`UPDATE check_runs SET status = 'SUCCEEDED', completed_at = now(), failure_class = NULL, failure_detail_safe = NULL
               WHERE id = ${input.checkRunId} AND business_id = ${input.businessId} AND status = 'RUNNING' RETURNING id`
             if (finished.length !== 1) return yield* Effect.fail(new SqlError({ message: "check run completion rejected: scoped RUNNING ownership required" }))
+            // Same-transaction re-observation finalization: the link commits
+            // atomically with the observation and the SUCCEEDED marking, so a
+            // crash can never leave a completed observation without its
+            // lineage link (or vice versa). No intent for this run, or a
+            // not-yet-SUCCEEDED run, stores nothing and returns null.
+            yield* finalizeReobservationLinkForCheckRun(sql, input.checkRunId)
           }
           const citations = yield* loadCitations(base.id)
           return { ...base, citations }
@@ -677,6 +703,9 @@ export const ObservationRepositoryLive = Layer.effect(
           const citations = yield* loadCitations(base.id)
           return { ...base, citations }
         }),
+      finalizeReobservationForCheckRun: (checkRunId: string) => finalizeReobservationLinkForCheckRun(sql, checkRunId),
+      sweepUnfulfilledReobservations: (limit?: number) =>
+        sweepUnfulfilledReobservationLinks(sql, limit ?? 25),
     }
   }),
 )
