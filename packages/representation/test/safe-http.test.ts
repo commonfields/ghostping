@@ -82,6 +82,21 @@ describe("redirect target scope", () => {
     expect(calls).toEqual(["https://example.com/docs/a", "https://example.com/docs/b"])
   })
 
+  it("F. error status with mismatched content type is a status failure, not unsupported", async () => {
+    const calls: string[] = []
+    // A 404 served as text/html (typical error page) must not become
+    // UNSUPPORTED_CONTENT_TYPE: error statuses carry no parseable document.
+    const ev = await safeFetch("https://example.com/missing", {
+      transport: stubTransport({
+        "/missing": { status: 404, headers: { "content-type": "text/html" }, body: "<html>nope</html>" },
+      }, calls),
+      limits: { timeoutMs: 5000, maxRedirects: 5, maxBytes: 1_000_000, acceptedContentTypes: ["text/plain"] },
+    })
+    expect(ev.failure).toBe("NETWORK_ERROR")
+    expect(ev.status).toBe(404)
+    expect(ev.contentType).toBe("text/html")
+  })
+
   it("E. no scope callback preserves existing cross-origin behavior", async () => {
     const calls: string[] = []
     const ev = await safeFetch("https://example.com/docs/a", {

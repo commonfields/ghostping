@@ -337,6 +337,15 @@ export function DiscoveryPage() {
                         </TableCell>
                         <TableCell>
                           <CandidateMatchBadge relation={c.relation} />
+                          {c.evidence && c.evidence.length > 0 ? (
+                            <div className="mt-1 max-w-56 space-y-0.5">
+                              {c.evidence.slice(0, 5).map((e, i) => (
+                                <p key={`${e.locator}-${i}`} className="truncate text-xs text-muted-foreground" title={`${e.locator}: ${e.snippet}`}>
+                                  {e.locator}: {e.snippet.length > 120 ? `${e.snippet.slice(0, 120)}…` : e.snippet}
+                                </p>
+                              ))}
+                            </div>
+                          ) : null}
                         </TableCell>
                         <TableCell className="text-muted-foreground">{sentenceCase(c.found_via)}</TableCell>
                         <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(c.scanned_at)}</TableCell>

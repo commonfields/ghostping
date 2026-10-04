@@ -29,6 +29,14 @@ export const Routes = {
   createJudgment: { method: "POST", path: "/api/judgments" },
   listIssues: (businessId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/issues` }),
   getIssue: (businessId: string, claimId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/issues/${claimId}` }),
+  listInterventions: (businessId: string, claimId: string) => ({
+    method: "GET",
+    path: `/api/businesses/${businessId}/issues/${claimId}/interventions`,
+  }),
+  createIntervention: (businessId: string, claimId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/issues/${claimId}/interventions`,
+  }),
   overview: (businessId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/overview` }),
   analytics: (businessId: string, days: number) => ({ method: "GET", path: `/api/businesses/${businessId}/analytics?days=${days}` }),
   factHistory: (businessId: string, factId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/facts/${factId}/history` }),
@@ -160,6 +168,28 @@ export const CreateJudgmentRequest = Schema.Struct({
   factIds: Schema.Array(Schema.UUID),
 })
 export type CreateJudgmentRequest = typeof CreateJudgmentRequest.Type
+
+// Recorded actions reference the controlled vocabulary from the evidence
+// protocol. The actor is always HUMAN on this route; corrections travel as
+// separate append-only rows and are out of scope here.
+export const InterventionTypeLiteral = Schema.Literal(
+  "SOURCE_UPDATED",
+  "SOURCE_PUBLISHED",
+  "THIRD_PARTY_CORRECTION_REQUESTED",
+  "KNOWLEDGE_BASE_UPDATED",
+  "STRUCTURED_DATA_UPDATED",
+  "OTHER",
+)
+
+export const CreateInterventionRequest = Schema.Struct({
+  type: InterventionTypeLiteral,
+  target: NonEmptyTrimmed,
+  performedAt: Schema.optional(TimestampString),
+  notes: Schema.optional(Schema.NullOr(Schema.String)),
+  evidenceBeforeDigest: Schema.optional(Schema.NullOr(Schema.String)),
+  evidenceAfterDigest: Schema.optional(Schema.NullOr(Schema.String)),
+})
+export type CreateInterventionRequest = typeof CreateInterventionRequest.Type
 
 // Route identifiers: validate before touching the repository so malformed
 // ids become 4xx, never opaque SQL errors.

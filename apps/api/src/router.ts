@@ -13,6 +13,7 @@ import {
   CreateBusinessRequest,
   CreateClaimRequest,
   CreateFactRequest,
+  CreateInterventionRequest,
   CreateJudgmentRequest,
   CreateQuestionRequest,
   decodeRouteId,
@@ -62,6 +63,7 @@ import {
   loadRepresentationDetail,
   loadRepresentations,
 } from "./reads.js"
+import { loadInterventions, recordIntervention } from "./interventions.js"
 import {
   clearedCookieHeader,
   hashPassword,
@@ -859,6 +861,70 @@ export const makeRouter = () => {
           const detail = yield* loadIssueDetail(session.accountId, p["id"] as string, p["claimId"] as string)
           if (!detail) return yield* json(404, { _tag: "IssueNotFound" })
           return yield* json(200, detail)
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    // Recorded actions for one issue: the product write path for the ACT
+    // stage. The body describes what was done; actor identity comes from
+    // the authenticated session (never request JSON). Appends only;
+    // corrections stay out of scope.
+    HttpRouter.post(
+      "/api/businesses/:id/issues/:claimId/interventions",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const p = params.params as Record<string, string>
+          const businessId = p["id"] as string
+          const claimId = p["claimId"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          // Malformed ids read as unknown claims (404), never opaque SQL errors.
+          if (!isRouteId(claimId)) return yield* json(404, { _tag: "IssueNotFound" })
+          const body = decodeRequest(CreateInterventionRequest, (yield* readJson) as unknown)
+          if (!body) return yield* json(422, malformed)
+          const target = body.target.trim()
+          if (!target) return yield* json(422, { _tag: "InvalidFactValue", reason: "target required" })
+          const recorded = yield* recordIntervention(businessId, claimId, session.userId, {
+            type: body.type,
+            target,
+            performedAt: body.performedAt ?? new Date().toISOString(),
+            notes: body.notes ?? null,
+            evidenceBeforeDigest: body.evidenceBeforeDigest ?? null,
+            evidenceAfterDigest: body.evidenceAfterDigest ?? null,
+          })
+          // Unknown claim, or a claim from another business: 404 without
+          // leaking existence.
+          if (!recorded) return yield* json(404, { _tag: "IssueNotFound" })
+          return yield* json(200, { intervention: recorded })
+        }),
+      ).pipe(
+        // A rejected append is an expected input problem (422), never 500.
+        Effect.catchTag("InterventionCorrectionInvalid", (e) =>
+          json(422, { _tag: "InterventionCorrectionInvalid", reason: e.reason }),
+        ),
+        Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown)),
+      ),
+    ),
+    HttpRouter.get(
+      "/api/businesses/:id/issues/:claimId/interventions",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const p = params.params as Record<string, string>
+          const businessId = p["id"] as string
+          const claimId = p["claimId"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          if (!isRouteId(claimId)) return yield* json(404, { _tag: "IssueNotFound" })
+          const rows = yield* loadInterventions(businessId, claimId)
+          if (!rows) return yield* json(404, { _tag: "IssueNotFound" })
+          return yield* json(200, { interventions: rows })
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),

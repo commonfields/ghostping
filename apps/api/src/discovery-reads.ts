@@ -50,6 +50,13 @@ export const isDuplicateActiveRun = (
   scopeId: string,
 ): boolean => runs.some((r) => r.scopeId === scopeId && (r.state === "QUEUED" || r.state === "RUNNING"))
 
+export interface DiscoveryCandidateEvidence {
+  readonly surface: string
+  readonly locator: string
+  readonly snippet: string
+  readonly relation: "CURRENT" | "HISTORICAL"
+}
+
 export interface DiscoveryCandidateDto {
   readonly id: string
   readonly run_id: string
@@ -65,6 +72,7 @@ export interface DiscoveryCandidateDto {
   readonly truth_changed_since_scan: boolean
   readonly surfaces: ReadonlyArray<string>
   readonly match_count: number
+  readonly evidence: ReadonlyArray<DiscoveryCandidateEvidence>
   readonly matcher_version: string
   readonly authority_digest: string | null
   readonly observation_id: string
@@ -76,6 +84,8 @@ interface CandidateMatchInput {
   readonly lineageRootFactId: string
   readonly matchedValue: string
   readonly matchSurface: string
+  readonly evidenceLocator: string
+  readonly evidenceSnippet: string
   readonly relationAtScan: string
   readonly matcherVersion: string
 }
@@ -127,6 +137,12 @@ export const groupDiscoveryCandidates = (args: {
     const relation = current.length > 0 && historical.length > 0 ? "MIXED" : current.length > 0 ? "CURRENT" : "HISTORICAL"
     const found = current.length > 0 ? (current[0] as CandidateMatchInput).matchedValue : (first as CandidateMatchInput).matchedValue
     const surfaces = [...new Set(list.map((m) => m.matchSurface))].sort()
+    const evidence: DiscoveryCandidateEvidence[] = list.slice(0, 5).map((m) => ({
+      surface: m.matchSurface,
+      locator: m.evidenceLocator,
+      snippet: m.evidenceSnippet,
+      relation: m.relationAtScan === "HISTORICAL_VALUE" ? "HISTORICAL" : "CURRENT",
+    }))
     const runDigest = run.authoritySnapshotDigest
     out.push({
       id: `${first.runId}:${first.pageObservationId}:${first.lineageRootFactId}`,
@@ -144,6 +160,7 @@ export const groupDiscoveryCandidates = (args: {
       truth_changed_since_scan: args.currentDigest === null || runDigest === null || runDigest !== args.currentDigest,
       surfaces,
       match_count: list.length,
+      evidence,
       matcher_version: (first as CandidateMatchInput).matcherVersion,
       authority_digest: runDigest,
       observation_id: first.pageObservationId,
@@ -284,6 +301,8 @@ export const loadDiscoveryCandidates = (
         lineageRootFactId: m.lineageRootFactId,
         matchedValue: m.matchedValue,
         matchSurface: m.matchSurface,
+        evidenceLocator: m.evidenceLocator,
+        evidenceSnippet: m.evidenceSnippet,
         relationAtScan: m.relationAtScan,
         matcherVersion: m.matcherVersion,
       })),

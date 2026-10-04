@@ -259,6 +259,13 @@ export type DiscoveryRun = {
 // a tracked representation until it is explicitly configured.
 export type DiscoveryCandidateRelation = "CURRENT" | "HISTORICAL" | "MIXED"
 
+export type DiscoveryCandidateEvidence = {
+  surface: string
+  locator: string
+  snippet: string
+  relation: "CURRENT" | "HISTORICAL"
+}
+
 export type DiscoveryCandidate = {
   id: string
   run_id: string
@@ -271,6 +278,7 @@ export type DiscoveryCandidate = {
   found_via: string
   scanned_at: string
   truth_changed_since_scan: boolean
+  evidence?: DiscoveryCandidateEvidence[]
 }
 
 export const Discovery = {
@@ -308,6 +316,37 @@ export const Issues = {
   list: (businessId: string) => api<{ issues: IssueWithEvidence[] }>(`/api/businesses/${businessId}/issues`),
   get: (businessId: string, claimId: string) => api<IssueDetail>(`/api/businesses/${businessId}/issues/${claimId}`),
   overview: (businessId: string) => api<{ overview: Overview }>(`/api/businesses/${businessId}/overview`),
+}
+
+export type Intervention = {
+  id: string
+  businessId: string
+  issueIds: string[]
+  type: string
+  target: string
+  performedAt: string
+  actor: string
+  actorId: string | null
+  notes: string | null
+  evidenceBeforeDigest: string | null
+  evidenceAfterDigest: string | null
+  supersedesId: string | null
+  correctionReason: string | null
+  createdAt: string
+}
+
+export const Interventions = {
+  list: (businessId: string, claimId: string) =>
+    api<{ interventions: Intervention[] }>(`/api/businesses/${businessId}/issues/${claimId}/interventions`),
+  create: (
+    businessId: string,
+    claimId: string,
+    input: { type: string; target: string; notes?: string | null; performedAt?: string; evidenceBeforeDigest?: string | null; evidenceAfterDigest?: string | null },
+  ) =>
+    api<{ intervention: Intervention }>(`/api/businesses/${businessId}/issues/${claimId}/interventions`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 }
 
 export type VerdictCounts = { supported: number; wrong: number; partial: number; unknown: number; unreviewed: number }

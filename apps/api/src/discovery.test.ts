@@ -198,12 +198,18 @@ describe("groupDiscoveryCandidates", () => {
   const obs = new Map([["o1", { finalUrl: "https://acme.example/pricing", discoveredVia: "SITEMAP", completedAt: "2026-10-03T10:00:00.000Z" }]])
   const runs = new Map([[RUN_A, { scopeId: SCOPE_A, authoritySnapshotDigest: "digest-1" }]])
   const facts = new Map([["f-root", { predicate: "monthly price", approvedValue: "59 USD" }]])
-  const match = (relationAtScan: string, matchedValue: string) => ({
+  const match = (
+    relationAtScan: string,
+    matchedValue: string,
+    overrides?: { matchSurface?: string; evidenceLocator?: string; evidenceSnippet?: string },
+  ) => ({
     runId: RUN_A,
     pageObservationId: "o1",
     lineageRootFactId: "f-root",
     matchedValue,
-    matchSurface: "VISIBLE_TEXT",
+    matchSurface: overrides?.matchSurface ?? "VISIBLE_TEXT",
+    evidenceLocator: overrides?.evidenceLocator ?? "body.main",
+    evidenceSnippet: overrides?.evidenceSnippet ?? `${matchedValue} per month`,
     relationAtScan,
     matcherVersion: "discovery-matcher/1",
   })
@@ -287,6 +293,47 @@ describe("groupDiscoveryCandidates", () => {
     })
     // Two logical candidates (one per lineage) regardless of event count.
     expect(grouped).toHaveLength(2)
+  })
+
+  it("exposes per-match evidence with surface, locator, and snippet", () => {
+    const grouped = groupDiscoveryCandidates({
+      matches: [match("CURRENT_VALUE", "59 USD", { evidenceLocator: "meta:octolytics-dimension-foo", evidenceSnippet: "Starter is 59 USD per month" })],
+      observations: obs,
+      runs,
+      facts,
+      currentDigest: "digest-1",
+    })
+    expect(grouped).toHaveLength(1)
+    expect(grouped[0]?.evidence).toEqual([
+      { surface: "VISIBLE_TEXT", locator: "meta:octolytics-dimension-foo", snippet: "Starter is 59 USD per month", relation: "CURRENT" },
+    ])
+  })
+
+  it("caps evidence at the first 5 entries while match_count stays total", () => {
+    const matches = Array.from({ length: 7 }, (_, i) =>
+      match("CURRENT_VALUE", "59 USD", { evidenceLocator: `body.row-${i}`, evidenceSnippet: `snippet ${i}` }),
+    )
+    const grouped = groupDiscoveryCandidates({ matches, observations: obs, runs, facts, currentDigest: "digest-1" })
+    expect(grouped).toHaveLength(1)
+    expect(grouped[0]?.match_count).toBe(7)
+    expect(grouped[0]?.evidence).toHaveLength(5)
+    expect(grouped[0]?.evidence.map((e) => e.locator)).toEqual(["body.row-0", "body.row-1", "body.row-2", "body.row-3", "body.row-4"])
+  })
+
+  it("maps evidence relations to CURRENT/HISTORICAL display values", () => {
+    const grouped = groupDiscoveryCandidates({
+      matches: [
+        match("CURRENT_VALUE", "59 USD", { matchSurface: "VISIBLE_TEXT", evidenceLocator: "body.main", evidenceSnippet: "59 USD now" }),
+        match("HISTORICAL_VALUE", "49 USD", { matchSurface: "META", evidenceLocator: "meta:octolytics-dimension-bar", evidenceSnippet: "was 49 USD" }),
+      ],
+      observations: obs,
+      runs,
+      facts,
+      currentDigest: "digest-1",
+    })
+    expect(grouped[0]?.relation).toBe("MIXED")
+    expect(grouped[0]?.evidence.map((e) => e.relation)).toEqual(["CURRENT", "HISTORICAL"])
+    expect(grouped[0]?.evidence.map((e) => e.surface)).toEqual(["VISIBLE_TEXT", "META"])
   })
 })
 
