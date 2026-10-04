@@ -46,12 +46,16 @@ export const loadInterventions = (
 
 /**
  * Append one recorded action for an issue, or null when the claim is
- * unknown here. The actor is always HUMAN on this route; a correction
- * is a separate append-only row and stays out of scope for this helper.
+ * unknown here. The actor is always HUMAN on this route and the actor id is
+ * always the authenticated user: the HTTP boundary owns identity, so the
+ * caller supplies it explicitly and request JSON can never spoof it (the
+ * contract schema has no actor fields). A correction is a separate
+ * append-only row and stays out of scope for this helper.
  */
 export const recordIntervention = (
   businessId: string,
   claimId: string,
+  actorId: string,
   input: RecordInterventionInput,
 ): Effect.Effect<
   InterventionRow | null,
@@ -68,7 +72,7 @@ export const recordIntervention = (
       target: input.target,
       performedAt: input.performedAt,
       actor: "HUMAN",
-      actorId: null,
+      actorId,
       notes: input.notes,
       evidenceBeforeDigest: input.evidenceBeforeDigest,
       evidenceAfterDigest: input.evidenceAfterDigest,

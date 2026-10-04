@@ -865,8 +865,9 @@ export const makeRouter = () => {
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
     // Recorded actions for one issue: the product write path for the ACT
-    // stage. The body describes what was done; the actor is always HUMAN
-    // on this route. Appends only; corrections stay out of scope.
+    // stage. The body describes what was done; actor identity comes from
+    // the authenticated session (never request JSON). Appends only;
+    // corrections stay out of scope.
     HttpRouter.post(
       "/api/businesses/:id/issues/:claimId/interventions",
       withSession((session) =>
@@ -886,7 +887,7 @@ export const makeRouter = () => {
           if (!body) return yield* json(422, malformed)
           const target = body.target.trim()
           if (!target) return yield* json(422, { _tag: "InvalidFactValue", reason: "target required" })
-          const recorded = yield* recordIntervention(businessId, claimId, {
+          const recorded = yield* recordIntervention(businessId, claimId, session.userId, {
             type: body.type,
             target,
             performedAt: body.performedAt ?? new Date().toISOString(),

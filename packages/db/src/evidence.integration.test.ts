@@ -242,6 +242,32 @@ run("postgres evidence protocol v1", () => {
     expect((await pool.query(`SELECT count(*)::int AS n FROM observations WHERE check_run_id = $1`, [runId])).rows[0]["n"]).toBe(0)
   })
 
+  it("evidence packets preserve known actor identity and UNKNOWN for historical nulls", async () => {
+    const l = await acceptanceLineage()
+    // Protocol V1 requires one linear correction chain per packet, so the
+    // known-identity row is a correction of the historical NULL row (same
+    // issues, enforced by the repository) — exactly the dogfood situation.
+    const userId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    const correction = await runFx(Effect.flatMap(InterventionRepository, (r) =>
+      r.append(intervention(l.businessId, [l.issueId], {
+        type: "STRUCTURED_DATA_UPDATED",
+        actorId: userId,
+        notes: "authenticated record",
+        supersedesId: l.intervention.id,
+        correctionReason: "record who performed the action",
+      }))))
+    const packet = await runFx(exportIssuePacket({
+      accountId: l.accountId, businessId: l.businessId, issueId: l.issueId, generatedAt: "2026-10-05T00:00:00.000Z",
+    }))
+    expect(packet).not.toBeNull()
+    const byId = new Map(packet!.interventions.map((i) => [i.id, i]))
+    // Historical NULL stays explicitly unknown, never fabricated.
+    expect(byId.get(l.intervention.id)?.actor_id).toEqual({ state: "UNKNOWN" })
+    // Authenticated record carries the user id into the sealed packet.
+    expect(byId.get(correction.id)?.actor).toBe("HUMAN")
+    expect(byId.get(correction.id)?.actor_id).toEqual({ state: "KNOWN", value: userId })
+  })
+
   it("exports the complete PART 11 lineage as a valid, deterministic packet", async () => {
     const l = await acceptanceLineage()
     const exportAt = (embedRawEvidence = false) => runFx(exportIssuePacket({

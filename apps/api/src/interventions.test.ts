@@ -66,6 +66,9 @@ const makeStore = () => {
   return { rows, service, layer: Layer.succeed(InterventionRepository, service) }
 }
 
+const USER_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+const USER_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
 const input = (target: string) => ({
   type: "SOURCE_UPDATED" as const,
   target,
@@ -79,7 +82,7 @@ describe("intervention tenancy", () => {
   it("account B cannot list recorded actions on account A's issue", async () => {
     const store = makeStore()
     const env = Layer.mergeAll(ClaimStub, store.layer)
-    const recorded = await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_A, input("https://acme.example/pricing")).pipe(Effect.provide(env)))
+    const recorded = await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_A, USER_A, input("https://acme.example/pricing")).pipe(Effect.provide(env)))
     expect(recorded).not.toBeNull()
     expect(await Effect.runPromise(loadInterventions(BIZ_A, CLAIM_A).pipe(Effect.provide(env)))).toHaveLength(1)
     expect(await Effect.runPromise(loadInterventions(BIZ_B, CLAIM_A).pipe(Effect.provide(env)))).toBeNull()
@@ -88,8 +91,75 @@ describe("intervention tenancy", () => {
   it("account B cannot record on account A's issue", async () => {
     const store = makeStore()
     const env = Layer.mergeAll(ClaimStub, store.layer)
-    expect(await Effect.runPromise(recordIntervention(BIZ_B, CLAIM_A, input("https://acme.example/pricing")).pipe(Effect.provide(env)))).toBeNull()
+    expect(await Effect.runPromise(recordIntervention(BIZ_B, CLAIM_A, USER_B, input("https://acme.example/pricing")).pipe(Effect.provide(env)))).toBeNull()
     expect(store.rows).toHaveLength(0)
+  })
+
+  it("account B never sees account A's actor identity", async () => {
+    const store = makeStore()
+    const env = Layer.mergeAll(ClaimStub, store.layer)
+    await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_A, USER_A, input("https://acme.example/pricing")).pipe(Effect.provide(env)))
+    // Cross-tenant reads are null (404 upstream), so no user id leaks.
+    expect(await Effect.runPromise(loadInterventions(BIZ_B, CLAIM_A).pipe(Effect.provide(env)))).toBeNull()
+  })
+})
+
+describe("intervention actor provenance", () => {
+  it("records actor HUMAN with the authenticated user id", async () => {
+    const store = makeStore()
+    const env = Layer.mergeAll(ClaimStub, store.layer)
+    const recorded = await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_A, USER_A, input("https://acme.example/pricing")).pipe(Effect.provide(env)))
+    expect(recorded?.actor).toBe("HUMAN")
+    expect(recorded?.actorId).toBe(USER_A)
+  })
+
+  it("request JSON cannot spoof actor identity", async () => {
+    // The contract schema carries no actor fields: extra keys are stripped
+    // on decode, and the helper signature only accepts an explicit actorId
+    // supplied by the route from the session — never the body.
+    const decoded = Schema.decodeUnknownEither(CreateInterventionRequest)({
+      type: "SOURCE_UPDATED",
+      target: "https://acme.example/pricing",
+      actor: "SYSTEM",
+      actorId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    })
+    expect(decoded._tag).toBe("Right")
+    if (decoded._tag === "Right") {
+      expect("actor" in decoded.right).toBe(false)
+      expect("actorId" in decoded.right).toBe(false)
+    }
+    const store = makeStore()
+    const env = Layer.mergeAll(ClaimStub, store.layer)
+    // Even a caller holding another user's id for this business records only
+    // the id it was actually given (the route gives the session user id).
+    const recorded = await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_A, USER_B, input("https://acme.example/pricing")).pipe(Effect.provide(env)))
+    expect(recorded?.actorId).toBe(USER_B)
+  })
+
+  it("historical NULL actor ids remain readable", async () => {
+    const store = makeStore()
+    const env = Layer.mergeAll(ClaimStub, store.layer)
+    await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_A, USER_A, input("https://acme.example/pricing")).pipe(Effect.provide(env)))
+    // A pre-provenance row (actorId NULL) decodes and lists unchanged.
+    store.rows.push({
+      id: "00000000-0000-4000-8000-000000000099",
+      businessId: BIZ_A,
+      issueIds: [CLAIM_A],
+      type: "SOURCE_UPDATED",
+      target: "https://acme.example/old",
+      performedAt: "2026-10-01T00:00:00.000Z",
+      actor: "HUMAN",
+      actorId: null,
+      notes: null,
+      evidenceBeforeDigest: null,
+      evidenceAfterDigest: null,
+      supersedesId: null,
+      correctionReason: null,
+      createdAt: "2026-10-01T00:00:00.000Z",
+    })
+    const rows = await Effect.runPromise(loadInterventions(BIZ_A, CLAIM_A).pipe(Effect.provide(env)))
+    expect(rows).toHaveLength(2)
+    expect(rows?.find((r) => r.actorId === null)).toBeDefined()
   })
 })
 
@@ -128,7 +198,7 @@ describe("intervention request validation", () => {
     const store = makeStore()
     const env = Layer.mergeAll(ClaimStub, store.layer)
     expect(await Effect.runPromise(loadInterventions(BIZ_A, CLAIM_UNKNOWN).pipe(Effect.provide(env)))).toBeNull()
-    expect(await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_UNKNOWN, input("https://acme.example/pricing")).pipe(Effect.provide(env)))).toBeNull()
+    expect(await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_UNKNOWN, USER_A, input("https://acme.example/pricing")).pipe(Effect.provide(env)))).toBeNull()
     // Malformed ids never reach the repository: the route maps them to 404.
     expect(decodeRouteId("not-a-uuid")._tag).toBe("Left")
   })
@@ -139,10 +209,10 @@ describe("append-only recorded actions", () => {
     const store = makeStore()
     const env = Layer.mergeAll(ClaimStub, store.layer)
     const first = await Effect.runPromise(
-      recordIntervention(BIZ_A, CLAIM_A, { ...input("https://acme.example/pricing"), performedAt: "2026-10-02T00:00:00.000Z" }).pipe(Effect.provide(env)),
+      recordIntervention(BIZ_A, CLAIM_A, USER_A, { ...input("https://acme.example/pricing"), performedAt: "2026-10-02T00:00:00.000Z" }).pipe(Effect.provide(env)),
     )
     const second = await Effect.runPromise(
-      recordIntervention(BIZ_A, CLAIM_A, { ...input("https://acme.example/help"), performedAt: "2026-10-03T00:00:00.000Z" }).pipe(Effect.provide(env)),
+      recordIntervention(BIZ_A, CLAIM_A, USER_A, { ...input("https://acme.example/help"), performedAt: "2026-10-03T00:00:00.000Z" }).pipe(Effect.provide(env)),
     )
     expect(first).not.toBeNull()
     expect(second).not.toBeNull()
@@ -154,7 +224,7 @@ describe("append-only recorded actions", () => {
   it("this path records plain actions only: human actor, no corrections", async () => {
     const store = makeStore()
     const env = Layer.mergeAll(ClaimStub, store.layer)
-    const recorded = await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_A, input("https://acme.example/pricing")).pipe(Effect.provide(env)))
+    const recorded = await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_A, USER_A, input("https://acme.example/pricing")).pipe(Effect.provide(env)))
     expect(recorded?.actor).toBe("HUMAN")
     expect(recorded?.supersedesId).toBeNull()
     expect(recorded?.correctionReason).toBeNull()
@@ -163,9 +233,9 @@ describe("append-only recorded actions", () => {
   it("appended rows are never rewritten", async () => {
     const store = makeStore()
     const env = Layer.mergeAll(ClaimStub, store.layer)
-    const first = await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_A, input("https://acme.example/pricing")).pipe(Effect.provide(env)))
+    const first = await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_A, USER_A, input("https://acme.example/pricing")).pipe(Effect.provide(env)))
     const snapshot = first ? { ...first, issueIds: [...first.issueIds] } : null
-    await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_A, input("https://acme.example/help")).pipe(Effect.provide(env)))
+    await Effect.runPromise(recordIntervention(BIZ_A, CLAIM_A, USER_A, input("https://acme.example/help")).pipe(Effect.provide(env)))
     expect(store.rows[0]).toEqual(snapshot)
     // The repository surface offers no rewrite operation at all.
     expect(Object.keys(store.service).sort()).toEqual(["append", "listByIssue"])
