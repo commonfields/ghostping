@@ -1,10 +1,11 @@
+import { isDeepStrictEqual } from "node:util"
 // Effect repository services over PostgreSQL (@effect/sql-pg).
 // Explicit SQL; no ORM. Every customer-data query is account-scoped.
 import { createHash } from "node:crypto"
 import { Context, Data, Effect, Layer, Schema } from "effect"
 import { PgClient } from "@effect/sql-pg"
 import type { SqlClient } from "@effect/sql"
-import type { SqlError } from "@effect/sql/SqlError"
+import { SqlError } from "@effect/sql/SqlError"
 import { AuthorityError } from "./truth.js"
 import {
   BooleanField,
@@ -520,10 +521,12 @@ export class ObservationRepository extends Context.Tag("ObservationRepository")<
       rawDigest: string
       rawBytesHex?: string | null
       rawContentType?: string | null
+      rawResponseMaxBytes?: number
       providerMetadata?: unknown
       surfaceIdentity?: unknown
       measurementContext?: unknown
       synthetic?: boolean
+      completeRun?: boolean
       citations: ReadonlyArray<{
         readonly uri: string | null
         readonly title: string | null
@@ -618,8 +621,8 @@ export const ObservationRepositoryLive = Layer.effect(
           // raw_evidence trigger forbids it). Repeated identical provider
           // payloads share one content-addressed row.
           yield* sql`
-            INSERT INTO raw_evidence (digest, content_text, raw_bytes_hex, received_at, provider_metadata, content_type)
-            VALUES (${input.rawDigest}, ${rawText}, ${input.rawBytesHex ?? null}, ${input.collectedAt}::timestamptz, ${input.providerMetadata == null ? null : JSON.stringify(input.providerMetadata)}::jsonb, ${input.rawContentType ?? "application/json"})
+            INSERT INTO raw_evidence (digest, content_text, raw_bytes_hex, received_at, provider_metadata, content_type, response_max_bytes)
+            VALUES (${input.rawDigest}, ${rawText}, ${input.rawBytesHex ?? null}, ${input.collectedAt}::timestamptz, ${input.providerMetadata == null ? null : JSON.stringify(input.providerMetadata)}::jsonb, ${input.rawContentType === undefined ? "application/json" : input.rawContentType}, ${input.rawResponseMaxBytes ?? null})
             ON CONFLICT (digest) DO NOTHING`
           const existing = (yield* sql`SELECT id, digest, content_text, raw_bytes_hex FROM raw_evidence WHERE digest = ${input.rawDigest}`) as Array<
             unknown
@@ -628,7 +631,9 @@ export const ObservationRepositoryLive = Layer.effect(
           if (!rawRow) return yield* Effect.dieMessage("raw_evidence insert produced no row")
           const decodedRaw = yield* decodeRow(RawEvidenceSchema, "raw_evidence", rawRow)
           const storedBytes = decodedRaw.raw_bytes_hex
-          if (decodedRaw.content_text !== rawText || (storedBytes !== null && input.rawBytesHex != null && storedBytes !== input.rawBytesHex)) {
+          let sameContent = false
+          try { sameContent = isDeepStrictEqual(JSON.parse(decodedRaw.content_text), input.rawResponse) } catch { /* corrupt stored JSON fails closed */ }
+          if (!sameContent || (storedBytes !== null && input.rawBytesHex != null && storedBytes !== input.rawBytesHex)) {
             // Same digest, different bytes: fail closed, keep the original.
             return yield* Effect.fail(new RawDigestMismatch({ digest: input.rawDigest }))
           }
@@ -642,9 +647,14 @@ export const ObservationRepositoryLive = Layer.effect(
           for (const c of input.citations) {
             yield* sql`INSERT INTO observation_citations (observation_id, uri, title, position, attributed) VALUES (${base.id}, ${c.uri}, ${c.title}, ${c.position}, ${c.attributed})`
           }
+          if (input.completeRun) {
+            const finished = yield* sql`UPDATE check_runs SET status = 'SUCCEEDED', completed_at = now(), failure_class = NULL, failure_detail_safe = NULL
+              WHERE id = ${input.checkRunId} AND business_id = ${input.businessId} AND status = 'RUNNING' RETURNING id`
+            if (finished.length !== 1) return yield* Effect.fail(new SqlError({ message: "check run completion rejected: scoped RUNNING ownership required" }))
+          }
           const citations = yield* loadCitations(base.id)
           return { ...base, citations }
-        }),
+        }).pipe(sql.withTransaction),
       getScoped: (businessId: string, id: string) =>
         Effect.gen(function*() {
           const rows = (yield* sql`SELECT * FROM observations WHERE id = ${id} AND business_id = ${businessId}`) as Array<

@@ -614,7 +614,7 @@ export const makeRouter = () => {
           const runs = yield* CheckRunRepository
           // Every execution creates a CheckRun QUEUED; worker claims it.
           // provider is schema-restricted to mock|9router; the 9router model
-          // pin is enforced inside the Rust worker, not here.
+          // pin is enforced by the Effect provider adapter.
           const row = yield* runs.enqueue({ businessId, questionId, provider, requestedModel })
           return yield* json(200, { checkRun: row })
         }),

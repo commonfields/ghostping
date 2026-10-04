@@ -12,6 +12,7 @@ import {
   DiscoveryScopeRepositoryLive,
   FactRepositoryLive,
   ObservationRepositoryLive,
+  ProviderAttemptEvidenceRepositoryLive,
   ProductReadRepositoryLive,
   QuestionRepositoryLive,
   type RawDigestMismatch,
@@ -19,22 +20,24 @@ import {
 } from "@ghostping/db"
 import { CheckRunner, CheckRunnerLive } from "./check-runner.js"
 import { DiscoveryRunner, DiscoveryRunnerLive } from "./discovery-runner.js"
-import { RustObservationWorkerLive } from "./rust-worker.js"
+import { NineRouterSettingsLive } from "@ghostping/config"
+import { MockProviderLive, NineRouterProviderLive, ProviderRegistryLive } from "@ghostping/providers"
+import { NodeHttpClient } from "@effect/platform-node"
 
 // Worker configuration comes from the Effect ConfigProvider (process env by
 // default). A missing DATABASE_URL surfaces as a ConfigError through runMain
 // instead of a hand-rolled check + process.exit.
 const WorkerConfig = Config.all({
-  databaseUrl: Config.string("DATABASE_URL"),
-  workerPath: Config.string("GHOSTPING_WORKER_PATH").pipe(Config.withDefault("./target/release/ghostping-worker")),
-  pollIntervalMs: Config.integer("WORKER_POLL_MS").pipe(Config.withDefault(1000)),
+  databaseUrl: Config.redacted("DATABASE_URL"),
+  pollIntervalMs: Config.integer("WORKER_POLL_MS").pipe(Config.withDefault(1000), Config.validate({ message: "poll interval must be 1..60000 milliseconds", validation: n => n > 0 && n <= 60000 })),
 })
 
-const buildRunnerLive = (databaseUrl: string, workerPath: string) => {
-  const PgLive = PgClient.layer({ url: Redacted.make(databaseUrl) })
+const buildRunnerLive = (databaseUrl: Redacted.Redacted<string>) => {
+  const PgLive = PgClient.layer({ url: databaseUrl })
   const Repos = Layer.mergeAll(
     CheckRunRepositoryLive,
     ObservationRepositoryLive,
+    ProviderAttemptEvidenceRepositoryLive,
     QuestionRepositoryLive,
     DiscoveryScopeRepositoryLive,
     DiscoveryRunRepositoryLive,
@@ -44,8 +47,9 @@ const buildRunnerLive = (databaseUrl: string, workerPath: string) => {
     FactRepositoryLive,
     ProductReadRepositoryLive,
   )
-  const WorkerLive = RustObservationWorkerLive(workerPath)
-  const CheckLive = CheckRunnerLive.pipe(Layer.provide(WorkerLive), Layer.provide(Repos), Layer.provide(PgLive))
+  const GatewayLive = NineRouterProviderLive.pipe(Layer.provide(NineRouterSettingsLive), Layer.provide(NodeHttpClient.layer))
+  const ProvidersLive = ProviderRegistryLive.pipe(Layer.provide(Layer.merge(MockProviderLive, GatewayLive)))
+  const CheckLive = CheckRunnerLive.pipe(Layer.provide(ProvidersLive), Layer.provide(Repos), Layer.provide(PgLive))
   const DiscoveryLive = DiscoveryRunnerLive.pipe(Layer.provide(Repos), Layer.provide(PgLive))
   return Layer.merge(CheckLive, DiscoveryLive)
 }
@@ -72,7 +76,7 @@ export const startRunnerLoops = (runners: LoopRunners, pollMs: number): Effect.E
           const did = yield* runOnce().pipe(
             Effect.catchAll((e) =>
               Effect.logError(`${which} runner error`).pipe(
-                Effect.annotateLogs({ runner: which, error: String(e).slice(0, 500) }),
+                Effect.annotateLogs({ runner: which, error: e._tag }),
                 Effect.as(false),
               ),
             ),
@@ -98,7 +102,7 @@ const main: Effect.Effect<void, SqlError | ConfigError.ConfigError> = Effect.fla
     const discovery = yield* DiscoveryRunner
     yield* startRunnerLoops({ check, discovery }, cfg.pollIntervalMs)
   }).pipe(
-    Effect.provide(buildRunnerLive(cfg.databaseUrl, cfg.workerPath)),
+    Effect.provide(buildRunnerLive(cfg.databaseUrl)),
     Effect.scoped,
   ),
 )

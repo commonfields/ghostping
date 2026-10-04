@@ -10,7 +10,6 @@ pub mod gsc;
 pub mod integrity;
 pub mod jev_assay;
 pub mod marketplace;
-pub mod nine_router;
 pub mod observation_views;
 pub mod observations;
 pub mod parser;
@@ -25,7 +24,6 @@ pub mod storage;
 pub mod tracker;
 pub mod tui;
 pub mod types;
-pub mod worker_contract;
 
 // Re-export commonly used types
 pub use audit_engine::{AuditEngine, AuditOptions, PromptInput};

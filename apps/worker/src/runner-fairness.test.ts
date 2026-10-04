@@ -3,7 +3,8 @@
 // sleeping, no Postgres) against the real startRunnerLoops composition.
 import { Deferred, Effect, Fiber } from "effect"
 import { describe, expect, it } from "vitest"
-import { startRunnerLoops, type RunnerLoopError } from "./runner.js"
+import { RawDigestMismatch } from "@ghostping/db"
+import { startRunnerLoops } from "./runner.js"
 
 const testPollMs = 5
 
@@ -61,6 +62,23 @@ describe("worker fairness", () => {
     )
   })
 
+  it("shutdown interrupts both owned loops and runs their finalizers", async () => {
+    await Effect.runPromise(Effect.gen(function*() {
+      const started = yield* Deferred.make<void>()
+      let active = 0
+      let finalized = 0
+      const owned = { runOnce: () => Effect.gen(function*() {
+        active++
+        if (active === 2) yield* Deferred.succeed(started, undefined)
+        return yield* Effect.never
+      }).pipe(Effect.ensuring(Effect.sync(() => { finalized++ }))) }
+      const parent = yield* Effect.forkScoped(startRunnerLoops({ check: owned, discovery: owned }, testPollMs))
+      yield* Deferred.await(started)
+      yield* Fiber.interrupt(parent)
+      expect(finalized).toBe(2)
+    }).pipe(Effect.scoped))
+  })
+
   it("a failing loop neither crashes nor starves its sibling", async () => {
     await Effect.runPromise(
       Effect.gen(function*() {
@@ -69,7 +87,7 @@ describe("worker fairness", () => {
           runOnce: () =>
             Effect.gen(function*() {
               checks.n += 1
-              if (checks.n < 3) return yield* Effect.fail(new Error("boom") as unknown as RunnerLoopError)
+              if (checks.n < 3) return yield* Effect.fail(new RawDigestMismatch({ digest: "fixture" }))
               return false
             }),
         }

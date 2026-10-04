@@ -205,6 +205,26 @@ run("postgres closeout regressions", () => {
     }
   })
 
+  it("identical exact bytes dedupe across Rust/JS JSON key-order normalization", async () => {
+    const { b, q } = await setupBusiness()
+    const env = await withRepos((ctx) => Context.get(ctx, ObservationRepository))
+    try {
+      const bytes = Buffer.from(`{ "z":1, "a":"${unique("order")}" }`)
+      const value = JSON.parse(bytes.toString()) as { z: number; a: string }
+      const digest = (await import("node:crypto")).createHash("sha256").update(bytes).digest("hex")
+      const makeRun = async () => (await pool.query(`INSERT INTO check_runs (business_id, question_id) VALUES ($1,$2) RETURNING id`, [b, q])).rows[0]["id"] as string
+      const base = { businessId: b, provider: "mock", requestedModel: null, observedModel: null,
+        collectedAt: new Date().toISOString(), answerText: "fixture", retrievalMode: "unknown", rawDigest: digest,
+        rawBytesHex: bytes.toString("hex"), citations: [] }
+      const first = await Effect.runPromise(env.value.create({ ...base, checkRunId: await makeRun(), rawResponse: { a: value.a, z: value.z } }))
+      const second = await Effect.runPromise(env.value.create({ ...base, checkRunId: await makeRun(), rawResponse: value }))
+      expect(first.rawEvidenceId).toBe(second.rawEvidenceId)
+      const row = (await pool.query(`SELECT content_text, raw_bytes_hex FROM raw_evidence WHERE digest=$1`, [digest])).rows[0]
+      expect(row["content_text"]).toBe(JSON.stringify({ a: value.a, z: value.z }))
+      expect(row["raw_bytes_hex"]).toBe(bytes.toString("hex"))
+    } finally { await closeScope(env.scope) }
+  })
+
   it("same digest + different content fails closed and preserves the original", async () => {
     const { b, q } = await setupBusiness()
     const env = await withRepos((ctx) => Context.get(ctx, ObservationRepository))

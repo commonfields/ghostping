@@ -2,48 +2,6 @@
 // Derives request/response shapes from Effect Schema (domain package).
 import { Schema } from "effect"
 
-export const WorkerJobV1 = Schema.Struct({
-  contract_version: Schema.Literal("ghostping-worker-job-v1"),
-  run_id: Schema.String,
-  provider: Schema.String,
-  model: Schema.NullOr(Schema.String),
-  prompt: Schema.String,
-})
-export type WorkerJobV1 = typeof WorkerJobV1.Type
-
-export const WorkerResultV1 = Schema.Struct({
-  contract_version: Schema.Literal("ghostping-worker-result-v1"),
-  run_id: Schema.String,
-  status: Schema.Literal("succeeded", "failed"),
-  provider: Schema.String,
-  requested_model: Schema.NullOr(Schema.String),
-  observed_model: Schema.NullOr(Schema.String),
-  collected_at: Schema.String,
-  answer_text: Schema.NullOr(Schema.String),
-  retrieval_mode: Schema.Literal("unknown", "grounded", "parametric"),
-  citations: Schema.Array(
-    Schema.Struct({
-      uri: Schema.NullOr(Schema.String),
-      title: Schema.NullOr(Schema.String),
-      position: Schema.NullOr(Schema.Number),
-      attributed: Schema.Boolean,
-    }),
-  ),
-  raw_digest: Schema.String,
-  raw_response: Schema.Unknown,
-  // Additive result-v1 fields. Older golden fixtures remain decodable; new
-  // workers preserve exact response bytes rather than reconstructing them.
-  raw_bytes_hex: Schema.optional(Schema.NullOr(Schema.String)),
-  raw_content_type: Schema.optional(Schema.NullOr(Schema.String)),
-  provider_metadata: Schema.optional(Schema.Unknown),
-  failure_class: Schema.NullOr(Schema.String),
-  failure_detail_safe: Schema.NullOr(Schema.String),
-})
-export type WorkerResultV1 = typeof WorkerResultV1.Type
-
-export const JOB_CONTRACT_VERSION = "ghostping-worker-job-v1" as const
-export const RESULT_CONTRACT_VERSION = "ghostping-worker-result-v1" as const
-
 // REST route table (single source of truth for client + server).
 export const Routes = {
   signUp: { method: "POST", path: "/api/auth/signup" },
@@ -80,11 +38,6 @@ export const Routes = {
     path: `/api/businesses/${businessId}/representations/${bindingId}`,
   }),
 } as const
-
-export const decodeWorkerJob = Schema.decodeUnknownSync(WorkerJobV1)
-export const decodeWorkerResult = Schema.decodeUnknownSync(WorkerResultV1)
-export const encodeWorkerJob = Schema.encodeSync(WorkerJobV1)
-export const encodeWorkerResult = Schema.encodeSync(WorkerResultV1)
 
 // ---------------------------------------------------------------------------
 // HTTP write-boundary request contracts. External JSON is untrusted: every
@@ -181,8 +134,8 @@ export type CreateQuestionRequest = typeof CreateQuestionRequest.Type
 export const RunCheckRequest = Schema.Struct({
   questionId: Schema.UUID,
   provider: Schema.optional(Schema.Literal("mock", "9router")),
-  // Requested model passes through to the worker: for 9router it must equal
-  // the NINE_ROUTER_MODEL pin (enforced in Rust), else the run fails closed.
+  // Requested model passes through to the provider: for 9router it must equal
+  // the NINE_ROUTER_MODEL pin (enforced in the Effect provider), else the run fails closed.
   requestedModel: Schema.optional(Schema.NullOr(Schema.String)),
 })
 export type RunCheckRequest = typeof RunCheckRequest.Type

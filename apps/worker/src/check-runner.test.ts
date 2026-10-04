@@ -1,276 +1,91 @@
-// CheckRunner orchestration + bounded retry semantics, via deterministic
-// test Layers (no Postgres, no real binary, no timing luck). The retry
-// Schedule under test is Schedule.recurs(3): same bound as production,
-// without delays.
 import { describe, expect, it } from "vitest"
-import { Effect, Layer, Schedule } from "effect"
-import {
-  CheckRunner,
-  classifyInvokeError,
-  classifyResultFailure,
-  makeCheckRunnerLive,
-  MAX_WORKER_ATTEMPTS,
-  RetryableWorkerFailure,
-  TerminalWorkerFailure,
-} from "./check-runner.js"
-import {
-  ProviderTimeout,
-  RustObservationWorker,
-  WorkerContractMismatch,
-  WorkerFailed,
-} from "./rust-worker.js"
-import {
-  CheckRunRepository,
-  ObservationRepository,
-  QuestionRepository,
-} from "@ghostping/db"
-import type { WorkerResultV1 } from "@ghostping/contracts"
-import type { MeasurementContextV1 } from "@ghostping/protocol"
-
-const NoDelayRetry = Schedule.recurs(3)
-
-const okResult = (overrides: Partial<WorkerResultV1> = {}): WorkerResultV1 => ({
-  contract_version: "ghostping-worker-result-v1",
-  run_id: "run-1",
-  status: "succeeded",
-  provider: "mock",
-  requested_model: null,
-  observed_model: "mock-v1",
-  collected_at: new Date().toISOString(),
-  answer_text: "Northstar costs $29/month.",
-  retrieval_mode: "unknown",
-  citations: [],
-  raw_digest: "d",
-  raw_response: { answer: "x" },
-  failure_class: null,
-  failure_detail_safe: null,
-  ...overrides,
-})
-
-const failedResult = (failureClass: string, detail: string): WorkerResultV1 =>
-  okResult({ status: "failed", answer_text: null, failure_class: failureClass, failure_detail_safe: detail })
-
-interface RunState {
-  attempts: number
-  finished: { status: string; failureClass: string | null } | null
+import { Effect, Layer, Redacted, Schedule } from "effect"
+import { SqlError } from "@effect/sql/SqlError"
+import { CheckRunRepository, ObservationRepository, ProviderAttemptEvidenceRepository, QuestionRepository } from "@ghostping/db"
+import { ProviderRegistry, ProviderAuth, ProviderRateLimited, ProviderTimeout, ProviderUnavailable, ProviderMalformed, ProviderUnsupported, ProviderContractMismatch, rawEvidence, type ProviderError, type ProviderObservation } from "@ghostping/providers"
+import { CheckRunner, makeCheckRunnerLive, MAX_PROVIDER_ATTEMPTS } from "./check-runner.js"
+const ok: ProviderObservation = {
+  ...rawEvidence(new TextEncoder().encode(' {"answer":"x"} '), null), provider: "mock", requestedModel: "requested", observedModel: "mock-v1",
+  collectedAt: "2026-10-04T00:00:00Z", answerText: "Northstar costs $29/month.", retrievalMode: "unknown", citations: [],
+  rawResponse: { answer: "x" }, providerMetadata: { synthetic: true }, synthetic: true,
 }
-
-// Queued run stub: claimOne succeeds once, then the queue is empty.
-const RunsStub = (state: RunState) =>
-  Layer.succeed(CheckRunRepository, {
-    enqueue: () => Effect.dieMessage("unused"),
-    listByBusiness: () => Effect.succeed([]),
-    getScoped: () => Effect.succeed(null),
-    claimOne: () =>
-      Effect.succeed({
-        id: "run-1",
-        businessId: "b1",
-        questionId: "q1",
-        provider: "mock",
-        requestedModel: null,
-        status: "QUEUED",
-        queuedAt: new Date().toISOString(),
-        startedAt: null,
-        completedAt: null,
-        failureClass: null,
-        failureDetailSafe: null,
-        attemptCount: 0,
-      }),
-    markRunning: () => Effect.void,
-    recordAttempt: () =>
-      Effect.sync(() => {
-        state.attempts += 1
-        return state.attempts
-      }),
-    markFinished: (id: string, status: "SUCCEEDED" | "FAILED", failureClass: string | null) =>
-      Effect.sync(() => {
-        void id
-        state.finished = { status, failureClass }
-      }),
+const runCase = async (script: Array<ProviderError | ProviderObservation>, opts: { missing?: boolean; attemptFailure?: boolean; evidenceFailure?: boolean } = {}) => {
+  const state = { calls: 0, attempts: 0, status: "RUNNING", failure: null as string | null, observation: null as unknown, evidence: [] as unknown[] }
+  const runs = Layer.succeed(CheckRunRepository, {
+    enqueue: () => Effect.dieMessage("unused"), listByBusiness: () => Effect.succeed([]), getScoped: () => Effect.succeed(null), markRunning: () => Effect.void,
+    claimOne: () => Effect.succeed({ id: "run-1", businessId: "b1", questionId: "q1", provider: "mock", requestedModel: "requested", status: "RUNNING", queuedAt: "2026-10-04T00:00:00Z", startedAt: null, completedAt: null, failureClass: null, failureDetailSafe: null, attemptCount: 0 }),
+    recordAttempt: () => opts.attemptFailure ? Effect.fail(new SqlError({ message: "test failure" })) : Effect.sync(() => ++state.attempts),
+    markFinished: (_id, status, failureClass) => Effect.sync(() => { state.status = status; state.failure = failureClass }),
   })
-
-const QuestionsStub = Layer.succeed(QuestionRepository, {
-  create: () => Effect.dieMessage("unused"),
-  listByBusiness: () => Effect.succeed([]),
-  getScoped: () =>
-    Effect.succeed({
-      id: "q1",
-      businessId: "b1",
-      label: null,
-      prompt: "How much does Northstar cost?",
-      origin: "BUSINESS_OWNER",
-      active: true,
-      createdAt: new Date().toISOString(),
+  const questions = Layer.succeed(QuestionRepository, {
+    create: () => Effect.dieMessage("unused"), listByBusiness: () => Effect.succeed([]),
+    getScoped: () => Effect.succeed(opts.missing ? null : { id: "q1", businessId: "b1", label: null, prompt: "How much does Northstar cost?", origin: "BUSINESS_OWNER", active: true, createdAt: "2026-10-04T00:00:00Z" }),
+  })
+  const observations = Layer.succeed(ObservationRepository, {
+    getScoped: () => Effect.succeed(null), getByCheckRun: () => Effect.succeed(null),
+    create: input => Effect.sync(() => {
+      state.observation = input
+      if (input.completeRun) state.status = "SUCCEEDED"
+      return { id: "o1", businessId: input.businessId, checkRunId: input.checkRunId, provider: input.provider, requestedModel: input.requestedModel, observedModel: input.observedModel, collectedAt: input.collectedAt, answerText: input.answerText, retrievalMode: input.retrievalMode, rawEvidenceId: "raw1", rawDigest: input.rawDigest, surfaceIdentity: input.surfaceIdentity, measurementContext: input.measurementContext, synthetic: input.synthetic ?? false, citations: input.citations }
     }),
-})
-
-type ObsState = { created: boolean; input?: Record<string, unknown> }
-
-const ObsStub = (state: ObsState) =>
-  Layer.succeed(ObservationRepository, {
-    create: (input) =>
-      Effect.sync(() => {
-        state.created = true
-        state.input = input as unknown as Record<string, unknown>
-        return {
-          id: "o1",
-          businessId: "b1",
-          checkRunId: "run-1",
-          provider: "mock",
-          requestedModel: null,
-          observedModel: "mock-v1",
-          collectedAt: new Date().toISOString(),
-          answerText: "Northstar costs $29/month.",
-          retrievalMode: "unknown",
-          rawEvidenceId: "r1",
-          rawDigest: "d",
-          surfaceIdentity: null,
-          measurementContext: null,
-          synthetic: true,
-          citations: [],
-        }
-      }),
-    getScoped: () => Effect.succeed(null),
-    getByCheckRun: () => Effect.succeed(null),
   })
-
-const runCase = async (
-  script: Array<WorkerResultV1 | WorkerContractMismatch | WorkerFailed | ProviderTimeout>,
-): Promise<{ attempts: number; finished: { status: string; failureClass: string | null } | null; obs: boolean; obsInput: Record<string, unknown> | undefined }> => {
-  const runState: RunState = { finished: null, attempts: 0 }
-  const obsState: ObsState = { created: false }
-  let calls = 0
-  const Worker = Layer.succeed(RustObservationWorker, {
-    invoke: () => {
-      const step = script[Math.min(calls, script.length - 1)] as WorkerResultV1 | WorkerContractMismatch | WorkerFailed | ProviderTimeout
-      calls += 1
-      if (
-        step instanceof WorkerContractMismatch ||
-        step instanceof WorkerFailed ||
-        step instanceof ProviderTimeout
-      ) {
-        return Effect.fail(step)
-      }
-      return Effect.succeed(step)
-    },
+  const evidence = Layer.succeed(ProviderAttemptEvidenceRepository, {
+    record: input => opts.evidenceFailure ? Effect.fail(new SqlError({ message: "test evidence failure" })) : Effect.sync(() => { state.evidence.push(input) }),
   })
-  const RunnerTest = makeCheckRunnerLive(NoDelayRetry).pipe(
-    Layer.provide(Worker),
-    Layer.provide(Layer.mergeAll(RunsStub(runState), QuestionsStub, ObsStub(obsState))),
-  )
-  const did = await Effect.runPromise(
-    Effect.flatMap(CheckRunner, (r) => r.runOnce()).pipe(Effect.provide(RunnerTest)),
-  )
-  if (!did) throw new Error("expected runOnce to claim work")
-  return { attempts: runState.attempts, finished: runState.finished, obs: obsState.created, obsInput: obsState.input }
+  const providers = Layer.succeed(ProviderRegistry, { observe: () => Effect.suspend(() => {
+    const step = script[Math.min(state.calls++, script.length - 1)]!
+    return "_tag" in step ? Effect.fail(step) : Effect.succeed(step)
+  }) })
+  const result = await Effect.runPromise(Effect.gen(function*() { return yield* (yield* CheckRunner).runOnce() }).pipe(
+    Effect.provide(makeCheckRunnerLive(Schedule.recurs(8)).pipe(Layer.provide(Layer.mergeAll(runs, questions, observations, evidence, providers)))), Effect.either,
+  ))
+  return { ...state, result }
 }
-
-describe("CheckRunner retry taxonomy", () => {
-  it("documents the attempt bound", () => {
-    expect(MAX_WORKER_ATTEMPTS).toBe(4)
-  })
-
-  it("claims a run, invokes worker, persists observation", async () => {
-    const out = await runCase([okResult()])
-    expect(out.finished?.status).toBe("SUCCEEDED")
-    expect(out.obs).toBe(true)
+describe("Effect CheckRunner", () => {
+  it("persists exact bytes, model identity, synthetic semantics, and protocol context", async () => {
+    const out = await runCase([ok])
+    expect(out.status).toBe("SUCCEEDED")
     expect(out.attempts).toBe(1)
+    expect(out.observation).toMatchObject({ rawBytesHex: Buffer.from(ok.rawBytes).toString("hex"), rawContentType: null,
+      rawDigest: ok.rawDigest, requestedModel: "requested", observedModel: "mock-v1", synthetic: true, completeRun: true,
+      measurementContext: { business_id: "b1", question_id: "q1", question: "How much does Northstar cost?" } })
   })
-
-  it("records protocol provenance: mock is MOCK and synthetic, with the exact prompt", async () => {
-    const out = await runCase([okResult()])
-    const context = out.obsInput?.["measurementContext"] as MeasurementContextV1
-    expect(context.schema).toBe("ghostping/measurement-context-v1")
-    expect(context.question).toBe("How much does Northstar cost?")
-    expect(context.surface.kind).toBe("MOCK")
-    expect(out.obsInput?.["synthetic"]).toBe(true)
-    expect(out.obsInput?.["surfaceIdentity"]).toEqual(context.surface)
-  })
-
-  it("records 9Router as ROUTER_API without inferring hidden state", async () => {
-    const out = await runCase([okResult({ provider: "9router", requested_model: "pin-a", observed_model: null })])
-    const context = out.obsInput?.["measurementContext"] as MeasurementContextV1
-    expect(context.surface.kind).toBe("ROUTER_API")
-    expect(context.surface.gateway).toEqual({ state: "KNOWN", value: "9router" })
-    expect(context.surface.requested_model).toEqual({ state: "KNOWN", value: "pin-a" })
-    expect(context.surface.observed_model).toEqual({ state: "UNKNOWN" })
-    expect(context.surface.search_mode).toEqual({ state: "UNKNOWN" })
-    expect(out.obsInput?.["synthetic"]).toBe(false)
-    expect(out.obsInput?.["providerMetadata"]).toBeNull()
-  })
-
-  it("rate-limited twice then success: 3 attempts, SUCCEEDED", async () => {
-    const out = await runCase([
-      failedResult("PROVIDER_RATE_LIMITED", "429 rate_limited"),
-      failedResult("PROVIDER_RATE_LIMITED", "429 rate_limited"),
-      okResult(),
-    ])
-    expect(out.attempts).toBe(3)
-    expect(out.finished?.status).toBe("SUCCEEDED")
-    expect(out.obs).toBe(true)
-  })
-
-  it("timeout then success is retried", async () => {
-    const out = await runCase([new ProviderTimeout({ detail: "worker timeout after 1000ms" }), okResult()])
+  it.each([new ProviderRateLimited({}), new ProviderTimeout({}), new ProviderUnavailable({})])("retries $._tag then succeeds", async error => {
+    const out = await runCase([error, ok])
+    expect(out.status).toBe("SUCCEEDED")
     expect(out.attempts).toBe(2)
-    expect(out.finished?.status).toBe("SUCCEEDED")
   })
-
-  it("auth failure: 1 attempt, FAILED, not retried", async () => {
-    const out = await runCase([failedResult("PROVIDER_AUTH", "401 unauthorized")])
+  it.each([new ProviderAuth({}), new ProviderMalformed({}), new ProviderUnsupported({}), new ProviderContractMismatch({})])("does not retry $._tag", async error => {
+    const out = await runCase([error, ok])
+    expect(out.status).toBe("FAILED")
     expect(out.attempts).toBe(1)
-    expect(out.finished?.status).toBe("FAILED")
-    expect(out.finished?.failureClass).toBe("PROVIDER_AUTH")
-    expect(out.obs).toBe(false)
+    expect(out.observation).toBeNull()
   })
-
-  it("malformed result: 1 attempt, FAILED, not retried", async () => {
-    const out = await runCase([failedResult("PROVIDER_MALFORMED", "bad json shape")])
-    expect(out.attempts).toBe(1)
-    expect(out.finished?.status).toBe("FAILED")
-    expect(out.finished?.failureClass).toBe("PROVIDER_MALFORMED")
+  it("enforces four actual calls even with a broader supplied Schedule", async () => {
+    const out = await runCase([new ProviderUnavailable({})])
+    expect(out.calls).toBe(MAX_PROVIDER_ATTEMPTS)
+    expect(out.attempts).toBe(MAX_PROVIDER_ATTEMPTS)
+    expect(out.failure).toBe("PROVIDER_UNAVAILABLE")
   })
-
-  it("contract mismatch: 1 attempt, FAILED, not retried", async () => {
-    const out = await runCase([new WorkerContractMismatch({ detail: "bad contract" })])
-    expect(out.attempts).toBe(1)
-    expect(out.finished?.status).toBe("FAILED")
-    expect(out.finished?.failureClass).toBe("WORKER_CONTRACT_MISMATCH")
+  it("stores each bounded failure body before retry without creating an observation", async () => {
+    const raw = rawEvidence(new TextEncoder().encode("private upstream error"), "text/plain")
+    const out = await runCase([new ProviderAuth({ evidence: Redacted.make(raw), status: 401 })])
+    expect(out.evidence).toHaveLength(1)
+    expect(out.evidence[0]).toMatchObject({ bytes: raw.rawBytes, digest: raw.rawDigest, failureClass: "PROVIDER_AUTH", attempt: 1 })
+    expect(out.observation).toBeNull()
   })
-
-  it("persistent retryable failure: bounded at 4 attempts, FAILED", async () => {
-    const out = await runCase([
-      failedResult("PROVIDER_UNAVAILABLE", "503 unavailable"),
-      failedResult("PROVIDER_UNAVAILABLE", "503 unavailable"),
-      failedResult("PROVIDER_UNAVAILABLE", "503 unavailable"),
-      failedResult("PROVIDER_UNAVAILABLE", "503 unavailable"),
-      failedResult("PROVIDER_UNAVAILABLE", "503 unavailable"),
-    ])
-    expect(out.attempts).toBe(MAX_WORKER_ATTEMPTS)
-    expect(out.finished?.status).toBe("FAILED")
-    expect(out.finished?.failureClass).toBe("PROVIDER_UNAVAILABLE")
-    expect(out.obs).toBe(false)
+  it("missing question fails without invoking a provider", async () => {
+    const out = await runCase([ok], { missing: true })
+    expect(out.calls).toBe(0)
+    expect(out.attempts).toBe(0)
+    expect(out.status).toBe("FAILED")
   })
-})
-
-describe("failure classification prefers typed classes", () => {
-  it("classifies result failures", () => {
-    expect(classifyResultFailure("PROVIDER_RATE_LIMITED", "x")).toBeInstanceOf(RetryableWorkerFailure)
-    expect(classifyResultFailure("PROVIDER_UNAVAILABLE", "x")).toBeInstanceOf(RetryableWorkerFailure)
-    expect(classifyResultFailure("PROVIDER_TIMEOUT", "x")).toBeInstanceOf(RetryableWorkerFailure)
-    expect(classifyResultFailure("PROVIDER_AUTH", "x")).toBeInstanceOf(TerminalWorkerFailure)
-    expect(classifyResultFailure("PROVIDER_MALFORMED", "x")).toBeInstanceOf(TerminalWorkerFailure)
-    expect(classifyResultFailure("WORKER_CONTRACT_MISMATCH", "x")).toBeInstanceOf(TerminalWorkerFailure)
-    expect(classifyResultFailure("WORKER_FAILED", "x")).toBeInstanceOf(TerminalWorkerFailure)
-    // Unknown strings fail closed as non-retryable.
-    expect(classifyResultFailure("SOME_NEW_CLASS", "x")).toBeInstanceOf(TerminalWorkerFailure)
-  })
-
-  it("classifies thrown worker errors by typed class, not message text", () => {
-    expect(classifyInvokeError(new ProviderTimeout({ detail: "slow" }))).toBeInstanceOf(RetryableWorkerFailure)
-    expect(classifyInvokeError(new WorkerContractMismatch({ detail: "timeout-like text" }))).toBeInstanceOf(
-      TerminalWorkerFailure,
-    )
-    expect(classifyInvokeError(new WorkerFailed({ detail: "econnreset" }))).toBeInstanceOf(TerminalWorkerFailure)
+  it("database failure cannot be retried as provider failure or reported as success", async () => {
+    for (const opts of [{ attemptFailure: true }, { evidenceFailure: true }]) {
+      const out = await runCase([new ProviderUnavailable({ evidence: Redacted.make(rawEvidence(new Uint8Array([1]), null)) })], opts)
+      expect(out.result._tag).toBe("Left")
+      expect(out.calls).toBeLessThanOrEqual(1)
+      expect(out.status).toBe("RUNNING")
+    }
   })
 })
