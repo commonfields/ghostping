@@ -19,10 +19,12 @@ export const NineRouterProviderLive = Layer.effect(NineRouterProvider, Effect.ge
   const cfg = yield* NineRouterSettings
   const http = yield* HttpClient.HttpClient
   return { observe: (input) => Effect.gen(function*() {
-    if (!cfg || (input.requestedModel !== null && input.requestedModel !== cfg.model)) return yield* Effect.fail(new ProviderUnsupported({}))
+    if (!cfg || input.requestedModel === null || !cfg.models.includes(input.requestedModel)) {
+      return yield* Effect.fail(new ProviderUnsupported({}))
+    }
     const request = yield* HttpClientRequest.post(`${Redacted.value(cfg.baseUrl).replace(/\/$/, "")}/chat/completions`).pipe(
       HttpClientRequest.bearerToken(cfg.apiKey),
-      HttpClientRequest.bodyJson({ model: cfg.model, messages: [{ role: "user", content: input.prompt }], stream: false }),
+      HttpClientRequest.bodyJson({ model: input.requestedModel, messages: [{ role: "user", content: input.prompt }], stream: false }),
       Effect.mapError(() => new ProviderContractMismatch({})),
     )
     const response = yield* http.execute(request).pipe(Effect.mapError(() => new ProviderUnavailable({})))
@@ -59,7 +61,7 @@ export const NineRouterProviderLive = Layer.effect(NineRouterProvider, Effect.ge
       ["id", "object", "created", "model", "usage", "system_fingerprint"].flatMap(key => Object.hasOwn(decoded, key) ? [[key, Reflect.get(decoded, key)]] : []),
     )
     return {
-      ...raw, provider: "9router", requestedModel: cfg.model, observedModel: decoded.model ?? null,
+      ...raw, provider: "9router", requestedModel: input.requestedModel, observedModel: decoded.model ?? null,
       collectedAt: new Date().toISOString(), answerText: decoded.choices[0]!.message.content,
       retrievalMode: "unknown" as const, citations, rawResponse: parsed,
       providerMetadata: Object.keys(providerMetadata).length ? providerMetadata : null, synthetic: false,

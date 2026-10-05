@@ -151,7 +151,7 @@ export const RunCheckRequest = Schema.Struct({
   questionId: Schema.UUID,
   provider: Schema.optional(Schema.Literal("mock", "9router")),
   // Requested model passes through to the provider: for 9router it must equal
-  // the NINE_ROUTER_MODEL pin (enforced in the Effect provider), else the run fails closed.
+  // the NINE_ROUTER_MODELS allowlist (enforced in the Effect provider), else the run fails closed.
   requestedModel: Schema.optional(Schema.NullOr(Schema.String)),
 })
 export type RunCheckRequest = typeof RunCheckRequest.Type

@@ -76,7 +76,8 @@ without that resolver is not the supported start command.
 | `NINE_ROUTER_ENABLED` | Default false; mock-only startup needs no provider secrets |
 | `NINE_ROUTER_BASE_URL` | Default local gateway `/v1`; HTTPS or exact loopback HTTP only; no userinfo, query, fragment |
 | `NINE_ROUTER_API_KEY` | Required nonempty Redacted secret when enabled; bearer header only |
-| `NINE_ROUTER_MODEL` | Required nonempty pin when enabled |
+| `NINE_ROUTER_MODELS` | Required comma-separated direct-model allowlist when enabled; trims whitespace and rejects empty entries or duplicates |
+| `NINE_ROUTER_MODEL` | Temporary compatibility path for exactly one model; resolves into the same internal allowlist |
 | `NINE_ROUTER_TIMEOUT_MS` | Default 60000, validated 1..300000 |
 | `PROVIDER_RESPONSE_MAX_BYTES` | Default 2097152, validated 1..16777216 |
 
@@ -89,7 +90,8 @@ separate from crawler URL/DNS/SSRF security rules.
 
 ## Gateway request and response
 
-The gateway receives `POST {base}/chat/completions` with the pinned model, one
+The gateway receives `POST {base}/chat/completions` with the CheckRun's explicit
+allowlisted requested model, one
 user message, and `stream:false`. An explicitly different requested model is
 rejected before HTTP. Requested model records the actual pin sent; observed
 model comes only from the response `model` field and stays null when absent.

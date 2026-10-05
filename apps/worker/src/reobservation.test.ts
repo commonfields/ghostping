@@ -20,7 +20,10 @@ import {
   compareMeasurements,
   deriveObservedChange,
   deriveOutcome,
+  knownValue,
   measurementSignature,
+  requestConfigurationForWorker,
+  surfaceForWorker,
 } from "@ghostping/protocol"
 import {
   ProviderRegistry,
@@ -289,6 +292,21 @@ describe("measurement comparability (protocol authority only)", () => {
     const b = measurementSignature(router)
     expect(compareMeasurements(a, b)).toBe("INDETERMINATE")
     expect(deriveOutcome("SUPPORTED", "SUPPORTED", "INDETERMINATE", "INDETERMINATE")).toBe("INDETERMINATE")
+  })
+
+  it("different requested models produce different measurement signatures", () => {
+    const modelA = hostedMeasurementContext({
+      businessId: "b1", questionId: "q1", checkRunId: "run-a", prompt: "What is Ghostping?",
+      provider: "9router", requestedModel: "provider/model-a", observedModel: null,
+      observedAt: "2026-10-04T00:00:00.000Z",
+    })
+    const modelB = { ...modelA, repeat_id: knownValue("run-b"), surface: surfaceForWorker("9router", "provider/model-b", null),
+      measurement_configuration: requestConfigurationForWorker("9router", "provider/model-b") }
+    const a = measurementSignature(modelA)
+    const b = measurementSignature(modelB)
+    expect(a.requested_model).not.toEqual(b.requested_model)
+    expect(a.generation_configuration).not.toEqual(b.generation_configuration)
+    expect(compareMeasurements(a, b)).toBe("NOT_COMPARABLE")
   })
 
   it("missing judgments stay indeterminate instead of unchanged", () => {

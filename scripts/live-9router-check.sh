@@ -7,5 +7,10 @@ if [ "${GHOSTPING_LIVE_PROVIDER:-}" != "1" ] && [ "${GHOSTPING_LIVE_PROVIDER:-}"
 fi
 export NINE_ROUTER_ENABLED=true
 export GHOSTPING_LIVE_PROVIDER=true
-if [ $# -gt 0 ]; then export PROVIDER_LIVE_PROMPT="$1"; fi
+if [ $# -lt 1 ]; then
+  echo "usage: $0 <explicit-model-id> [prompt]" >&2
+  exit 2
+fi
+export PROVIDER_LIVE_MODEL="$1"
+if [ $# -gt 1 ]; then export PROVIDER_LIVE_PROMPT="$2"; fi
 exec pnpm --filter @ghostping/worker exec tsx ../../packages/providers/scripts/live-9router.ts
