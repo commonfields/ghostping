@@ -59,6 +59,7 @@ import {
 } from "@ghostping/db"
 import { MATCHER_VERSION, POLICY_VERSION } from "@ghostping/discovery"
 import { AuthorityError } from "@ghostping/db"
+import { Timestamp } from "@ghostping/protocol"
 import {
   assertLinearLineage,
   assembleCitationEvidence,
@@ -72,6 +73,7 @@ import {
 import { loadInterventions, recordIntervention } from "./interventions.js"
 import { createBinding, createTarget } from "./tracking.js"
 import { loadIssueLoop } from "./issue-loop.js"
+import { loadIssuePacket } from "./packet-read.js"
 import { listRecheckAttempts, requestRecheck } from "./reobservations.js"
 import {
   clearedCookieHeader,
@@ -1093,6 +1095,39 @@ export const makeRouter = () => {
           const loop = yield* loadIssueLoop(session.accountId, businessId, claimId)
           if (!loop) return yield* json(404, { _tag: "IssueNotFound" })
           return yield* json(200, { loop })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    // Sealed evidence packet for one issue: the stored lineage as a valid V1
+    // packet (digest + signatures[] + claims/judgments/interventions/
+    // reobservations) plus the controlled-language rendering. Read-only; the
+    // lineage load scopes account -> business -> issue, so an unknown or
+    // foreign issue reads 404 without leaking existence, and an unformable
+    // lineage fails closed (500) instead of exporting. Optional `generatedAt`
+    // (RFC 3339, protocol Timestamp) pins the export time so a client can
+    // reproduce identical packet bytes and therefore the same digest.
+    HttpRouter.get(
+      "/api/businesses/:id/issues/:claimId/packet",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const p = params.params as Record<string, string>
+          const businessId = p["id"] as string
+          const claimId = p["claimId"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          // Malformed ids read as unknown claims (404), never opaque SQL errors.
+          if (!isRouteId(claimId)) return yield* json(404, { _tag: "IssueNotFound" })
+          const req = yield* HttpServerRequest.HttpServerRequest
+          const requested = new URL(req.url, "http://localhost").searchParams.get("generatedAt")
+          const generatedAt = Schema.decodeUnknownEither(Timestamp)(requested ?? new Date().toISOString())
+          if (generatedAt._tag === "Left") return yield* json(422, malformed)
+          const exported = yield* loadIssuePacket(session.accountId, businessId, claimId, generatedAt.right)
+          if (!exported) return yield* json(404, { _tag: "IssueNotFound" })
+          return yield* json(200, exported)
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
