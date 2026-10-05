@@ -72,8 +72,31 @@ fn load_providers(models: Option<String>) -> Result<Vec<Arc<dyn ghostping::provi
 
 // ── Commands ─────────────────────────────────────────────────────────────────
 
+// Tauri sends async-command futures across threads, but rusqlite handles are
+// !Send. The three commands below therefore stay synchronous (Tauri runs sync
+// commands on its blocking pool) and drive their async bodies on a
+// single-thread runtime.
+fn block_on_local<F, T>(fut: F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tauri command: failed to build local runtime")
+        .block_on(fut)
+}
+
 #[tauri::command]
-pub async fn run_audit(
+pub fn run_audit(
+    domain: String,
+    niche: Option<String>,
+    models: Option<String>,
+) -> Result<AuditResult, String> {
+    block_on_local(run_audit_async(domain, niche, models))
+}
+
+async fn run_audit_async(
     domain: String,
     niche: Option<String>,
     models: Option<String>,
@@ -106,8 +129,8 @@ pub async fn run_audit(
     let _ = storage.touch_project_last_audited(&domain);
 
     Ok(AuditResult {
-        domain: summary.domain,
         mention_rate: summary.mention_rate(),
+        domain: summary.domain,
         mention_count: summary.mention_count,
         total_queries: summary.total_queries,
         citation_count: summary.citation_count,
@@ -116,7 +139,16 @@ pub async fn run_audit(
 }
 
 #[tauri::command]
-pub async fn run_generate(
+pub fn run_generate(
+    prompt: String,
+    about: Option<String>,
+    niche: Option<String>,
+    models: Option<String>,
+) -> Result<Vec<GenerateResult>, String> {
+    block_on_local(run_generate_async(prompt, about, niche, models))
+}
+
+async fn run_generate_async(
     prompt: String,
     about: Option<String>,
     niche: Option<String>,
@@ -131,6 +163,7 @@ pub async fn run_generate(
         about: about.unwrap_or_default(),
         niche: niche.unwrap_or_else(|| "general".into()),
         verbose: false,
+        system_prompt_override: None,
     };
     let results = generator::generate(&opts, &providers)
         .await
@@ -143,7 +176,17 @@ pub async fn run_generate(
 }
 
 #[tauri::command]
-pub async fn run_optimize(
+pub fn run_optimize(
+    domain: String,
+    niche: String,
+    competitors: Option<String>,
+    steps: Option<usize>,
+    models: Option<String>,
+) -> Result<OptimizeResult, String> {
+    block_on_local(run_optimize_async(domain, niche, competitors, steps, models))
+}
+
+async fn run_optimize_async(
     domain: String,
     niche: String,
     competitors: Option<String>,
@@ -170,9 +213,12 @@ pub async fn run_optimize(
         niche: niche.clone(),
         competitors: competitors_list,
         steps: steps.unwrap_or(3),
+        max_rounds: 3,
         dry_run: false,
         verbose: false,
         quiet: true,
+        generate_template_override: None,
+        discover_template_override: None,
     };
 
     let plan = optimizer::optimize(&opts, &providers, &storage, &cache)
@@ -182,10 +228,10 @@ pub async fn run_optimize(
     let _ = storage.touch_project_last_audited(&domain);
 
     Ok(OptimizeResult {
+        avg_citability: plan.avg_citability(),
+        current_mention_rate: plan.current_mention_rate,
         domain: plan.domain,
         niche: plan.niche,
-        current_mention_rate: plan.current_mention_rate,
-        avg_citability: plan.avg_citability(),
         sections: plan
             .sections
             .into_iter()

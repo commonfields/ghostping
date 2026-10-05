@@ -190,7 +190,9 @@ pub async fn run_track(
                         eprintln!("          {}", first_line(&response).dimmed());
                     }
                 }
-                let _ = cache.set(domain, &model, &prompt, &response);
+                if let Err(e) = cache.set(domain, &model, &prompt, &response) {
+                    eprintln!("  {} failed to cache result: {}", "!".yellow(), e);
+                }
                 results.push(make_result(domain, &prompt, &model, response, parsed));
             }
             Ok(Err(e)) => {
@@ -216,8 +218,10 @@ pub async fn run_track(
         }
     }
 
-    // Auto-prune records older than 90 days (silent, best-effort)
-    let _ = storage.prune_old(90);
+    // Auto-prune records older than 90 days (best-effort, warned).
+    if let Err(e) = storage.prune_old(90) {
+        eprintln!("  {} failed to prune old records: {}", "!".yellow(), e);
+    }
 
     let mention_count = results.iter().filter(|r| r.mentioned).count();
     let citation_count = results.iter().filter(|r| r.cited).count();

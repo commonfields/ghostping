@@ -6,3 +6,5 @@ dist
 *.local
 .env
 .vite
+tauri-app/src-tauri/target
+tauri-app/src-tauri/gen

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -152,35 +152,31 @@ impl Storage {
         domain: &str,
         before_ts: &str,
     ) -> Result<Option<(usize, usize)>> {
-        // Find the most recent distinct timestamp batch before the current run
-        let mut stmt = self.conn.prepare(
-            "SELECT mentioned, COUNT(*) as total
-             FROM mentions
-             WHERE domain=?1 AND timestamp < ?2
-             GROUP BY DATE(timestamp)
-             ORDER BY timestamp DESC
-             LIMIT 1",
-        )?;
-        let mut rows = stmt.query_map(params![domain, before_ts], |row| {
-            Ok((row.get::<_, i32>(0)?, row.get::<_, i32>(1)?))
-        })?;
-        if let Some(row) = rows.next() {
-            let (mentioned_sum, _) = row?;
-            // Re-query to get correct total for that date
-            let total: i64 = self.conn.query_row(
-                "SELECT COUNT(*) FROM mentions WHERE domain=?1 AND timestamp < ?2",
+        // Find the date of the most recent batch before the current run,
+        // then aggregate within that date only.
+        let prev_date: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT DATE(timestamp) FROM mentions
+                 WHERE domain=?1 AND timestamp < ?2
+                 ORDER BY timestamp DESC
+                 LIMIT 1",
                 params![domain, before_ts],
                 |r| r.get(0),
-            )?;
-            let mentioned: i64 = self.conn.query_row(
-                "SELECT SUM(mentioned) FROM mentions WHERE domain=?1 AND timestamp < ?2",
-                params![domain, before_ts],
-                |r| r.get::<_, Option<i64>>(0).map(|v| v.unwrap_or(0)),
-            )?;
-            let _ = mentioned_sum;
-            if total > 0 {
-                return Ok(Some((mentioned as usize, total as usize)));
-            }
+            )
+            .optional()?;
+        let Some(prev_date) = prev_date else {
+            return Ok(None);
+        };
+        let (mentioned, total): (i64, i64) = self.conn.query_row(
+            "SELECT COALESCE(SUM(mentioned), 0), COUNT(*)
+             FROM mentions
+             WHERE domain=?1 AND DATE(timestamp)=?2",
+            params![domain, prev_date],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if total > 0 {
+            return Ok(Some((mentioned as usize, total as usize)));
         }
         Ok(None)
     }

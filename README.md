@@ -82,26 +82,28 @@ cd ghostping
 pnpm install --frozen-lockfile
 ```
 
-Prepare the database (`DATABASE_URL` is the only setting you must configure):
+Prepare the database (credentials must match `compose.yaml`):
 
 ```bash
-createdb ghostping
-export DATABASE_URL="postgres://localhost:5432/ghostping"
+docker compose up -d postgres
+export DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping"
 pnpm db:migrate
-# Optional demo data: pnpm db:seed
+# Minimal seed (one business, no login): pnpm db:seed
+# Full five-company demo (login demo@northstar.test / password123): pnpm db:seed:demo
 ```
 
-Start each service in its own terminal from the repository root:
+Start each service in its own terminal from the repository root.
+Every terminal needs `DATABASE_URL` (prefix each command or re-export it):
 
 ```bash
 # Terminal 1: HTTP API on port 3001
-pnpm --filter @ghostping/api dev
+DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @ghostping/api dev
 
 # Terminal 2: AI-check and discovery workers
-pnpm --filter @ghostping/worker dev
+DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @ghostping/worker dev
 
 # Terminal 3: web app on port 3000
-pnpm --filter @ghostping/web dev
+DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @ghostping/web dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000), create an account and business, add approved facts, and run a check. The default mock provider is deterministic, offline, and needs no credentials. Live providers are optional and off by default.

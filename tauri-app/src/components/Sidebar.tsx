@@ -27,17 +27,6 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 12,
   },
   nav: { flex: 1 },
-  item: (active: boolean): React.CSSProperties => ({
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "10px 20px",
-    cursor: "pointer",
-    background: active ? "#161b22" : "transparent",
-    borderLeft: active ? "2px solid #58a6ff" : "2px solid transparent",
-    color: active ? "#e6edf3" : "#8b949e",
-    transition: "all 0.15s",
-  }),
   icon: { fontSize: 16 },
   label: { fontWeight: 600, fontSize: 13 },
   desc: { fontSize: 11, color: "#484f58", marginTop: 1 },
@@ -54,6 +43,18 @@ interface Props {
   onChange: (v: View) => void;
 }
 
+const itemStyle = (active: boolean): React.CSSProperties => ({
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "10px 20px",
+  cursor: "pointer",
+  background: active ? "#161b22" : "transparent",
+  borderLeft: active ? "2px solid #58a6ff" : "2px solid transparent",
+  color: active ? "#e6edf3" : "#8b949e",
+  transition: "all 0.15s",
+});
+
 export default function Sidebar({ active, onChange }: Props) {
   return (
     <div style={styles.sidebar}>
@@ -62,7 +63,7 @@ export default function Sidebar({ active, onChange }: Props) {
         {items.map((item) => (
           <div
             key={item.id}
-            style={styles.item(active === item.id)}
+            style={itemStyle(active === item.id)}
             onClick={() => onChange(item.id)}
           >
             <span style={styles.icon}>{item.icon}</span>

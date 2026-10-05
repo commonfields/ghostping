@@ -4,11 +4,13 @@ import { Businesses, Issues, type Business, type Overview } from "./api"
 type Workspace = {
   businesses: Business[]
   businessesLoading: boolean
+  businessesError: string | null
   reloadBusinesses: () => Promise<void>
   activeBusinessId: string | null
   setActiveBusinessId: (id: string | null) => void
   activeBusiness: Business | null
   overview: Overview | null
+  overviewError: string | null
   reloadOverview: () => void
 }
 
@@ -35,15 +37,20 @@ function writeLastBusiness(id: string) {
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [businessesLoading, setBusinessesLoading] = useState(true)
+  const [businessesError, setBusinessesError] = useState<string | null>(null)
   const [activeBusinessId, setActiveId] = useState<string | null>(null)
   const [overview, setOverview] = useState<Overview | null>(null)
+  const [overviewError, setOverviewError] = useState<string | null>(null)
 
   const reloadBusinesses = useCallback(async () => {
     try {
       const r = await Businesses.list()
       setBusinesses(r.businesses)
-    } catch {
-      // Leave the previous list in place; pages surface their own errors.
+      setBusinessesError(null)
+    } catch (e) {
+      // Keep the previous list but record the failure so pages can show it
+      // instead of rendering an empty state that hides a backend outage.
+      setBusinessesError(e instanceof Error ? e.message : "Failed to load businesses")
     } finally {
       setBusinessesLoading(false)
     }
@@ -61,8 +68,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const reloadOverview = useCallback(() => {
     if (!activeBusinessId) return
     Issues.overview(activeBusinessId)
-      .then((r) => setOverview(r.overview))
-      .catch(() => setOverview(null))
+      .then((r) => {
+        setOverview(r.overview)
+        setOverviewError(null)
+      })
+      .catch((e: unknown) => {
+        setOverview(null)
+        setOverviewError(e instanceof Error ? e.message : "Failed to load overview")
+      })
   }, [activeBusinessId])
 
   useEffect(() => {
@@ -79,14 +92,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     () => ({
       businesses,
       businessesLoading,
+      businessesError,
       reloadBusinesses,
       activeBusinessId,
       setActiveBusinessId,
       activeBusiness,
       overview,
+      overviewError,
       reloadOverview,
     }),
-    [businesses, businessesLoading, reloadBusinesses, activeBusinessId, setActiveBusinessId, activeBusiness, overview, reloadOverview],
+    [businesses, businessesLoading, businessesError, reloadBusinesses, activeBusinessId, setActiveBusinessId, activeBusiness, overview, overviewError, reloadOverview],
   )
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
