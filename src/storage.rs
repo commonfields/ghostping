@@ -379,3 +379,60 @@ fn parse_sentiment(s: &str) -> Sentiment {
         _ => Sentiment::Unknown,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::DateTime;
+    use tempfile::TempDir;
+
+    fn mention_at(domain: &str, ts: &str, mentioned: bool) -> MentionResult {
+        MentionResult {
+            domain: domain.to_string(),
+            prompt: "p".to_string(),
+            model: "mock".to_string(),
+            timestamp: DateTime::parse_from_rfc3339(ts)
+                .unwrap()
+                .with_timezone(&Utc),
+            mentioned,
+            cited: false,
+            position: Position::NotMentioned,
+            sentiment: Sentiment::Unknown,
+            snippet: None,
+            raw_response: "{}".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_previous_run_stats_scoped_to_prior_batch() {
+        let dir = TempDir::new().unwrap();
+        let storage = Storage::open(&dir.path().to_path_buf()).unwrap();
+        // Old batch (2026-01-01): 4 rows, 1 mentioned.
+        for (i, m) in [true, false, false, false].iter().enumerate() {
+            let mut r = mention_at("example.com", "2026-01-01T10:00:00Z", *m);
+            r.prompt = format!("old-{i}");
+            storage.insert(&r).unwrap();
+        }
+        // New batch (2026-01-02): 2 rows, both mentioned.
+        for i in 0..2 {
+            let mut r = mention_at("example.com", "2026-01-02T10:00:00Z", true);
+            r.prompt = format!("new-{i}");
+            storage.insert(&r).unwrap();
+        }
+        // Previous run relative to the new batch is the old batch only:
+        // (1 mentioned, 4 total), not whole-history (3, 6).
+        assert_eq!(
+            storage
+                .previous_run_stats("example.com", "2026-01-02T10:00:00Z")
+                .unwrap(),
+            Some((1, 4))
+        );
+        // Nothing before the old batch.
+        assert_eq!(
+            storage
+                .previous_run_stats("example.com", "2026-01-01T10:00:00Z")
+                .unwrap(),
+            None
+        );
+    }
+}
