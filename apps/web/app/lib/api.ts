@@ -442,11 +442,13 @@ export type IssueLoop = {
 export const Rechecks = {
   getLoop: (businessId: string, claimId: string) =>
     api<{ loop: IssueLoop }>(Routes.getIssueLoop(businessId, claimId).path),
-  create: (businessId: string, claimId: string, input?: { interventionId?: string | null }) =>
-    api<{ checkRun: unknown; intent: unknown }>(`/api/businesses/${businessId}/issues/${claimId}/reobservations`, {
-      method: "POST",
+  create: (businessId: string, claimId: string, input?: { interventionId?: string | null }) => {
+    const route = Routes.requestReobservation(businessId, claimId)
+    return api<{ checkRun: unknown; intent: unknown }>(route.path, {
+      method: route.method,
       body: JSON.stringify({ interventionId: input?.interventionId ?? null }),
-    }),
+    })
+  },
 }
 
 export const Sources = {

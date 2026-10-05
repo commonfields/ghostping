@@ -10,6 +10,11 @@ const readAppFile = async (rel: string) => {
   return fs.readFileSync(new URL(`../app/${rel}`, import.meta.url), "utf8")
 }
 
+const readContractsFile = async () => {
+  const fs = await import("node:fs")
+  return fs.readFileSync(new URL("../../../packages/contracts/src/index.ts", import.meta.url), "utf8")
+}
+
 describe("candidate tracking is deliberate action only", () => {
   it("offers Track with explicit configuration, never auto-tracking", async () => {
     const page = await readAppFile("routes/discovery.tsx")
@@ -17,8 +22,13 @@ describe("candidate tracking is deliberate action only", () => {
       expect(page, `missing copy: ${copy}`).toContain(copy)
     }
     const api = await readAppFile("lib/api.ts")
-    expect(api).toContain("representations/targets")
-    expect(api).toContain("/bindings")
+    // The client builds these URLs from the shared contract table, which
+    // must carry the exact server paths (single source of truth).
+    expect(api).toContain("Routes.createSourceTarget")
+    expect(api).toContain("Routes.createSourceBinding")
+    const contracts = await readContractsFile()
+    expect(contracts).toContain("representations/targets")
+    expect(contracts).toContain("/bindings")
   })
 })
 
@@ -157,9 +167,13 @@ describe("discovery api client", () => {
     for (const fn of ["listScopes", "createScope", "listRuns", "triggerRun", "listCandidates"]) {
       expect(api).toContain(fn)
     }
-    expect(api).toContain("discovery/scopes")
-    expect(api).toContain("discovery/runs")
-    expect(api).toContain("discovery/candidates")
+    for (const route of ["Routes.listDiscoveryScopes", "Routes.createDiscoveryScope", "Routes.listDiscoveryRuns", "Routes.createDiscoveryRun", "Routes.listDiscoveryCandidates"]) {
+      expect(api).toContain(route)
+    }
+    const contracts = await readContractsFile()
+    expect(contracts).toContain("discovery/scopes")
+    expect(contracts).toContain("discovery/runs")
+    expect(contracts).toContain("discovery/candidates")
   })
 })
 

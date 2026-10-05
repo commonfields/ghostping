@@ -420,17 +420,26 @@ mod tests {
             storage.insert(&r).unwrap();
         }
         // Previous run relative to the new batch is the old batch only:
-        // (1 mentioned, 4 total), not whole-history (3, 6).
+        // (1 mentioned, 4 total), not whole-history (3, 6). Timestamps use
+        // the stored RFC3339 offset format so the new batch itself is
+        // excluded by the strict `<` comparison.
         assert_eq!(
             storage
-                .previous_run_stats("example.com", "2026-01-02T10:00:00Z")
+                .previous_run_stats("example.com", "2026-01-02T10:00:00+00:00")
                 .unwrap(),
             Some((1, 4))
+        );
+        // A `before` after every batch resolves to the latest batch.
+        assert_eq!(
+            storage
+                .previous_run_stats("example.com", "2026-01-03T00:00:00+00:00")
+                .unwrap(),
+            Some((2, 2))
         );
         // Nothing before the old batch.
         assert_eq!(
             storage
-                .previous_run_stats("example.com", "2026-01-01T10:00:00Z")
+                .previous_run_stats("example.com", "2026-01-01T10:00:00+00:00")
                 .unwrap(),
             None
         );

@@ -132,8 +132,13 @@ describe("rechecks client", () => {
     expect(api).toContain("export const Rechecks")
     expect(api).toContain("export type IssueLoop")
     expect(api).toContain("export type LoopComparison")
-    expect(api).toContain("issues/${claimId}/loop")
-    expect(api).toContain("issues/${claimId}/reobservations")
+    // The client must build these URLs from the shared contract table, and
+    // the table must carry the exact server paths (single source of truth).
+    expect(api).toContain("Routes.getIssueLoop")
+    expect(api).toContain("Routes.requestReobservation")
+    const contracts = read("../../../packages/contracts/src/index.ts")
+    expect(contracts).toContain("issues/${claimId}/loop")
+    expect(contracts).toContain("issues/${claimId}/reobservations")
     expect(api).toContain("interventionId")
     expect(api).toContain("causalAttribution")
   })
