@@ -19,18 +19,18 @@ import {
   Activity,
 } from 'lucide-react';
 
-// ── Placeholders — update before deploying ───────────────
-const GITHUB_REPO   = 'https://github.com/yourusername/ghostping';   // TODO
-const RELEASES_URL  = 'https://github.com/yourusername/ghostping/releases'; // TODO
-const DOCS_URL      = 'https://github.com/yourusername/ghostping#readme';   // TODO
-const INSTALL_SH    = 'https://ghostping.dev/install.sh';   // TODO
-const INSTALL_PS1   = 'https://ghostping.dev/install.ps1';  // TODO
+// ── Canonical project URLs ───────────────────────────────
+const GITHUB_REPO   = 'https://github.com/commonfields/ghostping';
+const RELEASES_URL  = 'https://github.com/commonfields/ghostping/releases';
+const DOCS_URL      = 'https://github.com/commonfields/ghostping#readme';
+const INSTALL_SH    = 'https://raw.githubusercontent.com/commonfields/ghostping/main/scripts/install.sh';
+const INSTALL_PS1   = 'https://raw.githubusercontent.com/commonfields/ghostping/main/scripts/install.ps1';
 // ─────────────────────────────────────────────────────────
 
 const TERMINAL_LINES = [
   {
     cmd: 'ghostping init --name "MyProject" --website "https://example.com" --category "developer tool" --yes',
-    out: '✓ Project initialized: MyProject\n  Config saved to .ghostping/project.toml',
+    out: '✓ Created ./ghostping.toml\n  Next steps:\n    1. Edit ghostping.toml to customize your project',
   },
   {
     cmd: 'ghostping prompts discover',
@@ -38,7 +38,7 @@ const TERMINAL_LINES = [
   },
   {
     cmd: 'ghostping audit run --models mock --samples 3',
-    out: '  Running 3-sample audit with mock provider…\n✓ Audit complete: 2 mentions · 1 citation · 0 recommendations',
+    out: '✓ Audit Run 0193ef…\n  Mention rate:          66.7%\n  Recommendation rate:   33.3%\n  Citation rate:         33.3% (1 of 3 responses with a project citation)\n  Total queries:         3\n  Coverage:              3/3 planned queries succeeded',
   },
   {
     cmd: 'ghostping report --output ./reports/',
@@ -587,10 +587,10 @@ export default function Page() {
                   ~/.ghostping/
                 </div>
                 <div className="pl-4 mt-2 space-y-1.5" style={{ color: 'rgba(245,167,42,0.45)' }}>
-                  <div>├── projects/</div>
-                  <div>├── audits/</div>
-                  <div>├── reports/</div>
-                  <div>├── generated/</div>
+                  <div>├── config.toml</div>
+                  <div>├── mentions.db</div>
+                  <div>├── evidence.db</div>
+                  <div>├── plugins/</div>
                   <div className="flex items-center gap-1">
                     └── cache/
                     <span
@@ -598,6 +598,9 @@ export default function Page() {
                       style={{ background: 'rgba(245,167,42,0.45)' }}
                     />
                   </div>
+                </div>
+                <div className="pl-4 mt-2 text-xs" style={{ color: 'var(--text-2)' }}>
+                  reports/ and generated/ are written to your project directory, not here.
                 </div>
               </div>
             </div>

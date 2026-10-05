@@ -8,7 +8,7 @@ import { promises as fs } from "node:fs"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { MATERIALIZATION_RECEIPT_SCHEMA, TRUTH_COMPILER_VERSION } from "./manifest.js"
 import type { ProjectionArtifactV1, ProjectionSourceRefV1 } from "./compiler.js"
-import { EMPTY_LOCK, planProjection, type PlanEntry, type ProjectionLock } from "./plan.js"
+import { planProjection, type PlanEntry, type ProjectionLock } from "./plan.js"
 
 export class ApplyError extends Error {
   constructor(
@@ -108,7 +108,14 @@ export const applyArtifact = async (
   },
   io: ApplyIo & { lstat?: typeof defaultLstat; writeFileAtomic?: (abs: string, bytes: Uint8Array) => Promise<void> },
 ): Promise<{ entry: PlanEntry; receipt: MaterializationReceiptV1 | null }> => {
-  const lock = await io.readLock().catch(() => EMPTY_LOCK)
+  // Lock state must be known before planning: an unreadable lock fails the
+  // apply instead of proceeding as if nothing were managed.
+  let lock: ProjectionLock
+  try {
+    lock = await io.readLock()
+  } catch (e) {
+    throw new ApplyError("LockReadFailed", e instanceof Error ? e.message : String(e))
+  }
   // Filesystem safety first: even a CONFLICT outcome must never launder a
   // symlink/traversal probe into a managed write path.
   const abs = resolveInsideRoot(io.root, artifact.relative_output_path)

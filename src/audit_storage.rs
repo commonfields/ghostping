@@ -893,29 +893,23 @@ impl AuditSummary {
             .any(|m| m.to_lowercase().contains("mock"))
     }
 
-    /// Calculate visibility score using weighted formula
+    /// Calculate visibility score from measured components only.
+    /// Position and sentiment are excluded until per-result data exists;
+    /// weights below are the original mention/recommendation/citation
+    /// proportions renormalized to sum to 1.0 so the score stays 0-100.
     pub fn visibility_score(&self) -> f64 {
-        let mention_weight = 0.35;
-        let recommendation_weight = 0.25;
-        let citation_weight = 0.20;
-        // Note: position and sentiment weights would need more detailed data
-        let position_weight = 0.10;
-        let sentiment_weight = 0.10;
+        let mention_weight = 0.4375;
+        let recommendation_weight = 0.3125;
+        let citation_weight = 0.25;
 
         // Normalize to 0-100 scale
         let mention_score = self.mention_rate * 100.0;
         let recommendation_score = self.recommendation_rate * 100.0;
         let citation_score = self.citation_rate * 100.0;
 
-        // Position and sentiment would need per-result data, use placeholders
-        let position_score = if self.mention_rate > 0.0 { 50.0 } else { 0.0 };
-        let sentiment_score = if self.mention_rate > 0.0 { 70.0 } else { 0.0 };
-
         mention_score * mention_weight
             + recommendation_score * recommendation_weight
             + citation_score * citation_weight
-            + position_score * position_weight
-            + sentiment_score * sentiment_weight
     }
 }
 
@@ -1237,5 +1231,36 @@ mod tests {
         // Degenerate bases never match everything.
         assert!(!is_project_citation("https://example.com/", "com"));
         assert!(!is_project_citation("https://example.com/", ""));
+    }
+
+    fn summary_with_rates(mention: f64, recommendation: f64, citation: f64) -> AuditSummary {
+        AuditSummary {
+            total_queries: 10,
+            mention_count: 0,
+            recommendation_count: 0,
+            citation_count: 0,
+            mention_rate: mention,
+            recommendation_rate: recommendation,
+            citation_rate: citation,
+            models_used: vec![],
+            planned_queries: 10,
+            successful_queries: 10,
+            failed_queries: 0,
+            citation_response_count: 0,
+            project_citation_count: 0,
+        }
+    }
+
+    #[test]
+    fn test_visibility_score_uses_measured_components_only() {
+        // No mentions anywhere: every component is 0, so the score is 0 —
+        // no invented position/sentiment baseline may inflate it.
+        assert_eq!(summary_with_rates(0.0, 0.0, 0.0).visibility_score(), 0.0);
+        // Perfect measured rates reach exactly 100.
+        assert_eq!(summary_with_rates(1.0, 1.0, 1.0).visibility_score(), 100.0);
+        // Partial rates combine with renormalized weights
+        // (0.4375 mention + 0.3125 recommendation + 0.25 citation).
+        let score = summary_with_rates(1.0, 0.0, 0.0).visibility_score();
+        assert!((score - 43.75).abs() < 1e-9, "got {score}");
     }
 }

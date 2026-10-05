@@ -3,13 +3,10 @@
 [![CI](https://github.com/commonfields/ghostping/actions/workflows/ci.yml/badge.svg)](https://github.com/commonfields/ghostping/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/commonfields/ghostping?display_name=tag&sort=semver)](https://github.com/commonfields/ghostping/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/commonfields/ghostping)](LICENSE)
-[![Node.js 24](https://img.shields.io/badge/Node.js-24-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![pnpm 10.12.1](https://img.shields.io/badge/pnpm-10.12.1-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
-[![Rust stable](https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 
 > Find what AI gets wrong about your business, trace it to evidence, correct what you control, and verify what changes.
 
-Ghostping is an evidence system for AI representation integrity. It records what a business says is true, observes what AI systems and web sources say, lets people review the difference, and measures the result of corrective work.
+Ghostping is an evidence system for AI representation integrity. It records what a business says is true, observes what AI systems and web sources say, lets people review the difference, and verifies corrective work.
 
 It does not turn incomplete evidence into a score or claim that one change caused another:
 
@@ -17,26 +14,22 @@ It does not turn incomplete evidence into a score or claim that one change cause
 
 ## Contents
 
-- [What it does](#what-it-does)
+- [Who it's for](#who-its-for)
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
-- [Configuration](#configuration)
-- [Architecture](#architecture)
-- [Security and evidence boundaries](#security-and-evidence-boundaries)
-- [Local CLI and desktop app](#local-cli-and-desktop-app)
-- [Development and verification](#development-and-verification)
+- [What Ghostping does and doesn't do](#what-ghostping-does-and-doesnt-do)
+- [Security and privacy](#security-and-privacy)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
 
-## What it does
+## Who it's for
 
-- **Approved truth:** store the facts a business stands behind, with explicit authority.
-- **Observation:** collect AI answers and web-source evidence with full provenance.
-- **Human review:** compare observations against approved truth and judge material issues.
-- **Recorded correction:** document what was changed on surfaces you control.
-- **Verification:** re-observe the source and AI, then derive `OBSERVED_CORRECTION`, `NO_OBSERVED_CHANGE`, or `INDETERMINATE`.
-- **No forced conclusions:** missing, failed, or ambiguous evidence stays `UNKNOWN` and remains open for the next cycle.
+- Businesses that want to know what AI systems say about them, with evidence attached.
+- Teams responsible for business facts who need one place to record what the business stands behind.
+- Reviewers who decide which differences matter and what to fix on surfaces they control.
+
+What you get: a record of approved facts, observations with provenance, human-reviewed issues, documented corrections, and re-observation results.
 
 ## How it works
 
@@ -53,7 +46,7 @@ flowchart TB
     review --> monitor
 ```
 
-The flow reads top to bottom, from the smallest input to the broadest result. Each stage has one responsibility: business truth, machine observation, human review, operator action, and verification. Ghostping stores the evidence behind every stage in PostgreSQL. Later observations begin the same process again without implying causation.
+The flow reads top to bottom, from the smallest input to the broadest result. Each stage has one responsibility: business truth, machine observation, human review, operator action, and verification. Evidence from every stage is kept, and later observations begin the same process again without implying causation.
 
 ### Design rules
 
@@ -64,13 +57,24 @@ The flow reads top to bottom, from the smallest input to the broadest result. Ea
 
 ## Quick start
 
-### Prerequisites
+### Check what AI says from your terminal
 
-- Node.js 24, as pinned in [`.node-version`](.node-version)
-- pnpm 10.12.1
-- PostgreSQL 16 recommended, matching CI
+On macOS or Linux, install the latest CLI release:
 
-### 1. Install dependencies
+```bash
+curl -fsSL https://raw.githubusercontent.com/commonfields/ghostping/main/scripts/install.sh | bash
+```
+
+The installer verifies the download before installing. On Windows, use [`scripts/install.ps1`](scripts/install.ps1). To build from source instead:
+
+```bash
+cargo build --release --locked
+./target/release/ghostping quickstart
+```
+
+### Use the hosted web app
+
+Prerequisites: Node.js 24 (see [`.node-version`](.node-version)), pnpm, and PostgreSQL 16.
 
 ```bash
 git clone https://github.com/commonfields/ghostping.git
@@ -78,134 +82,68 @@ cd ghostping
 pnpm install --frozen-lockfile
 ```
 
-### 2. Prepare the database
+Prepare the database (credentials must match `compose.yaml`):
 
 ```bash
-createdb ghostping
-export DATABASE_URL="postgres://localhost:5432/ghostping"
+docker compose up -d postgres
+export DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping"
 pnpm db:migrate
+# Minimal seed (one business, no login): pnpm db:seed
+# Full five-company demo (login demo@northstar.test / password123): pnpm db:seed:demo
 ```
 
-Optional: load five deterministic product-surface demo businesses.
-
-```bash
-pnpm db:seed
-```
-
-### 3. Start the hosted services
-
-Run each service in a separate terminal from the repository root. Keep `DATABASE_URL` available in the API and worker terminals.
+Start each service in its own terminal from the repository root.
+Every terminal needs `DATABASE_URL` (prefix each command or re-export it):
 
 ```bash
 # Terminal 1: HTTP API on port 3001
-pnpm --filter @ghostping/api dev
+DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @ghostping/api dev
 
 # Terminal 2: AI-check and discovery workers
-pnpm --filter @ghostping/worker dev
+DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @ghostping/worker dev
 
 # Terminal 3: web app on port 3000
-pnpm --filter @ghostping/web dev
+DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @ghostping/web dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), create an account and business, add approved facts, and run a check. The default `mock` provider is deterministic, offline, and requires no credentials.
+Open [http://localhost:3000](http://localhost:3000), create an account and business, add approved facts, and run a check. The default mock provider is deterministic, offline, and needs no credentials. Live providers are optional and off by default.
 
-## Configuration
+### For developers
 
-| Variable | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| `DATABASE_URL` | Yes | None | PostgreSQL connection used by the API, worker, migrations, and seed command. |
-| `PORT` | No | `3001` | Hosted API port. |
-| `APP_BASE_URL` | No | `http://localhost:3000` | Web origin used to decide whether session cookies require `Secure`. |
-| `WORKER_POLL_MS` | No | `1000` | Idle worker poll interval; accepted range is 1–60,000 ms. |
-| `NINE_ROUTER_ENABLED` | No | `false` | Enables the live provider path. Keep disabled for local development and tests. |
-| `NINE_ROUTER_BASE_URL` | When customized | `http://localhost:20128/v1` | 9Router-compatible endpoint; only HTTPS or an exact loopback HTTP address is accepted. |
-| `NINE_ROUTER_API_KEY` | When live provider is enabled | None | Provider credential. Never commit or log it. |
-| `NINE_ROUTER_MODELS` | When live provider is enabled | None | Comma-separated allowlist of explicit direct model IDs. Empty entries and duplicates are rejected. |
-| `NINE_ROUTER_MODEL` | No | None | Temporary compatibility path for one model; ignored when `NINE_ROUTER_MODELS` is set. |
-| `NINE_ROUTER_TIMEOUT_MS` | No | `60000` | Live request timeout; accepted range is 1–300,000 ms. |
-| `PROVIDER_RESPONSE_MAX_BYTES` | No | `2097152` | Maximum captured provider response size; hard-capped at 16 MiB. |
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
-Live provider calls may cost money and send prompts to an external service. Enabling the provider fails closed when its endpoint, key, or model allowlist is invalid. Each 9Router CheckRun must explicitly request one allowlisted model; Ghostping never substitutes another model. Use the mock provider for normal development and automated tests.
+Live 9Router checks require an endpoint, API key, and comma-separated `NINE_ROUTER_MODELS` allowlist; see [`.env.example`](.env.example) for the complete configuration. Configuration fails closed when any value is invalid, and every check must request one allowlisted direct model. Ghostping never substitutes another model. `NINE_ROUTER_MODEL` remains a temporary single-model compatibility option and is ignored when `NINE_ROUTER_MODELS` is set.
 
-## Architecture
+## What Ghostping does and doesn't do
 
-| Area | Responsibility |
-| --- | --- |
-| [`apps/web`](apps/web) | React 19, Vite, Tailwind CSS, and Radix UI workspace for overview, issues, representations, truth, and checks. |
-| [`apps/api`](apps/api) | Effect HTTP API with server-side sessions, request validation, and account-scoped repositories. |
-| [`apps/worker`](apps/worker) | Two independent, bounded Effect loops for AI check runs and owned-site discovery. |
-| [`packages/db`](packages/db) | PostgreSQL migrations and Effect repositories; the only hosted persistence layer. |
-| [`packages/domain`](packages/domain), [`packages/contracts`](packages/contracts), [`packages/protocol`](packages/protocol) | Canonical domain rules, API contracts, evidence schemas, digests, fixtures, and outcome derivation. |
-| [`packages/providers`](packages/providers), [`packages/representation`](packages/representation), [`packages/discovery`](packages/discovery) | Provider adapters, safe source collection, deterministic comparison, and bounded discovery. |
-| [`packages/truth`](packages/truth) | Authority manifests and deterministic truth projection. |
+Does:
 
-The hosted stack uses 15 ordered PostgreSQL migrations. Evidence and workflow records are append-oriented where history matters; derived views can be recomputed from their source records. The worker contains failures within each loop so a discovery failure does not stop queued AI checks, or vice versa.
+- Store the facts a business stands behind, with explicit authority.
+- Collect AI answers and web-source evidence with provenance.
+- Leave review decisions to people, and record corrections on surfaces you control.
+- Re-observe and derive `OBSERVED_CORRECTION`, `NO_OBSERVED_CHANGE`, or `INDETERMINATE`.
 
-## Security and evidence boundaries
+Doesn't:
 
-- Authentication uses server-side sessions and `HttpOnly`, `SameSite=Lax` cookies.
-- Authorization is enforced in account-scoped server repositories, not inferred from client state.
-- Provider credentials are loaded as redacted configuration and are never stored as evidence.
-- Live provider access is disabled by default and requires an explicit model pin.
-- Source collection is bounded and validated; discovery does not recursively crawl without limits.
-- A recorded intervention proves that work was recorded, not that it was deployed, indexed, retrieved, or responsible for a later AI answer.
+- Produce accuracy or visibility scores from incomplete evidence.
+- Treat missing, failed, or ambiguous evidence as false. It stays `UNKNOWN` and open for the next cycle.
+- Claim that a correction caused a later AI answer.
 
-## Local CLI and desktop app
+## Security and privacy
 
-This repository also contains a local-first Rust CLI in [`src`](src) and a Tauri desktop app in [`tauri-app`](tauri-app). They have their own configuration, storage, and release lifecycle; they do not share a runtime with the hosted TypeScript stack.
-
-Install the latest CLI release on macOS or Linux:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/commonfields/ghostping/main/scripts/install.sh | bash
-```
-
-The installer downloads the matching release archive and verifies it against the published SHA-256 manifest before installation. Windows users can use [`scripts/install.ps1`](scripts/install.ps1). To build locally instead:
-
-```bash
-cargo build --release --locked
-./target/release/ghostping quickstart
-```
-
-The CLI's GEO measurements are directional local measurements, not hosted evidence packets.
-
-## Development and verification
-
-Run the same primary gates enforced by CI:
-
-```bash
-# Hosted TypeScript workspace
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm build
-
-# Rust CLI and protocol reader
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets --locked
-cargo build --release --locked
-```
-
-Database integration tests use PostgreSQL when `DATABASE_URL` or `TEST_DATABASE_URL` is present. CI runs them against PostgreSQL 16 with live providers disabled.
-
-When protocol schemas or fixtures change, regenerate and verify the committed artifacts:
-
-```bash
-pnpm --filter @ghostping/protocol schemas
-pnpm --filter @ghostping/protocol fixtures
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) before changing provider, prompt-plugin, CLI, or desktop behavior.
+- Your data lives in your own PostgreSQL database.
+- Each account only sees its own businesses and evidence.
+- Live AI providers are off by default. Enabling one may cost money and sends prompts to an external service.
+- Provider credentials are never stored as evidence and should never be committed.
+- Source collection is bounded; discovery does not crawl without limits.
+- A recorded correction proves that work was recorded, not that it was deployed, indexed, or responsible for a later AI answer.
 
 ## Documentation
 
 - [Evidence protocol](docs/protocol/README.md)
 - [Representation graph](docs/representation-graph/README.md)
 - [Truth projection](docs/truth/README.md)
-- [Hosted Effect architecture](docs/engineering/hosted-effect-architecture-v1.md)
 - [Product roadmap](docs/product/roadmap.md)
-- [CLI exit contracts](docs/engineering/cli-exit-contracts.md)
 
 ## Contributing
 

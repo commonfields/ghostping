@@ -1,5 +1,6 @@
 // Typed API client shared with the backend contract (packages/contracts).
 // Most server state comes from these calls; ordinary React state covers UI-local interaction.
+import { Routes } from "@ghostping/contracts"
 export class ApiError extends Error {
   readonly status: number
   readonly tag: string
@@ -222,20 +223,24 @@ export const Representations = {
   list: (businessId: string) => api<{ representations: RepresentationRow[] }>(`/api/businesses/${businessId}/representations`),
   get: (businessId: string, bindingId: string) =>
     api<RepresentationDetail>(`/api/businesses/${businessId}/representations/${bindingId}`),
-  createTarget: (businessId: string, input: { url: string; control: string }) =>
-    api<{ target: { id: string } }>(`/api/businesses/${businessId}/representations/targets`, {
-      method: "POST",
+  createTarget: (businessId: string, input: { url: string; control: string }) => {
+    const route = Routes.createSourceTarget(businessId)
+    return api<{ target: { id: string } }>(route.path, {
+      method: route.method,
       body: JSON.stringify(input),
-    }),
+    })
+  },
   createBinding: (
     businessId: string,
     targetId: string,
     input: { factId: string; extractorKind: string; extractorSelector: string; comparator: string },
-  ) =>
-    api<{ binding: { id: string } }>(`/api/businesses/${businessId}/representations/targets/${targetId}/bindings`, {
-      method: "POST",
+  ) => {
+    const route = Routes.createSourceBinding(businessId, targetId)
+    return api<{ binding: { id: string } }>(route.path, {
+      method: route.method,
       body: JSON.stringify(input),
-    }),
+    })
+  },
 }
 
 // Representation Discovery V1 read/scan contract. The backend serves these
@@ -296,23 +301,27 @@ export type DiscoveryCandidate = {
 }
 
 export const Discovery = {
-  listScopes: (businessId: string) => api<{ scopes: DiscoveryScope[] }>(`/api/businesses/${businessId}/discovery/scopes`),
-  createScope: (businessId: string, root_url: string) =>
-    api<{ scope: DiscoveryScope }>(`/api/businesses/${businessId}/discovery/scopes`, {
-      method: "POST",
+  listScopes: (businessId: string) => api<{ scopes: DiscoveryScope[] }>(Routes.listDiscoveryScopes(businessId).path),
+  createScope: (businessId: string, root_url: string) => {
+    const route = Routes.createDiscoveryScope(businessId)
+    return api<{ scope: DiscoveryScope }>(route.path, {
+      method: route.method,
       body: JSON.stringify({ root_url }),
-    }),
+    })
+  },
   listRuns: (businessId: string, scope_id: string) =>
-    api<{ runs: DiscoveryRun[] }>(`/api/businesses/${businessId}/discovery/runs?scope_id=${encodeURIComponent(scope_id)}`),
-  triggerRun: (businessId: string, scope_id: string) =>
-    api<{ run: DiscoveryRun }>(`/api/businesses/${businessId}/discovery/runs`, {
-      method: "POST",
+    api<{ runs: DiscoveryRun[] }>(`${Routes.listDiscoveryRuns(businessId).path}?scope_id=${encodeURIComponent(scope_id)}`),
+  triggerRun: (businessId: string, scope_id: string) => {
+    const route = Routes.createDiscoveryRun(businessId)
+    return api<{ run: DiscoveryRun }>(route.path, {
+      method: route.method,
       body: JSON.stringify({ scope_id }),
-    }),
+    })
+  },
   listCandidates: (businessId: string, query: { scope_id: string; run_id?: string }) => {
     const params = new URLSearchParams({ scope_id: query.scope_id })
     if (query.run_id) params.set("run_id", query.run_id)
-    return api<{ candidates: DiscoveryCandidate[] }>(`/api/businesses/${businessId}/discovery/candidates?${params.toString()}`)
+    return api<{ candidates: DiscoveryCandidate[] }>(`${Routes.listDiscoveryCandidates(businessId).path}?${params.toString()}`)
   },
 }
 
@@ -432,21 +441,25 @@ export type IssueLoop = {
 // honestly instead of guessing.
 export const Rechecks = {
   getLoop: (businessId: string, claimId: string) =>
-    api<{ loop: IssueLoop }>(`/api/businesses/${businessId}/issues/${claimId}/loop`),
-  create: (businessId: string, claimId: string, input?: { interventionId?: string | null }) =>
-    api<{ checkRun: unknown; intent: unknown }>(`/api/businesses/${businessId}/issues/${claimId}/reobservations`, {
-      method: "POST",
+    api<{ loop: IssueLoop }>(Routes.getIssueLoop(businessId, claimId).path),
+  create: (businessId: string, claimId: string, input?: { interventionId?: string | null }) => {
+    const route = Routes.requestReobservation(businessId, claimId)
+    return api<{ checkRun: unknown; intent: unknown }>(route.path, {
+      method: route.method,
       body: JSON.stringify({ interventionId: input?.interventionId ?? null }),
-    }),
+    })
+  },
 }
 
 export const Sources = {
-  check: (businessId: string, bindingId: string) =>
-    api<{
+  check: (businessId: string, bindingId: string) => {
+    const route = Routes.checkRepresentation(businessId, bindingId)
+    return api<{
       observation: { id: string; collection_state: string; failure: string | null }
       values: Array<{ id: string; extraction_state: string }>
       finding: { state: string; reason: string }
-    }>(`/api/businesses/${businessId}/representations/${bindingId}/check`, { method: "POST" }),
+    }>(route.path, { method: route.method })
+  },
 }
 
 export type VerdictCounts = { supported: number; wrong: number; partial: number; unknown: number; unreviewed: number }

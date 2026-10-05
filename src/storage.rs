@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -152,35 +152,31 @@ impl Storage {
         domain: &str,
         before_ts: &str,
     ) -> Result<Option<(usize, usize)>> {
-        // Find the most recent distinct timestamp batch before the current run
-        let mut stmt = self.conn.prepare(
-            "SELECT mentioned, COUNT(*) as total
-             FROM mentions
-             WHERE domain=?1 AND timestamp < ?2
-             GROUP BY DATE(timestamp)
-             ORDER BY timestamp DESC
-             LIMIT 1",
-        )?;
-        let mut rows = stmt.query_map(params![domain, before_ts], |row| {
-            Ok((row.get::<_, i32>(0)?, row.get::<_, i32>(1)?))
-        })?;
-        if let Some(row) = rows.next() {
-            let (mentioned_sum, _) = row?;
-            // Re-query to get correct total for that date
-            let total: i64 = self.conn.query_row(
-                "SELECT COUNT(*) FROM mentions WHERE domain=?1 AND timestamp < ?2",
+        // Find the date of the most recent batch before the current run,
+        // then aggregate within that date only.
+        let prev_date: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT DATE(timestamp) FROM mentions
+                 WHERE domain=?1 AND timestamp < ?2
+                 ORDER BY timestamp DESC
+                 LIMIT 1",
                 params![domain, before_ts],
                 |r| r.get(0),
-            )?;
-            let mentioned: i64 = self.conn.query_row(
-                "SELECT SUM(mentioned) FROM mentions WHERE domain=?1 AND timestamp < ?2",
-                params![domain, before_ts],
-                |r| r.get::<_, Option<i64>>(0).map(|v| v.unwrap_or(0)),
-            )?;
-            let _ = mentioned_sum;
-            if total > 0 {
-                return Ok(Some((mentioned as usize, total as usize)));
-            }
+            )
+            .optional()?;
+        let Some(prev_date) = prev_date else {
+            return Ok(None);
+        };
+        let (mentioned, total): (i64, i64) = self.conn.query_row(
+            "SELECT COALESCE(SUM(mentioned), 0), COUNT(*)
+             FROM mentions
+             WHERE domain=?1 AND DATE(timestamp)=?2",
+            params![domain, prev_date],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if total > 0 {
+            return Ok(Some((mentioned as usize, total as usize)));
         }
         Ok(None)
     }
@@ -381,5 +377,71 @@ fn parse_sentiment(s: &str) -> Sentiment {
         "Neutral" => Sentiment::Neutral,
         "Negative" => Sentiment::Negative,
         _ => Sentiment::Unknown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::DateTime;
+    use tempfile::TempDir;
+
+    fn mention_at(domain: &str, ts: &str, mentioned: bool) -> MentionResult {
+        MentionResult {
+            domain: domain.to_string(),
+            prompt: "p".to_string(),
+            model: "mock".to_string(),
+            timestamp: DateTime::parse_from_rfc3339(ts)
+                .unwrap()
+                .with_timezone(&Utc),
+            mentioned,
+            cited: false,
+            position: Position::NotMentioned,
+            sentiment: Sentiment::Unknown,
+            snippet: None,
+            raw_response: "{}".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_previous_run_stats_scoped_to_prior_batch() {
+        let dir = TempDir::new().unwrap();
+        let storage = Storage::open(&dir.path().to_path_buf()).unwrap();
+        // Old batch (2026-01-01): 4 rows, 1 mentioned.
+        for (i, m) in [true, false, false, false].iter().enumerate() {
+            let mut r = mention_at("example.com", "2026-01-01T10:00:00Z", *m);
+            r.prompt = format!("old-{i}");
+            storage.insert(&r).unwrap();
+        }
+        // New batch (2026-01-02): 2 rows, both mentioned.
+        for i in 0..2 {
+            let mut r = mention_at("example.com", "2026-01-02T10:00:00Z", true);
+            r.prompt = format!("new-{i}");
+            storage.insert(&r).unwrap();
+        }
+        // Previous run relative to the new batch is the old batch only:
+        // (1 mentioned, 4 total), not whole-history (3, 6). Timestamps use
+        // the stored RFC3339 offset format so the new batch itself is
+        // excluded by the strict `<` comparison.
+        assert_eq!(
+            storage
+                .previous_run_stats("example.com", "2026-01-02T10:00:00+00:00")
+                .unwrap(),
+            Some((1, 4))
+        );
+        // A `before` after every batch resolves to the latest batch.
+        assert_eq!(
+            storage
+                .previous_run_stats("example.com", "2026-01-03T00:00:00+00:00")
+                .unwrap(),
+            Some((2, 2))
+        );
+        // Nothing before the old batch.
+        assert_eq!(
+            storage
+                .previous_run_stats("example.com", "2026-01-01T10:00:00+00:00")
+                .unwrap(),
+            None
+        );
     }
 }

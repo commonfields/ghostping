@@ -121,16 +121,20 @@ const main = async (): Promise<void> => {
 }
 
 const readLock = async (root: string): Promise<ProjectionLock> => {
+  let raw: string
   try {
-    const raw = await readFile(resolve(root, ".ghostping/projections.lock.json"), "utf8")
-    const parsed: unknown = JSON.parse(raw)
-    if (parsed !== null && typeof parsed === "object" && "projections" in parsed) {
-      return parsed as ProjectionLock
-    }
-    return EMPTY_LOCK
-  } catch {
-    return EMPTY_LOCK
+    raw = await readFile(resolve(root, ".ghostping/projections.lock.json"), "utf8")
+  } catch (e) {
+    // Missing lock means a fresh root: nothing is managed yet.
+    // Any other read failure leaves lock state unknown, so fail closed.
+    if ((e as { code?: string }).code === "ENOENT") return EMPTY_LOCK
+    throw e
   }
+  const parsed: unknown = JSON.parse(raw)
+  if (parsed !== null && typeof parsed === "object" && "projections" in parsed) {
+    return parsed as ProjectionLock
+  }
+  throw new Error("projections.lock.json has invalid shape; refusing to apply with unknown lock state")
 }
 
 const fileIo = (root: string): ApplyIo => ({

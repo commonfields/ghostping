@@ -51,15 +51,16 @@ vercel --prod
 
 ## Configuration
 
-Before deploying, update these values in `app/page.tsx`:
+The landing page points at this repository by default. If you fork the
+project, update these values at the top of `app/page.tsx`:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GITHUB_REPO` | Your GitHub repository URL | `'https://github.com/yourusername/ghostping'` |
-| `RELEASES_URL` | GitHub releases page | `'https://github.com/yourusername/ghostping/releases'` |
-| `DOCS_URL` | Documentation URL | `'https://github.com/yourusername/ghostping#readme'` |
-| `INSTALL_SH_URL` | macOS/Linux install script | `'https://ghostping.dev/install.sh'` |
-| `INSTALL_PS1_URL` | Windows install script | `'https://ghostping.dev/install.ps1'` |
+| `GITHUB_REPO` | GitHub repository URL | `'https://github.com/commonfields/ghostping'` |
+| `RELEASES_URL` | GitHub releases page | `'https://github.com/commonfields/ghostping/releases'` |
+| `DOCS_URL` | Documentation URL | `'https://github.com/commonfields/ghostping#readme'` |
+| `INSTALL_SH` | macOS/Linux install script | raw `scripts/install.sh` URL above |
+| `INSTALL_PS1` | Windows install script | raw `scripts/install.ps1` URL above |
 
 ## Project Structure
 

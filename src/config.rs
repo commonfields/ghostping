@@ -168,7 +168,15 @@ impl Config {
         let legacy = Self::legacy_config_dir();
         if !dir.exists() && legacy.exists() {
             // Best-effort migration: copy legacy config + plugins + db.
-            let _ = copy_dir_all(&legacy, &dir);
+            // Warn loudly on failure: silent loss of the user's old config
+            // is worse than aborting into create_dir_all below.
+            if let Err(e) = copy_dir_all(&legacy, &dir) {
+                eprintln!(
+                    "Warning: legacy config migration from {} failed: {}. Original kept at source.",
+                    legacy.display(),
+                    e
+                );
+            }
         }
         let is_new = !dir.exists();
         std::fs::create_dir_all(&dir)

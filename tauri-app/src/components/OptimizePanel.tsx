@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { card, input, btn, btnSecondary, heading, muted, pre } from "./styles";
+import { card, input, btn, heading, muted, pre } from "./styles";
 
 interface SectionResult {
   prompt: string;

@@ -464,13 +464,20 @@ function CopyValue({ value }: { value: string }) {
 
 function AccountSection({ onDone }: { onDone: () => void }) {
   const [me, setMe] = useState<{ userId: string; accountId: string } | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const email = rememberedEmail()
   const nav = useNavigate()
 
   useEffect(() => {
     Auth.me()
-      .then(setMe)
-      .catch(() => setMe(null))
+      .then((m) => {
+        setMe(m)
+        setLoadError(null)
+      })
+      .catch((e: unknown) => {
+        setMe(null)
+        setLoadError(e instanceof Error ? e.message : "Failed to load account")
+      })
   }, [])
 
   return (
@@ -482,6 +489,7 @@ function AccountSection({ onDone }: { onDone: () => void }) {
         <div className="min-w-0">
           <div className="truncate font-medium">{email ?? "Your account"}</div>
           <div className="text-sm text-muted-foreground">Signed in with email and password</div>
+          {loadError ? <div className="text-sm text-destructive">Could not verify session ({loadError})</div> : null}
         </div>
       </div>
 

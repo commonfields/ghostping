@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { card, input, btn, heading, muted, tag } from "./styles";
+import { card, input, btn, heading, muted } from "./styles";
 
 interface AuditResult {
   domain: string;

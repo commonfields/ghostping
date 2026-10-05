@@ -9,7 +9,7 @@ description = "Ghostping desktop — local-first GEO agent"
 
 [lib]
 name = "ghostping_app_lib"
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 # The ghostping core library (path relative to this Cargo.toml)
 [dependencies]

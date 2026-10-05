@@ -53,6 +53,36 @@ export const Routes = {
     method: "GET",
     path: `/api/businesses/${businessId}/representations/${bindingId}`,
   }),
+  createSourceTarget: (businessId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/representations/targets`,
+  }),
+  createSourceBinding: (businessId: string, targetId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/representations/targets/${targetId}/bindings`,
+  }),
+  checkRepresentation: (businessId: string, bindingId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/representations/${bindingId}/check`,
+  }),
+  getIssueLoop: (businessId: string, claimId: string) => ({
+    method: "GET",
+    path: `/api/businesses/${businessId}/issues/${claimId}/loop`,
+  }),
+  listDiscoveryScopes: (businessId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/discovery/scopes` }),
+  createDiscoveryScope: (businessId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/discovery/scopes`,
+  }),
+  listDiscoveryRuns: (businessId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/discovery/runs` }),
+  createDiscoveryRun: (businessId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/discovery/runs`,
+  }),
+  listDiscoveryCandidates: (businessId: string) => ({
+    method: "GET",
+    path: `/api/businesses/${businessId}/discovery/candidates`,
+  }),
 } as const
 
 // ---------------------------------------------------------------------------
