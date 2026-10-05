@@ -554,7 +554,7 @@ function BeforeAfterCompare({ businessId, claimId }: { businessId: string; claim
       <CardHeader>
         <CardTitle>Before / after</CardTitle>
         <CardDescription>
-          The same question, observed before and after the recorded action. Comparison is derived at read time; it never claims the action caused the change.
+          The same question, observed before and after the recorded action. Comparison is derived at read time; causal attribution stays unknown.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
