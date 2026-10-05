@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Link, useParams } from "react-router"
 import { toast } from "sonner"
-import { ArrowLeftIcon, BookCheckIcon, LinkIcon, MessageSquareQuoteIcon, TriangleAlertIcon } from "lucide-react"
+import { ArrowLeftIcon, BookCheckIcon, DownloadIcon, FileJsonIcon, LinkIcon, MessageSquareQuoteIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { EmptyState, PageHeader } from "@/components/page"
 import { Spinner } from "@/components/spinner"
 import { ControlBadge, IssueStateBadge, RepresentationStateBadge } from "@/components/status"
-import { Interventions, Issues, Rechecks, Sources, type CitationEvidence, type Intervention, type IssueLoop } from "@/lib/api"
+import { Interventions, Issues, Packets, Rechecks, Sources, type CitationEvidence, type Intervention, type IssueLoop } from "@/lib/api"
 import { errorMessage, formatDateTime, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
 
@@ -155,6 +155,10 @@ export function IssueDetailPage() {
       <RecordedActionsCard businessId={id} claimId={claimId} />
 
       <IssueLoopSection businessId={id} claimId={claimId} />
+
+      <BeforeAfterCompare businessId={id} claimId={claimId} />
+
+      <EvidencePacketCard businessId={id} claimId={claimId} />
     </div>
   )
 }
@@ -534,6 +538,137 @@ function VerifySourceCard({ businessId, bindingId, onChecked }: { businessId: st
             Verify source
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function BeforeAfterCompare({ businessId, claimId }: { businessId: string; claimId: string }) {
+  const { data, loading } = useApi(`loop-compare:${claimId}`, () => Rechecks.getLoop(businessId, claimId))
+  const loop: IssueLoop | null = data?.loop ?? null
+  const comparison = loop?.latestComparison ?? null
+  const source = loop?.sourceVerification ?? null
+
+  return (
+    <Card className="shadow-(--float-shadow)">
+      <CardHeader>
+        <CardTitle>Before / after</CardTitle>
+        <CardDescription>
+          The same question, observed before and after the recorded action. Comparison is derived at read time; it never claims the action caused the change.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading ? (
+          <Skeleton className="h-40 rounded-lg" />
+        ) : !loop || !comparison ? (
+          <p className="text-sm text-muted-foreground">
+            {!loop ? "The comparison is unavailable right now." : "Not rechecked yet. Request a recheck above to produce a before/after pair."}
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">{comparison.displayCopy}</Badge>
+              <span className="text-xs text-muted-foreground">
+                {comparison.matchClassification} · {comparison.observedChange} · {comparison.outcome}
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground">{comparison.comparabilityExplanation}</p>
+            <p className="text-xs text-muted-foreground">Causal attribution: unknown. Ghostping observes what changed; it does not claim why.</p>
+
+            {source && (source.beforeValue !== null || source.afterValue !== null) ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-lg bg-muted/60 p-3">
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">Source before</div>
+                  <p className="text-sm font-medium">{source.beforeValue ?? "Unknown"}</p>
+                </div>
+                <div className="rounded-lg bg-muted/60 p-3">
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">Source after</div>
+                  <p className="text-sm font-medium">{source.afterValue ?? "Unknown"}</p>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2 rounded-lg border p-3">
+                <div className="text-xs font-medium text-muted-foreground">
+                  Before · {sentenceCase(comparison.before.provider)}
+                  {comparison.before.observedModel ? ` (${comparison.before.observedModel})` : ""} · {formatDateTime(comparison.before.collectedAt)}
+                </div>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{comparison.before.answerText}</p>
+                {comparison.before.claimText ? <p className="text-xs text-muted-foreground">Claim: {comparison.before.claimText}</p> : null}
+                <p className="text-xs text-muted-foreground">Verdict: {comparison.before.verdict ? sentenceCase(comparison.before.verdict) : "Needs review"}</p>
+              </div>
+              <div className="space-y-2 rounded-lg border p-3">
+                <div className="text-xs font-medium text-muted-foreground">
+                  After · {sentenceCase(comparison.after.provider)}
+                  {comparison.after.observedModel ? ` (${comparison.after.observedModel})` : ""} · {formatDateTime(comparison.after.collectedAt)}
+                </div>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{comparison.after.answerText}</p>
+                {comparison.after.claimText ? <p className="text-xs text-muted-foreground">Claim: {comparison.after.claimText}</p> : null}
+                <p className="text-xs text-muted-foreground">Verdict: {comparison.after.verdict ? sentenceCase(comparison.after.verdict) : "Needs review"}</p>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function EvidencePacketCard({ businessId, claimId }: { businessId: string; claimId: string }) {
+  const [pending, setPending] = useState(false)
+  const [digest, setDigest] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  return (
+    <Card className="shadow-(--float-shadow)">
+      <CardHeader>
+        <CardTitle>Evidence packet</CardTitle>
+        <CardDescription>Download the sealed lineage for this issue as JSON. The digest lets anyone verify the bytes.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {digest ? <p className="text-xs break-all text-muted-foreground">Digest: {digest}</p> : null}
+        {error ? (
+          <Alert variant="destructive">
+            <TriangleAlertIcon />
+            <AlertTitle className="font-normal">{error}</AlertTitle>
+          </Alert>
+        ) : null}
+        <div className="flex items-center justify-end gap-3">
+          {pending ? <p className="text-sm text-muted-foreground">Preparing packet…</p> : null}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pending}
+            onClick={() => {
+              setPending(true)
+              setError(null)
+              Packets.get(businessId, claimId)
+                .then(({ packet, digest: d }) => {
+                  setDigest(d)
+                  const blob = new Blob([JSON.stringify(packet, null, 2)], { type: "application/json" })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement("a")
+                  a.href = url
+                  a.download = `evidence-${claimId.slice(0, 8)}-${d.slice(0, 12)}.json`
+                  document.body.appendChild(a)
+                  a.click()
+                  a.remove()
+                  setTimeout(() => URL.revokeObjectURL(url), 1000)
+                  toast.success("Evidence packet downloaded", { description: `Digest ${d.slice(0, 16)}…` })
+                })
+                .catch((err: unknown) => setError(errorMessage(err)))
+                .finally(() => setPending(false))
+            }}
+          >
+            {pending ? <Spinner /> : <DownloadIcon />}
+            Download packet (JSON)
+          </Button>
+        </div>
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <FileJsonIcon className="size-3.5" />
+          Sealed V1 packet: digest plus claims, judgments, interventions, and re-observations.
+        </p>
       </CardContent>
     </Card>
   )

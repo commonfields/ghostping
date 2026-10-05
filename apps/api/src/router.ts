@@ -10,6 +10,7 @@ import { Effect, Schema } from "effect"
 import { SqlClient } from "@effect/sql"
 import { AppBaseUrl } from "@ghostping/config"
 import {
+  AgentMessageRequest,
   CreateBusinessRequest,
   CreateClaimRequest,
   CreateFactRequest,
@@ -71,6 +72,7 @@ import {
   loadRepresentations,
 } from "./reads.js"
 import { loadInterventions, recordIntervention } from "./interventions.js"
+import { handleAgentMessage } from "./agent.js"
 import { createBinding, createTarget } from "./tracking.js"
 import { loadIssueLoop } from "./issue-loop.js"
 import { loadIssuePacket } from "./packet-read.js"
@@ -826,6 +828,28 @@ export const makeRouter = () => {
   // overloads cap a single chain, so new routes concatenate instead of
   // extending the original chain past its arity limit.
   const productApi = router.pipe(
+    // Providers (public allowlist only; never secrets). The web client needs
+    // the configured 9Router model allowlist to send a valid requestedModel.
+    HttpRouter.get(
+      "/api/providers",
+      Effect.gen(function*() {
+        const s = yield* requireSession.pipe(Effect.catchAll(() => Effect.succeed(null)))
+        if (!s) return yield* json(401, { _tag: "NotAuthenticated" })
+        const enabled = (process.env["NINE_ROUTER_ENABLED"] ?? "false").toLowerCase() === "true"
+        const rawModels = process.env["NINE_ROUTER_MODELS"] ?? process.env["NINE_ROUTER_MODEL"] ?? ""
+        const models = rawModels
+          .split(",")
+          .map((m) => m.trim())
+          .filter((m) => m.length > 0)
+          .filter((m, i, arr) => arr.indexOf(m) === i)
+        return yield* json(200, {
+          providers: [
+            { id: "mock", enabled: true, models: [] as string[] },
+            { id: "9router", enabled, models: enabled ? models : ([] as string[]) },
+          ],
+        })
+      }),
+    ),
     // Operator-driven source tracking: deliberate user action only.
     // Discovery never auto-creates targets or bindings.
     HttpRouter.post(
@@ -1171,6 +1195,27 @@ export const makeRouter = () => {
             fact,
             history: ordered.map((r) => ({ ...(r as Record<string, unknown>), provenance: provenanceByFact.get(String(r["id"])) ?? null })),
           })
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    // Agent assistance V1: deterministic read-only answers. The body carries
+    // only the operator message (+ short history); writes are never
+    // performed here, only planned with UI deep links.
+    HttpRouter.post(
+      "/api/businesses/:id/agent/messages",
+      withSession((session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const businessId = (params.params as Record<string, string>)["id"] as string
+          if (!isRouteId(businessId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) {
+            return yield* json(404, { _tag: "BusinessNotFound" })
+          }
+          const body = decodeRequest(AgentMessageRequest, (yield* readJson) as unknown)
+          if (!body) return yield* json(422, malformed)
+          const reply = yield* handleAgentMessage(session.accountId, businessId, body.message)
+          return yield* json(200, reply)
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),

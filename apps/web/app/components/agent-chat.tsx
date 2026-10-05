@@ -6,10 +6,18 @@ import { useChrome } from "@/components/app-shell"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { modKey } from "@/components/settings-dialog"
 import { usePreferences } from "@/lib/preferences"
+import { Agent } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 type Attachment = { id: string; file: File; previewUrl: string | null }
-type Message = { id: string; role: "user" | "agent"; text: string; attachments: Array<{ name: string; size: number }> }
+type Message = {
+  id: string
+  role: "user" | "agent"
+  text: string
+  attachments: Array<{ name: string; size: number }>
+  tools?: Array<{ tool: string; summary: string }>
+  pending?: boolean
+}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -39,13 +47,16 @@ function createRecognition(): Recognition | null {
 }
 
 export function AgentChat({
+  businessId,
   businessName,
   onConversationChange,
 }: {
+  businessId: string
   businessName: string
   onConversationChange: (active: boolean) => void
 }) {
   const [messages, setMessages] = useState<Message[]>([])
+  const [failed, setFailed] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const active = messages.length > 0
   const { setMinimal } = useChrome()
@@ -68,14 +79,26 @@ export function AgentChat({
       text,
       attachments: attachments.map((a) => ({ name: a.file.name, size: a.file.size })),
     }
-    // No agent backend exists yet; say so plainly instead of inventing an answer.
-    const agent: Message = {
-      id: uid(),
-      role: "agent",
-      text: "The agent is not connected to a backend yet, so this message was not sent anywhere. Once it is, answers will cite your approved facts and collected AI answers.",
-      attachments: [],
-    }
-    setMessages((m) => [...m, user, agent])
+    const thinking: Message = { id: uid(), role: "agent", text: "Reading your workspace evidence…", attachments: [], pending: true }
+    setMessages((m) => [...m, user, thinking])
+    setFailed(null)
+    // Read-only V1: the server answers from account-scoped evidence and
+    // cites it. Writes are never performed; the reply plans them with UI links.
+    void Agent.send(businessId, text)
+      .then((r) => {
+        const answer: Message = {
+          id: uid(),
+          role: "agent",
+          text: r.reply,
+          attachments: [],
+          tools: r.toolCalls.map((t) => ({ tool: t.tool, summary: t.summary })),
+        }
+        setMessages((m) => [...m.slice(0, -1), answer])
+      })
+      .catch((err: unknown) => {
+        setMessages((m) => m.slice(0, -1))
+        setFailed(err instanceof Error ? err.message : "The agent could not answer right now.")
+      })
   }
 
   if (!active) {
@@ -114,12 +137,18 @@ export function AgentChat({
                 ) : null}
               </>
             ) : (
-              <p className="max-w-[90%] text-sm leading-relaxed whitespace-pre-wrap text-foreground/80">{m.text}</p>
+              <div className="max-w-[90%] space-y-1.5">
+                <p className={cn("text-sm leading-relaxed whitespace-pre-wrap text-foreground/80", m.pending && "animate-pulse")}>{m.text}</p>
+                {m.tools && m.tools.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">Tools: {m.tools.map((t) => t.tool).join(" · ")}</p>
+                ) : null}
+              </div>
             )}
             <CopyButton text={m.text} className={m.role === "user" ? "-mr-1.5" : "-ml-1.5"} />
           </li>
         ))}
       </ol>
+      {failed ? <p className="pb-2 text-sm text-wrong">{failed}</p> : null}
       <div ref={endRef} />
 
       <div className="sticky bottom-0 z-10 -mx-2 bg-gradient-to-t from-background from-70% to-transparent px-2 pt-6 pb-1">

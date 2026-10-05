@@ -207,10 +207,36 @@ export const Questions = {
 
 export const Checks = {
   list: (businessId: string) => api<{ checkRuns: CheckRun[] }>(`/api/businesses/${businessId}/check-runs`),
-  run: (businessId: string, questionId: string, provider: "mock" | "9router" = "mock") =>
+  run: (businessId: string, questionId: string, provider: "mock" | "9router" = "mock", requestedModel?: string | null) =>
     api<{ checkRun: CheckRun }>(`/api/businesses/${businessId}/check-runs`, {
       method: "POST",
-      body: JSON.stringify({ questionId, provider }),
+      body: JSON.stringify({
+        questionId,
+        provider,
+        ...(provider === "9router" && requestedModel ? { requestedModel } : {}),
+      }),
+    }),
+}
+
+export type ProviderInfo = { id: string; enabled: boolean; models: string[] }
+
+export const Providers = {
+  list: () => api<{ providers: ProviderInfo[] }>("/api/providers"),
+}
+
+export const Packets = {
+  get: (businessId: string, claimId: string) =>
+    api<{ packet: unknown; digest: string; rendered: string }>(Routes.getIssuePacket(businessId, claimId).path),
+}
+
+export type AgentToolCall = { tool: string; summary: string }
+export type AgentCitation = { kind: string; id: string; text: string }
+
+export const Agent = {
+  send: (businessId: string, message: string) =>
+    api<{ reply: string; toolCalls: AgentToolCall[]; citations: AgentCitation[] }>(Routes.sendAgentMessage(businessId).path, {
+      method: "POST",
+      body: JSON.stringify({ message }),
     }),
 }
 
@@ -416,6 +442,9 @@ export type IssueLoop = {
     change: string
     beforeObservationId: string | null
     afterObservationId: string | null
+    beforeValue: string | null
+    afterValue: string | null
+    documentChanged: boolean | null
     detail: string
   }
   reobservationAttempts: Array<{
