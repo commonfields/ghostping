@@ -47,7 +47,7 @@ export function Overview() {
   return (
     <>
       {view === "agent" ? (
-        <AgentChat businessName={activeBusiness?.name ?? "this business"} onConversationChange={setChatting} />
+        <AgentChat businessId={activeBusiness?.id ?? ""} businessName={activeBusiness?.name ?? "this business"} onConversationChange={setChatting} />
       ) : (
         <Today />
       )}

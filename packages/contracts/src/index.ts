@@ -83,6 +83,15 @@ export const Routes = {
     method: "GET",
     path: `/api/businesses/${businessId}/discovery/candidates`,
   }),
+  listProviders: { method: "GET", path: "/api/providers" },
+  getIssuePacket: (businessId: string, claimId: string) => ({
+    method: "GET",
+    path: `/api/businesses/${businessId}/issues/${claimId}/packet`,
+  }),
+  sendAgentMessage: (businessId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/agent/messages`,
+  }),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -253,6 +262,24 @@ export const CreateReobservationRequest = Schema.Struct({
   interventionId: Schema.optional(Schema.NullOr(Schema.UUID)),
 })
 export type CreateReobservationRequest = typeof CreateReobservationRequest.Type
+
+// Agent assistance (read-only V1). The message is untrusted operator input:
+// bounded length, no prompt/model/provider fields, no autonomous writes.
+// The server answers only from account-scoped repositories and cites the
+// rows it read. Anything that would write (run check, discovery run,
+// intervention, recheck) is returned as a plan with a UI deep link; the
+// human clicks to execute. Publishing stays manual by design.
+export const AgentHistoryEntry = Schema.Struct({
+  role: Schema.Literal("user", "agent"),
+  text: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(4000)),
+})
+export type AgentHistoryEntry = typeof AgentHistoryEntry.Type
+
+export const AgentMessageRequest = Schema.Struct({
+  message: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(4000)),
+  history: Schema.optional(Schema.Array(AgentHistoryEntry).pipe(Schema.maxItems(10))),
+})
+export type AgentMessageRequest = typeof AgentMessageRequest.Type
 
 // Route identifiers: validate before touching the repository so malformed
 // ids become 4xx, never opaque SQL errors.
