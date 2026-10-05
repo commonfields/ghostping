@@ -112,6 +112,8 @@ Open [http://localhost:3000](http://localhost:3000), create an account and busin
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
+Live 9Router checks require an endpoint, API key, and comma-separated `NINE_ROUTER_MODELS` allowlist; see [`.env.example`](.env.example) for the complete configuration. Configuration fails closed when any value is invalid, and every check must request one allowlisted direct model. Ghostping never substitutes another model. `NINE_ROUTER_MODEL` remains a temporary single-model compatibility option and is ignored when `NINE_ROUTER_MODELS` is set.
+
 ## What Ghostping does and doesn't do
 
 Does:
