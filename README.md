@@ -108,7 +108,7 @@ Open [http://localhost:3000](http://localhost:3000), create an account and busin
 
 ### For developers
 
-Typechecks, lint, tests, and protocol tooling live in CI. See [CONTRIBUTING.md](CONTRIBUTING.md) before changing provider, prompt-plugin, CLI, or desktop behavior.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## What Ghostping does and doesn't do
 
@@ -140,7 +140,6 @@ Doesn't:
 - [Representation graph](docs/representation-graph/README.md)
 - [Truth projection](docs/truth/README.md)
 - [Product roadmap](docs/product/roadmap.md)
-- [CLI exit contracts](docs/engineering/cli-exit-contracts.md)
 
 ## Contributing
 
