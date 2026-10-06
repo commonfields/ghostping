@@ -15,11 +15,22 @@ import {
   ProviderAttemptEvidenceRepositoryLive,
   ProductReadRepositoryLive,
   QuestionRepositoryLive,
+  SiteFindingEventRepositoryLive,
+  SiteFindingRepositoryLive,
+  SiteFixProposalRepositoryLive,
+  SiteGscRepositoryLive,
+  SiteMutationRepositoryLive,
+  SiteOperatorEventRepositoryLive,
+  SitePageObservationRepositoryLive,
+  SiteRunRepositoryLive,
+  SiteTargetRepositoryLive,
+  SiteVerificationRepositoryLive,
   type RawDigestMismatch,
   type RowDecodeError,
 } from "@ghostping/db"
 import { CheckRunner, CheckRunnerLive } from "./check-runner.js"
 import { DiscoveryRunner, DiscoveryRunnerLive } from "./discovery-runner.js"
+import { SiteInspectionRunner, SiteInspectionRunnerLive } from "./site-inspection-runner.js"
 import { NineRouterSettingsLive } from "@ghostping/config"
 import { MockProviderLive, NineRouterProviderLive, ProviderRegistryLive } from "@ghostping/providers"
 import { NodeHttpClient } from "@effect/platform-node"
@@ -51,7 +62,24 @@ const buildRunnerLive = (databaseUrl: Redacted.Redacted<string>) => {
   const ProvidersLive = ProviderRegistryLive.pipe(Layer.provide(Layer.merge(MockProviderLive, GatewayLive)))
   const CheckLive = CheckRunnerLive.pipe(Layer.provide(ProvidersLive), Layer.provide(Repos), Layer.provide(PgLive))
   const DiscoveryLive = DiscoveryRunnerLive.pipe(Layer.provide(Repos), Layer.provide(PgLive))
-  return Layer.merge(CheckLive, DiscoveryLive)
+  const SiteLive = SiteInspectionRunnerLive.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        SiteTargetRepositoryLive,
+        SiteRunRepositoryLive,
+        SitePageObservationRepositoryLive,
+        SiteFindingRepositoryLive,
+        SiteFindingEventRepositoryLive,
+        SiteFixProposalRepositoryLive,
+        SiteMutationRepositoryLive,
+        SiteVerificationRepositoryLive,
+        SiteOperatorEventRepositoryLive,
+        SiteGscRepositoryLive,
+      ),
+    ),
+    Layer.provide(PgLive),
+  )
+  return Layer.mergeAll(CheckLive, DiscoveryLive, SiteLive)
 }
 
 export type RunnerLoopError = SqlError | RowDecodeError | RawDigestMismatch
@@ -59,6 +87,8 @@ export type RunnerLoopError = SqlError | RowDecodeError | RawDigestMismatch
 export interface LoopRunners {
   readonly check: { readonly runOnce: () => Effect.Effect<boolean, RunnerLoopError> }
   readonly discovery: { readonly runOnce: () => Effect.Effect<boolean, RunnerLoopError> }
+  /** Optional third loop (site inspection). Absent in legacy tests. */
+  readonly site?: { readonly runOnce: () => Effect.Effect<boolean, RunnerLoopError> }
 }
 
 /**
@@ -66,11 +96,12 @@ export interface LoopRunners {
  * sleeps only when idle; a multi-minute discovery scan occupies only its
  * own fiber, so CheckRunner keeps polling. Failures are contained per
  * loop (logged through the Effect Logger, bounded) and never terminate the
- * sibling. No Redis/Kafka, no unbounded fibers: exactly two.
+ * sibling. No Redis/Kafka, no unbounded fibers: exactly two (plus the
+ * optional site-inspection loop when configured).
  */
 export const startRunnerLoops = (runners: LoopRunners, pollMs: number): Effect.Effect<void, never, never> =>
   Effect.gen(function*() {
-    const loop = (which: "check" | "discovery", runOnce: () => Effect.Effect<boolean, RunnerLoopError>) => {
+    const loop = (which: "check" | "discovery" | "site", runOnce: () => Effect.Effect<boolean, RunnerLoopError>) => {
       const step: Effect.Effect<void> = Effect.gen(function*() {
         while (true) {
           const did = yield* runOnce().pipe(
@@ -92,15 +123,23 @@ export const startRunnerLoops = (runners: LoopRunners, pollMs: number): Effect.E
     // neither join masks the other.
     const checkFiber = yield* Effect.fork(loop("check", runners.check.runOnce))
     const discoveryFiber = yield* Effect.fork(loop("discovery", runners.discovery.runOnce))
-    yield* Fiber.join(checkFiber)
-    yield* Fiber.join(discoveryFiber)
+    if (runners.site) {
+      const siteFiber = yield* Effect.fork(loop("site", runners.site.runOnce))
+      yield* Fiber.join(checkFiber)
+      yield* Fiber.join(discoveryFiber)
+      yield* Fiber.join(siteFiber)
+    } else {
+      yield* Fiber.join(checkFiber)
+      yield* Fiber.join(discoveryFiber)
+    }
   })
 
 const main: Effect.Effect<void, SqlError | ConfigError.ConfigError> = Effect.flatMap(WorkerConfig, (cfg) =>
   Effect.gen(function*() {
     const check = yield* CheckRunner
     const discovery = yield* DiscoveryRunner
-    yield* startRunnerLoops({ check, discovery }, cfg.pollIntervalMs)
+    const site = yield* SiteInspectionRunner
+    yield* startRunnerLoops({ check, discovery, site }, cfg.pollIntervalMs)
   }).pipe(
     Effect.provide(buildRunnerLive(cfg.databaseUrl)),
     Effect.scoped,
