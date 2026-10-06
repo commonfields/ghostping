@@ -19,6 +19,9 @@ import { IssuesPage } from "./routes/issues"
 import { ObservationPage } from "./routes/observation"
 import { RepresentationDetailPage } from "./routes/representation"
 import { RepresentationsPage } from "./routes/representations"
+import { SearchOverviewPage } from "./routes/search"
+import { SiteFindingPage } from "./routes/site-finding"
+import { SiteRunPage } from "./routes/site-run"
 import { TruthPage } from "./routes/truth"
 
 function App() {
@@ -47,6 +50,9 @@ function App() {
               <Route path="truth" element={<TruthPage />} />
               <Route path="facts" element={<Navigate to="../truth" replace />} />
               <Route path="checks" element={<ChecksPage />} />
+              <Route path="search" element={<SearchOverviewPage />} />
+              <Route path="search/sites/:siteId/runs/:runId" element={<SiteRunPage />} />
+              <Route path="search/sites/:siteId/findings/:findingId" element={<SiteFindingPage />} />
               <Route path="issues" element={<IssuesPage />} />
               <Route path="issues/:claimId" element={<IssueDetailPage />} />
               <Route path="representations" element={<RepresentationsPage />} />

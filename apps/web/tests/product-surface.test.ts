@@ -9,17 +9,32 @@ import { issueStateMeta, representationStateMeta } from "../app/components/statu
 
 describe("navigation", () => {
   it("sidebar follows the operational workflow order", () => {
-    expect(workspaceNavOrder).toEqual(["overview", "issues", "representations", "truth", "checks"])
+    expect(workspaceNavOrder).toEqual(["overview", "search", "issues", "representations", "truth", "checks"])
     const items = workspaceNav("/businesses/b1")
     expect(items.map((i) => i.id)).toEqual(workspaceNavOrder)
-    expect(items.map((i) => i.label)).toEqual(["Overview", "Issues", "Representations", "Truth", "Checks"])
+    expect(items.map((i) => i.label)).toEqual(["Overview", "Search", "Issues", "Representations", "Truth", "Checks"])
     expect(items.map((i) => i.path)).toEqual([
       "/businesses/b1/overview",
+      "/businesses/b1/search",
       "/businesses/b1/issues",
       "/businesses/b1/representations",
       "/businesses/b1/truth",
       "/businesses/b1/checks",
     ])
+  })
+
+  it("search section reports concrete state, never scores", async () => {
+    const fs = await import("node:fs")
+    const page = fs.readFileSync(new URL("../app/routes/search.tsx", import.meta.url), "utf8")
+    expect(page).toContain("Needs attention")
+    expect(page).toContain("Verification pending")
+    expect(page).toContain("Verified fixed")
+    expect(page).not.toMatch(/score/i)
+    const finding = fs.readFileSync(new URL("../app/routes/site-finding.tsx", import.meta.url), "utf8")
+    expect(finding).toContain("Observed evidence")
+    expect(finding).toContain("Proposed fix")
+    expect(finding).toContain("Ghostping verified the fix on the live site")
+    expect(finding).not.toMatch(/score/i)
   })
 
   it("breadcrumbs cover every product section in existing style", () => {

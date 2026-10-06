@@ -506,3 +506,157 @@ export type Analytics = {
 export const AnalyticsApi = {
   get: (businessId: string, days: number) => api<{ analytics: Analytics }>(`/api/businesses/${businessId}/analytics?days=${days}`),
 }
+
+// SEARCH_OPERATOR_V1: website inspection -> finding -> fix -> verification.
+// Concrete state only: counts grouped by status, never a single number.
+export type SiteTarget = {
+  id: string
+  businessId: string
+  rootUrl: string
+  canonicalOrigin: string
+  pathPrefix: string
+  enabled: boolean
+  adapterKind: string
+  createdAt: string
+}
+
+export type SiteRun = {
+  id: string
+  businessId: string
+  siteTargetId: string
+  state: "QUEUED" | "RUNNING" | "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED"
+  queuedAt: string
+  startedAt: string | null
+  completedAt: string | null
+  failureClass: string | null
+  failureDetailSafe: string | null
+  urlsInspected: number
+  urlsFailed: number
+  findingsProduced: number
+}
+
+export type SiteFinding = {
+  id: string
+  businessId: string
+  siteTargetId: string
+  url: string
+  canonicalUrl: string
+  findingKind: string
+  severity: string
+  category: string
+  status: string
+  detectedAt: string
+  evidence: Record<string, unknown>
+  diagnosis: string
+  recommendedAction: string
+  confidence: string
+}
+
+export type FindingHistoryEntry = {
+  id: string
+  findingId: string
+  fromStatus: string | null
+  toStatus: string
+  actor: string
+  detail: string | null
+  createdAt: string
+}
+
+export type FixProposal = {
+  id: string
+  findingId: string
+  fixKind: string
+  target: string
+  filePath: string | null
+  beforeText: string | null
+  afterText: string | null
+  patch: string | null
+  rationale: string
+  risk: string
+  classification: string
+  requiresApproval: boolean
+  status: string
+}
+
+export type SiteMutation = {
+  id: string
+  findingId: string
+  adapterKind: string
+  branch: string | null
+  commitSha: string | null
+  prNumber: number | null
+  prUrl: string | null
+  state: string
+  detail: string | null
+  createdAt: string
+}
+
+export type SiteVerification = {
+  id: string
+  findingId: string
+  result: string
+  detail: string | null
+  checkedAt: string
+}
+
+export type SearchOverview = {
+  sites: Array<{ id: string; rootUrl: string; adapterKind: string }>
+  website: string | null
+  lastInspection: string | null
+  urlsInspected: number
+  openFindings: number
+  awaitingApproval: number
+  fixesApplied: number
+  verificationPending: number
+  verifiedFixes: number
+  needsAttention: SiteFinding[]
+}
+
+export const Search = {
+  overview: (businessId: string) => api<{ overview: SearchOverview }>(Routes.searchOverview(businessId).path),
+  listSites: (businessId: string) => api<{ sites: SiteTarget[] }>(Routes.listSites(businessId).path),
+  createSite: (businessId: string, rootUrl: string) => {
+    const route = Routes.createSite(businessId)
+    return api<{ site: SiteTarget }>(route.path, { method: route.method, body: JSON.stringify({ rootUrl }) })
+  },
+  listRuns: (businessId: string, siteId: string) =>
+    api<{ runs: SiteRun[] }>(Routes.listSiteRuns(businessId, siteId).path),
+  triggerRun: (businessId: string, siteId: string) => {
+    const route = Routes.createSiteRun(businessId, siteId)
+    return api<{ run: SiteRun }>(route.path, { method: route.method })
+  },
+  getRun: (businessId: string, siteId: string, runId: string) =>
+    api<{ run: SiteRun; observations: Array<Record<string, unknown>>; events: Array<{ kind: string }> }>(
+      Routes.getSiteRun(businessId, siteId, runId).path,
+    ),
+  listFindings: (businessId: string, siteId: string) =>
+    api<{ findings: SiteFinding[] }>(Routes.listSiteFindings(businessId, siteId).path),
+  getFinding: (businessId: string, siteId: string, findingId: string) =>
+    api<{
+      finding: SiteFinding
+      history: FindingHistoryEntry[]
+      proposals: FixProposal[]
+      mutations: SiteMutation[]
+      verifications: SiteVerification[]
+    }>(Routes.getSiteFinding(businessId, siteId, findingId).path),
+  approveFix: (businessId: string, proposalId: string, approved: boolean) => {
+    const route = Routes.approveFix(businessId, proposalId)
+    return api<{ proposal: FixProposal }>(route.path, { method: route.method, body: JSON.stringify({ approved }) })
+  },
+  applyFix: (businessId: string, proposalId: string) => {
+    const route = Routes.applyFix(businessId, proposalId)
+    return api<{ mutation: SiteMutation; patch: string }>(route.path, { method: route.method, body: JSON.stringify({}) })
+  },
+  verifyFinding: (businessId: string, findingId: string) => {
+    const route = Routes.verifyFinding(businessId, findingId)
+    return api<{ verification: string; run: SiteRun | null }>(route.path, { method: route.method })
+  },
+  recordMutationIdentity: (businessId: string, mutationId: string, input: { branch?: string; commitSha?: string; prNumber?: number; prUrl?: string; state: string; detail?: string }) => {
+    const route = Routes.recordMutationIdentity(businessId, mutationId)
+    return api<{ mutation: SiteMutation }>(route.path, { method: route.method, body: JSON.stringify(input) })
+  },
+  gsc: (businessId: string) =>
+    api<{ status: string; detail: string; properties: Array<{ propertyUri: string; status: string }>; source: string }>(
+      Routes.gscStatus(businessId).path,
+    ),
+}

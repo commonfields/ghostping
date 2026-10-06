@@ -107,8 +107,8 @@ describe("issue timeline", () => {
     }
   })
 
-  it("adds no new sidebar section", () => {
-    expect(workspaceNavOrder).toEqual(["overview", "issues", "representations", "truth", "checks"])
+  it("adds no new sidebar section beyond search", () => {
+    expect(workspaceNavOrder).toEqual(["overview", "search", "issues", "representations", "truth", "checks"])
     expect(issuePage()).not.toContain("workspaceNav")
   })
 })
