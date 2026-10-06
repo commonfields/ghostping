@@ -23,6 +23,7 @@
     "@ghostping/domain": "workspace:*",
     "@ghostping/protocol": "workspace:*",
     "@ghostping/representation": "workspace:*",
+    "@ghostping/site-operator": "workspace:*",
     "effect": "3.22.2",
     "pg": "8.13.1",
     "tsx": "4.19.2"

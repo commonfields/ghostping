@@ -92,6 +92,49 @@ export const Routes = {
     method: "POST",
     path: `/api/businesses/${businessId}/agent/messages`,
   }),
+  listSites: (businessId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/search/sites` }),
+  createSite: (businessId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/search/sites`,
+  }),
+  listSiteRuns: (businessId: string, siteId: string) => ({
+    method: "GET",
+    path: `/api/businesses/${businessId}/search/sites/${siteId}/runs`,
+  }),
+  createSiteRun: (businessId: string, siteId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/search/sites/${siteId}/runs`,
+  }),
+  getSiteRun: (businessId: string, siteId: string, runId: string) => ({
+    method: "GET",
+    path: `/api/businesses/${businessId}/search/sites/${siteId}/runs/${runId}`,
+  }),
+  listSiteFindings: (businessId: string, siteId: string) => ({
+    method: "GET",
+    path: `/api/businesses/${businessId}/search/sites/${siteId}/findings`,
+  }),
+  getSiteFinding: (businessId: string, siteId: string, findingId: string) => ({
+    method: "GET",
+    path: `/api/businesses/${businessId}/search/sites/${siteId}/findings/${findingId}`,
+  }),
+  searchOverview: (businessId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/search/overview` }),
+  approveFix: (businessId: string, proposalId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/search/fixes/${proposalId}/approve`,
+  }),
+  applyFix: (businessId: string, proposalId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/search/fixes/${proposalId}/apply`,
+  }),
+  verifyFinding: (businessId: string, findingId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/search/findings/${findingId}/verify`,
+  }),
+  recordMutationIdentity: (businessId: string, mutationId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/search/mutations/${mutationId}/identity`,
+  }),
+  gscStatus: (businessId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/search/gsc` }),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -280,6 +323,39 @@ export const AgentMessageRequest = Schema.Struct({
   history: Schema.optional(Schema.Array(AgentHistoryEntry).pipe(Schema.maxItems(10))),
 })
 export type AgentMessageRequest = typeof AgentMessageRequest.Type
+
+// SEARCH_OPERATOR_V1 write-boundary contracts. URLs are untrusted operator
+// input: http(s) only, validated server-side with SSRF-safe fetching.
+export const CreateSiteRequest = Schema.Struct({
+  rootUrl: NonEmptyTrimmed,
+  adapterKind: Schema.optional(Schema.Literal("LOCAL_FILE", "GIT", "GITHUB")),
+  repoRef: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+})
+export type CreateSiteRequest = typeof CreateSiteRequest.Type
+
+export const ApproveFixRequest = Schema.Struct({
+  approved: Schema.Boolean,
+})
+export type ApproveFixRequest = typeof ApproveFixRequest.Type
+
+export const ApplyFixRequest = Schema.Struct({
+  filePath: Schema.optional(Schema.String),
+  branch: Schema.optional(Schema.String),
+})
+export type ApplyFixRequest = typeof ApplyFixRequest.Type
+
+// Externally observed mutation identity (branch/commit/PR created with
+// normal git tooling, merge performed by a human). Ghostping records what
+// it observes; it never merges. Guarded transitions only.
+export const RecordMutationIdentityRequest = Schema.Struct({
+  branch: Schema.optional(Schema.String),
+  commitSha: Schema.optional(Schema.String),
+  prNumber: Schema.optional(Schema.Number),
+  prUrl: Schema.optional(Schema.String),
+  state: Schema.Literal("BRANCH_CREATED", "PR_OPEN", "MERGED", "FAILED"),
+  detail: Schema.optional(Schema.String),
+})
+export type RecordMutationIdentityRequest = typeof RecordMutationIdentityRequest.Type
 
 // Route identifiers: validate before touching the repository so malformed
 // ids become 4xx, never opaque SQL errors.
