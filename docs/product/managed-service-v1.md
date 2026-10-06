@@ -1,6 +1,6 @@
 # Managed Service V1 — Ghostping Managed AI Representation
 
-Base: `origin/main` @ `fee456d` (PR #33 merged). Status: OPERATOR-RUNNABLE ON MOCK;
+Base: `origin/main` @ `aeb2ccd` (PR #34 merged). Status: OPERATOR-RUNNABLE ON MOCK;
 LIVE MEASUREMENT BLOCKED ON CREDENTIALS (see §14). No code changes in this
 document's mission; all paths below were verified against the tree at base.
 
