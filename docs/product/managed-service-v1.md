@@ -31,10 +31,12 @@ afterward.
 3. At least one controlled source (docs/pricing site) the customer can change
    or approve changes to; sources inventoried CONTROLLED /
    PARTIALLY_CONTROLLED / EXTERNAL.
-4. Customer accepts: mock-surface baseline first where live models are
-   unconfigured; live re-observation requires a configured 9Router model
-   (`NINE_ROUTER_ENABLED=true`, `NINE_ROUTER_MODELS` allowlist,
-   `NINE_ROUTER_API_KEY` in env).
+4. Customer baseline and all customer evidence require a real provider
+   (9Router live pinned model, `synthetic=false`). Mock surfaces are for
+   internal plumbing tests only and MUST NOT appear in customer evidence.
+   Live re-observation requires a configured 9Router model
+   (`NINE_ROUTER_ENABLED=true`, `NINE_ROUTER_BASE_URL`,
+   `NINE_ROUTER_MODELS` allowlist, `NINE_ROUTER_API_KEY` in env).
 5. Customer accepts human-approval boundaries (§7) and explicit non-promises
    (§15).
 
@@ -55,8 +57,9 @@ existence.
 
 1. **KNOW.** Intake facts on the Truth page; resolve `conflicts[]` before
    first check. (`GET/POST /api/businesses/:id/facts`.)
-2. **MEASURE.** On Checks, pick provider Mock (tests/plumbing) or 9Router
-   with a configured model, and run each buyer question once.
+2. **MEASURE.** On Checks, run each buyer question once against 9Router
+   with the pinned live model. (Mock provider exists for internal
+   plumbing tests only — never customer evidence.)
    (`POST /api/businesses/:id/check-runs` — one CheckRun per
    question/model; there is deliberately no batch endpoint, so a 15-question
    pilot means 15 runs. Progress and `PROVIDER_UNSUPPORTED` failures are
@@ -168,10 +171,12 @@ No actionable issues; customer ignores reports; customer does not value
 corrections; interventions cannot be tied to controllable work; operator
 workload destroys economics (§13).
 
-## 11. Pricing hypothesis (do NOT encode as proven; no billing build)
+## 11. Pricing hypothesis (FROZEN 2026-10-06; hypotheses only; no billing build)
 
-Pilot: ~$750–$1,000 for first 4 weeks. Managed hypothesis after pilot:
-~$1,000–$2,500/month. Success/kill decides; economics (§13) constrains.
+First 4-week pilot: **$1,000**. Continuation hypothesis: **$2,000–$3,000/month**.
+The pilot exists to measure value, operator time, remediation load, customer
+responsiveness, and continuation willingness. Invoice/payment stays manual.
+Success/kill (§9–§10) decides; economics (§13) constrains.
 
 ## 12. What we explicitly do NOT promise
 
@@ -193,10 +198,10 @@ read models; agent-labor time counted, not hidden).
 
 | Price/mo | Gross $/operator-hour @10h | @18h |
 |---|---|---|
-| $750 | $75 | $42 |
 | $1,000 | $100 | $56 |
-| $1,500 | $150 | $83 |
+| $2,000 | $200 | $111 |
 | $2,500 | $250 | $139 |
+| $3,000 | $300 | $167 |
 
 Likely load: 3–5 customers per full-time operator at current workflow
 (context-switching dominates past ~4). Biggest leverage opportunity, if
@@ -207,15 +212,17 @@ P0). Communication stays manual email/Slack; record the minutes.
 
 ## 14. Readiness and blockers (as of base)
 
-- Product loop: runnable end-to-end on mock + real-HTTP source collection
-  (dogfood V1: claim→judgment→issue→intervention→correction chain exercised;
-  source verification and AI re-observation plumbing proven, outcome stages
-  derived at read time).
-- **COMMERCIAL VALIDATION BLOCKER:** no live provider configured —
-  `NINE_ROUTER_*` unset, `127.0.0.1:20128` unreachable, `/api/providers`
-  would report 9router disabled. Do not solve with more product features;
-  solve with credentials + the bounded stability assay (4 questions × 8
-  identical measurements × 1 model) before designing recurring measurement.
+- Product loop: runnable end-to-end for internal plumbing on mock plus
+  real-HTTP source collection (dogfood V1: claim→judgment→issue→
+  intervention→correction chain exercised; source verification and AI
+  re-observation plumbing proven, outcome stages derived at read time).
+  Mock observations are NEVER customer evidence.
+- **COMMERCIAL VALIDATION BLOCKER (reverified 2026-10-06):** no live
+  provider — no 9Router binary/process, `NINE_ROUTER_*` entirely unset,
+  `127.0.0.1:20128` unreachable (000), `/api/providers` reports 9router
+  disabled. Do not solve with more product features; solve with credentials
+  + the bounded stability assay (4 questions × 8 identical measurements ×
+  1 model) before designing recurring measurement.
 - No P0/P1 code gaps found: measurement wave, cross-business queue, weekly
   report assembly, and after-state review are all POSSIBLE_BUT_MANUAL with
   acceptable manual workarounds for 3 customers. Nothing in §5 requires new
@@ -228,3 +235,35 @@ P0). Communication stays manual email/Slack; record the minutes.
 Responses describe what was observed, never why. The only outcome sentences
 are the `LOOP_DISPLAY_COPY` set; `causalAttribution` is always UNKNOWN.
 Scores do not exist; do not invent them.
+
+## 16. First-customer freeze (2026-10-06; no marketing site; operator approves targets/copy)
+
+- **Offer:** Managed AI Representation Pilot — 1 company, 10–15 buyer
+  questions, 1 verified live AI model initially, selected controlled
+  sources, human review, material shortlist, bounded remediation, source
+  verification, matched AI re-observation where justified, weekly report,
+  final evidence review.
+- **Price:** $1,000 founding pilot (4 weeks); continuation hypothesis
+  $2,000–$3,000/month. Manual invoicing.
+- **Customer provides:** factual-truth approval; public source
+  inventory/access; a person who can approve changes; source-implementation
+  access/process where required.
+- **Qualification (prefer):** B2B software; meaningful public web/docs; 10+
+  buyer-relevant factual questions; ≥1 controlled/changeable source (Git-backed
+  preferred, not mandatory); marketing/product owner who approves truth; team
+  that ships corrections quickly.
+- **Reject:** all-relevant-information uncontrollable third-party; nobody can
+  approve facts; expects guaranteed ChatGPT rankings or SEO traffic; regulated
+  use needing assurances Ghostping does not provide.
+- **Outreach draft (do not send without operator approval):** "I'm running a
+  small managed pilot for software companies. We monitor what AI assistants
+  tell prospective buyers about your product, investigate factual errors, fix
+  what you control, and verify what changes afterward. I'm taking three
+  companies for a four-week founding pilot."
+- **Prospect profile:** B2B SaaS with public pricing/features/integrations/
+  docs, active releases, real buyer-comparison questions, small enough for
+  fast approval, likely founder/marketing access. Avoid initially: huge
+  enterprise, heavily regulated, near-zero public information, all-third-party
+  content.
+- **Capacity:** THREE customers maximum. Goal is learning (pay / matter /
+  time / repeated work), not scale.
