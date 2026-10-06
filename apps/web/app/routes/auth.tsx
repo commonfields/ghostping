@@ -14,10 +14,6 @@ function AuthLayout({ title, description, children, footer }: { title: string; d
   return (
     <div className="flex min-h-svh flex-col items-center justify-center bg-sidebar px-4 py-12">
       <div className="w-full max-w-sm">
-        <div className="mb-8 flex items-center gap-2.5">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground">G</span>
-          <span className="text-base font-semibold tracking-tight">Ghostping</span>
-        </div>
         <div className="rounded-xl border bg-card p-6 shadow-xs sm:p-8">
           <div className="mb-6 space-y-1.5">
             <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
