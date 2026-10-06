@@ -22,6 +22,7 @@
     "@ghostping/domain": "workspace:*",
     "@ghostping/protocol": "workspace:*",
     "@ghostping/representation": "workspace:*",
+    "@ghostping/site-operator": "workspace:*",
     "cheerio": "1.0.0",
     "effect": "3.22.2",
     "pg": "8.13.1",

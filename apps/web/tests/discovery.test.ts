@@ -33,11 +33,11 @@ describe("candidate tracking is deliberate action only", () => {
 })
 
 describe("discovery route", () => {
-  it("lives under representations without a new sidebar section", async () => {
+  it("lives under representations without disturbing the search section", async () => {
     const main = await readAppFile("main.tsx")
     expect(main).toContain('path="representations/discovery"')
     expect(main).toContain("DiscoveryPage")
-    expect(workspaceNavOrder).toEqual(["overview", "issues", "representations", "truth", "checks"])
+    expect(workspaceNavOrder).toEqual(["overview", "search", "issues", "representations", "truth", "checks"])
     expect(workspaceNav("/businesses/b1").map((i) => i.id)).toEqual(workspaceNavOrder)
   })
 

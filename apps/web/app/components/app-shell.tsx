@@ -14,6 +14,7 @@ import {
   PanelLeftIcon,
   PlusIcon,
   RadarIcon,
+  SearchIcon,
   SettingsIcon,
   UserRoundIcon,
 } from "lucide-react"
@@ -168,6 +169,7 @@ function SidebarBody() {
         {base ? (
           <SidebarGroup label="Workspace">
             <SidebarLink to={`${base}/overview`} icon={<LayoutGridIcon />} label="Overview" />
+            <SidebarLink to={`${base}/search`} icon={<SearchIcon />} label="Search" />
             <SidebarLink to={`${base}/issues`} icon={<InboxIcon />} label="Issues" count={attention} />
             <SidebarLink to={`${base}/representations`} icon={<GlobeIcon />} label="Representations" />
             <SidebarLink to={`${base}/truth`} icon={<BookCheckIcon />} label="Truth" />
@@ -385,7 +387,13 @@ function Breadcrumbs() {
     crumbs.push({ label: activeBusiness.name, to: `${base}/overview` })
     const section = parts[2] ?? ""
     const detail = parts[3]
-    if ((section === "issues" || section === "representations") && detail) {
+    if (section === "search" && detail === "sites" && parts[5] === "findings" && parts[6]) {
+      crumbs.push({ label: "Search", to: `${base}/search` })
+      crumbs.push({ label: "Finding" })
+    } else if (section === "search" && detail) {
+      crumbs.push({ label: "Search", to: `${base}/search` })
+      crumbs.push({ label: detail === "sites" ? "Site" : (sectionTitles[detail] ?? "Search") })
+    } else if ((section === "issues" || section === "representations") && detail) {
       const parent = section === "issues" ? "Issues" : "Representations"
       const child = section === "issues" ? "Issue" : detail === "discovery" ? "Discovery" : "Representation"
       crumbs.push({ label: parent, to: `${base}/${section}` })

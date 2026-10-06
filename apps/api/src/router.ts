@@ -54,6 +54,16 @@ import {
   QuestionRepositoryLive,
   ReobservationIntentRepositoryLive,
   ReobservationRepositoryLive,
+  SiteFindingEventRepositoryLive,
+  SiteFindingRepositoryLive,
+  SiteFixProposalRepositoryLive,
+  SiteGscRepositoryLive,
+  SiteMutationRepositoryLive,
+  SiteOperatorEventRepositoryLive,
+  SitePageObservationRepositoryLive,
+  SiteRunRepositoryLive,
+  SiteTargetRepositoryLive,
+  SiteVerificationRepositoryLive,
   collectSourceBinding,
   type DiscoveryRunRow,
   type Session,
@@ -92,6 +102,7 @@ import {
   loadDiscoveryScopes,
   validateDiscoveryScopeRoot,
 } from "./discovery-reads.js"
+import { siteApi } from "./site-routes.js"
 
 const json = (status: number, body: unknown, headers?: Record<string, string>) =>
   HttpServerResponse.json(body, { status, headers })
@@ -1397,7 +1408,7 @@ export const makeRouter = () => {
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
   )
-  return HttpRouter.concat(HttpRouter.concat(api, productApi), discoveryApi)
+  return HttpRouter.concat(HttpRouter.concat(HttpRouter.concat(api, productApi), discoveryApi), siteApi(withSession))
 }
 
 export const RepoLayers = {
@@ -1414,4 +1425,14 @@ export const RepoLayers = {
   DiscoveryScopeRepositoryLive,
   DiscoveryRunRepositoryLive,
   DiscoveryFrontierRepositoryLive,
+  SiteTargetRepositoryLive,
+  SiteRunRepositoryLive,
+  SitePageObservationRepositoryLive,
+  SiteFindingRepositoryLive,
+  SiteFindingEventRepositoryLive,
+  SiteFixProposalRepositoryLive,
+  SiteMutationRepositoryLive,
+  SiteVerificationRepositoryLive,
+  SiteOperatorEventRepositoryLive,
+  SiteGscRepositoryLive,
 }
