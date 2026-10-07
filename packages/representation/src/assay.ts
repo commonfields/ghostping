@@ -7,10 +7,13 @@
 // (monthly vs annual, per-seat vs flat, USD vs EUR, starting-at vs fixed,
 // promotion vs list) make the comparison UNCLEAR, not CONTRADICTS.
 
-import { parseMoney } from "./comparators.js"
+
 
 export type BillingPeriod = "MONTH" | "YEAR" | "ONE_TIME" | "UNKNOWN"
-export type MoneyUnit = "ACCOUNT" | "USER" | "SEAT" | "LOCATION" | "USAGE_UNIT" | "UNKNOWN"
+// UNSTATED: the span has no per-unit language at all (a plain "$49/month").
+// UNKNOWN: per-unit language is present but unrecognized ("per agent") or
+// contradictory, so the basis cannot be compared.
+export type MoneyUnit = "ACCOUNT" | "USER" | "SEAT" | "LOCATION" | "USAGE_UNIT" | "UNSTATED" | "UNKNOWN"
 export type MoneyQualifier = "EXACT" | "STARTING_AT" | "UP_TO" | "PROMOTIONAL" | "CONTACT_US" | "UNKNOWN"
 
 export interface MoneyFact {
@@ -23,22 +26,25 @@ export interface MoneyFact {
 
 const PERIOD_PATTERNS: ReadonlyArray<[BillingPeriod, RegExp]> = [
   ["MONTH", /\b(per\s+month|\/\s*mo\b|\/\s*month\b|\bmonthly\b|\bmo\b)/i],
-  ["YEAR", /\b(per\s+year|\/\s*yr\b|\/\s*year\b|\bannual(?:ly)?\b|\byr\b)/i],
+  ["YEAR", /\b(per\s+year|\/\s*yr\b|\/\s*year\b|\bannual(?:ly)?|yearly\b|\byr\b)/i],
   ["ONE_TIME", /\b(one-?time|once|lifetime|setup\s+fee)\b/i],
 ]
 
 const UNIT_PATTERNS: ReadonlyArray<[MoneyUnit, RegExp]> = [
   ["SEAT", /\bper\s+seat\b|\/\s*seat\b/i],
-  ["USER", /\bper\s+user\b|\/\s*user\b/i],
+  ["USER", /\bper\s+(?:active\s+)?user\b|\/\s*user\b|for\s+each\s+user\b/i],
   ["LOCATION", /\bper\s+location\b/i],
   ["USAGE_UNIT", /\bper\s+(?:1k|1000|million|gb|request|event)s?\b/i],
   ["ACCOUNT", /\bflat\b|\bper\s+account\b/i],
 ]
 
+// Any "per <noun>" / "each <noun>" that is not a billing period names a basis.
+const OTHER_UNIT_LANGUAGE = /\b(?:per|each|every)\s+(?!month\b|year\b|annum\b|mo\b|yr\b)[a-z]+|\/\s*(?!mo\b|month\b|yr\b|year\b)[a-z]+/i
+
 const QUALIFIER_PATTERNS: ReadonlyArray<[MoneyQualifier, RegExp]> = [
-  ["STARTING_AT", /\b(starting\s+at|from|as\s+low\s+as)\b/i],
+  ["STARTING_AT", /\b(start(?:s|ing)?\s+at|begins?\s+at|from|as\s+low\s+as)\b/i],
   ["UP_TO", /\bup\s+to\b/i],
-  ["PROMOTIONAL", /\b(promo(?:tion(?:al)?)?|introductory|first\s+\d+\s+months?|discounted|sale)\b/i],
+  ["PROMOTIONAL", /\b(promo(?:tion(?:al)?)?|introductory|first\s+\d+\s+months?|discounted|sale|deal|black\s+friday)\b/i],
   ["CONTACT_US", /\b(contact\s+us|custom|talk\s+to\s+sales)\b/i],
 ]
 
@@ -47,33 +53,61 @@ const firstMatch = <T>(patterns: ReadonlyArray<[T, RegExp]>, text: string, fallb
   return fallback
 }
 
-// A money core must carry an explicit currency (symbol or ISO code); a bare
-// number is not a price and yields no fact.
-const MONEY_CORE = /(?:[A-Z]{3}\s+)?[$€£¥]\s*-?\d[\d,]*(?:\.\d+)?(?:\s*[A-Z]{3})?|-?\d[\d,]*(?:\.\d+)?\s*[A-Z]{3}/
+// Currency-led, bounded digit groups avoid searching an unbounded digit suffix.
+export const ASSAY_MAX_SPAN = 2000
+export const ASSAY_MAX_TEXT = 1_000_000
+const ISO = "USD|EUR|GBP|JPY|CAD|AUD|NZD|CHF|CNY|INR|SGD|HKD"
+const NUMBER = "(?:\\d{1,3}(?:,\\d{3})+|\\d{1,12})(?:\\.\\d{1,2})?"
+// A number ends where no digit, decimal/grouping continuation, or magnitude
+// suffix follows; a sentence-final period is not a continuation.
+const TAIL = "(?!\\d|[.,]\\d|\\s?[kKmMbB]\\b)"
+const MONEY_CORE = new RegExp(`(?<![\\w$€£¥.,])(?:([$€£¥])\\s?(${NUMBER})${TAIL}|\\b(${ISO})\\s+(${NUMBER})${TAIL}|(${NUMBER})${TAIL}\\s+(${ISO})\\b)`)
+export const priceMentionCount = (s: string): number =>
+  s.length > ASSAY_MAX_SPAN ? 0 : (s.match(new RegExp(`[$€£¥]|\\b(?:${ISO})\\b`, "g"))?.length ?? 0)
 
-/** Parse a price mention inside free text into a MoneyFact; null when none. */
+/** Parse only unambiguous currency syntax; qualifiers cover the whole span. */
 export const parseMoneyFact = (s: string): MoneyFact | null => {
+  if (s.length > ASSAY_MAX_SPAN) return null
   const m = MONEY_CORE.exec(s)
   if (!m) return null
-  const core = m[0]
-  // Qualifier/period/unit signals live around the mention, not in it.
-  const start = Math.max(0, (m.index ?? 0) - 48)
-  const context = s.slice(start, (m.index ?? 0) + core.length + 48)
-  const base = parseMoney(core.trim())
-  if (base === null || base.currency === null) return null
+  const symbolCurrency: Record<string, string> = { $: "USD", "€": "EUR", "£": "GBP", "¥": "JPY" }
+  const currency = m[1] ? symbolCurrency[m[1]]! : (m[3] ?? m[6])!
+  const amount = Number((m[2] ?? m[4] ?? m[5])!.replaceAll(",", ""))
+  const amountMinor = Math.round(amount * (currency === "JPY" ? 1 : 100))
+  if (!Number.isSafeInteger(amountMinor)) return null
+  const periods = PERIOD_PATTERNS.filter(([, re]) => re.test(s))
+  const units = UNIT_PATTERNS.filter(([, re]) => re.test(s))
+  const qualifiers = QUALIFIER_PATTERNS.filter(([, re]) => re.test(s))
   return {
-    amountMinor: base.amountMinor,
-    currency: base.currency,
-    billingPeriod: firstMatch(PERIOD_PATTERNS, context, "UNKNOWN"),
-    unit: firstMatch(UNIT_PATTERNS, context, "UNKNOWN"),
-    qualifier: firstMatch(QUALIFIER_PATTERNS, context, "EXACT"),
+    amountMinor, currency,
+    billingPeriod: periods.length === 1 ? periods[0]![0] : "UNKNOWN",
+    unit: units.length === 1 ? units[0]![0] : units.length === 0 && !OTHER_UNIT_LANGUAGE.test(s) ? "UNSTATED" : "UNKNOWN",
+    qualifier: /%\s*off/i.test(s) ? "PROMOTIONAL" : qualifiers.length > 1 ? "UNKNOWN" : firstMatch(QUALIFIER_PATTERNS, s, "EXACT"),
   }
+}
+
+const SYMBOL_FOR: Record<string, string> = { USD: "$", EUR: "€", GBP: "£", JPY: "¥" }
+
+/** Narrow textual variants of one disputed amount (spec section 17). */
+export const moneyVariants = (money: { readonly amountMinor: number; readonly currency: string }): string[] => {
+  const value = money.amountMinor / (money.currency === "JPY" ? 1 : 100)
+  const amount = Number.isInteger(value) ? String(value) : value.toFixed(2)
+  const symbol = SYMBOL_FOR[money.currency]
+  return symbol ? [`${symbol}${amount}`, `${amount}/mo`, `${symbol}${amount}/month`, `${symbol}${amount} per month`] : [`${amount} ${money.currency}`]
+}
+
+/** Index of a whole-amount occurrence: "$49" never matches "$149",
+ * "$49,000", "$49.50" or "$49k", but does match a sentence-final "$49.". */
+export const findMoneyVariant = (text: string, variant: string): number => {
+  const literal = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return new RegExp(`(?<![\\w.,])${literal}${TAIL}`).exec(text.slice(0, ASSAY_MAX_TEXT))?.index ?? -1
 }
 
 export type ClaimComparison = "MATCHES" | "CONTRADICTS" | "NOT_MENTIONED" | "UNCLEAR"
 
-/** Units compare unless both sides disclose different ones explicitly. */
-const unitsCompatible = (a: MoneyUnit, b: MoneyUnit): boolean => a === b || a === "UNKNOWN" || b === "UNKNOWN"
+// Comparable only when both sides disclose the identical basis, or both say
+// nothing about a unit; "per agent" (UNKNOWN) never compares with anything.
+const unitsCompatible = (a: MoneyUnit, b: MoneyUnit): boolean => a !== "UNKNOWN" && a === b
 
 /**
  * Compare one answer sample against a confirmed MoneyFact.
@@ -82,17 +116,18 @@ const unitsCompatible = (a: MoneyUnit, b: MoneyUnit): boolean => a === b || a ==
  * definite same-basis disagreement.
  */
 export const compareMoneyClaim = (fact: MoneyFact, sampleAnswer: string): ClaimComparison => {
+  if (sampleAnswer.length > ASSAY_MAX_SPAN) return "UNCLEAR"
   const seen = parseMoneyFact(sampleAnswer)
   if (seen === null) return "NOT_MENTIONED"
-  if (seen.currency !== fact.currency) return "UNCLEAR"
+  if (seen.currency !== fact.currency || fact.billingPeriod === "UNKNOWN" || seen.billingPeriod === "UNKNOWN" || fact.qualifier === "UNKNOWN" || seen.qualifier === "UNKNOWN") return "UNCLEAR"
   if (seen.amountMinor === fact.amountMinor) {
     return fact.billingPeriod === seen.billingPeriod && unitsCompatible(fact.unit, seen.unit) && fact.qualifier === seen.qualifier
       ? "MATCHES"
       : "UNCLEAR"
   }
   // Different numbers contradict only on the same disclosed basis: equal
-  // periods (both undisclosed counts as the same undisclosed basis),
-  // compatible units, and the same non-promotional qualifier.
+  // periods, compatible units, and the same non-promotional qualifier.
+  // Undisclosed or conflicting periods were rejected above.
   if (
     fact.billingPeriod === seen.billingPeriod &&
     unitsCompatible(fact.unit, seen.unit) &&
@@ -115,7 +150,9 @@ export const confirmThreshold = (contradictCount: number, sampleCount: number): 
   // no verdict may be constructed for it. Callers create a finding row only
   // when contradictCount >= 1; this throws rather than label 0/5 ANECDOTAL.
   if (contradictCount === 0) throw new Error("confirmThreshold: no contradictions produce no finding")
-  if (contradictCount >= 3) return "CONFIRMED"
-  if (contradictCount === 2) return "OBSERVED_INTERMITTENT"
+  // Preserve the N=5 rule while scaling to the successful denominator.
+  // A single answer cannot establish repeated evidence, even after failures.
+  if (contradictCount >= 3 && contradictCount / sampleCount >= 0.6) return "CONFIRMED"
+  if (contradictCount >= 2 && contradictCount / sampleCount >= 0.4) return "OBSERVED_INTERMITTENT"
   return "ANECDOTAL"
 }

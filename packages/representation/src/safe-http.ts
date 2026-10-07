@@ -21,6 +21,9 @@ export interface SafeFetchLimits {
   readonly maxRedirects: number
   readonly maxBytes: number
   readonly acceptedContentTypes: ReadonlyArray<string> | null
+  /** With acceptedContentTypes set, a response without Content-Type is
+   * rejected unless the caller explicitly opts in (robots.txt pass-through). */
+  readonly allowMissingContentType?: boolean
 }
 
 export const DEFAULT_SAFE_LIMITS: SafeFetchLimits = {
@@ -191,28 +194,19 @@ const ipv4InCidr = (ip: string, base: string, bits: number): boolean => {
 }
 
 export const isForbiddenIp = (ip: string): boolean => {
-  const v = ip.trim().toLowerCase()
-  if (ipv4Parts(v) !== null) {
-    if (v === "0.0.0.0") return true
-    if (v.startsWith("127.")) return true
-    if (ipv4InCidr(v, "10.0.0.0", 8)) return true
-    if (ipv4InCidr(v, "172.16.0.0", 12)) return true
-    if (ipv4InCidr(v, "192.168.0.0", 16)) return true
-    if (ipv4InCidr(v, "169.254.0.0", 16)) return true
-    if (ipv4InCidr(v, "224.0.0.0", 4)) return true
-    if (v === "100.100.100.200") return true
-    return false
-  }
-  const low = v.replace(/^\[(.*)\]$/, "$1")
-  if (low === "::1" || low === "::") return true
-  if (low === "::ffff:127.0.0.1") return true
-  if (low.startsWith("fe80:") || low.startsWith("fe90:") || low.startsWith("fea") || low.startsWith("feb:")) return true
-  if (low.startsWith("fc") || low.startsWith("fd")) return true
-  if (low.startsWith("ff")) return true
-  if (low.startsWith("::ffff:")) {
-    const embedded = low.slice("::ffff:".length)
-    if (ipv4Parts(embedded) !== null) return isForbiddenIp(embedded)
-  }
+  const v = ip.trim().toLowerCase().replace(/^\[(.*)\]$/, "$1")
+  if (isIP(v) === 4) return [
+    ["0.0.0.0", 8], ["10.0.0.0", 8], ["127.0.0.0", 8], ["172.16.0.0", 12],
+    ["192.168.0.0", 16], ["169.254.0.0", 16], ["100.64.0.0", 10],
+    ["198.18.0.0", 15], ["224.0.0.0", 4], ["240.0.0.0", 4],
+  ].some(([base, bits]) => ipv4InCidr(v, String(base), Number(bits)))
+  if (isIP(v) !== 6) return true
+  // Only native global unicast is eligible. This fails closed for all IPv4
+  // compatible/mapped/NAT64 forms, including hex and dotted embeddings.
+  const first = Number.parseInt(v.split(":")[0]!, 16)
+  if (!Number.isFinite(first) || first < 0x2000 || first > 0x3fff) return true
+  // 6to4 and Teredo can tunnel forbidden IPv4 endpoints.
+  if (first === 0x2002 || /^2001:(?:0{1,4})?:/i.test(v)) return true
   return false
 }
 
@@ -504,7 +498,7 @@ export const safeFetch = async (rawUrl: string, options: SafeFetchOptions = {}):
           contentType,
         }
       }
-      if (limits.acceptedContentTypes !== null && contentType !== null && !limits.acceptedContentTypes.some((a) => contentType === a)) {
+      if (limits.acceptedContentTypes !== null && (contentType === null ? limits.allowMissingContentType !== true : !limits.acceptedContentTypes.some((a) => contentType === a))) {
         const completedAt = now()
         return {
           requestedUrl,

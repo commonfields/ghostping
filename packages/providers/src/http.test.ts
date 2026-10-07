@@ -7,15 +7,19 @@ import { NineRouterProvider, NineRouterProviderLive, sha256 } from "./index.js"
 let server: Server
 let port: number
 let closed = false
+let onClosed: (() => void) | null = null
 let requests = 0
 let body: string | null = null
 const response = ' {"choices":[{"message":{"content":"answer"}}],"model":"actual"}\n'
 beforeAll(async () => {
   server = createServer((req, res) => {
     requests++
+    // Observe closure from the moment the request arrives, not after its
+    // body ends, so a fast client timeout cannot slip past the listener.
+    if (req.url?.startsWith("/timeout")) res.on("close", () => { closed = true; onClosed?.() })
     req.on("data", chunk => { body = (body ?? "") + chunk.toString() })
     req.on("end", () => {
-      if (req.url?.startsWith("/timeout")) { res.on("close", () => { closed = true }); return }
+      if (req.url?.startsWith("/timeout")) return
       if (req.url?.startsWith("/redirect")) { res.writeHead(302, { location: "/success/chat/completions" }); res.end(); return }
       if (req.url?.startsWith("/oversize")) { res.write("x".repeat(100)); res.end("x".repeat(100)); return }
       res.end(response)
@@ -49,9 +53,13 @@ describe("scoped Effect Node HTTP transport", () => {
     expect(r._tag === "Left" && r.left._tag).toBe("ProviderMalformed")
   })
   it("timeout closes the underlying socket", async () => {
-    const r = await observe("timeout", 2048, 30)
+    // The server never answers; a 300ms budget lets the request reach it
+    // even on a loaded machine. Closure is awaited as an event (bounded),
+    // not assumed after a fixed sleep.
+    const socketClosed = new Promise<void>(resolve => { onClosed = resolve; if (closed) resolve() })
+    const r = await observe("timeout", 2048, 300)
     expect(r._tag === "Left" && r.left._tag).toBe("ProviderTimeout")
-    await new Promise(resolve => setTimeout(resolve, 30))
+    await Promise.race([socketClosed, new Promise(resolve => setTimeout(resolve, 5000))])
     expect(closed).toBe(true)
   })
 })

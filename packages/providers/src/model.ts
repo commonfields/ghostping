@@ -2,6 +2,8 @@ import { Context, Data, Effect, Redacted, Schema } from "effect"
 import { createHash } from "node:crypto"
 export const ProviderRequest = Schema.Struct({
   runId: Schema.String.pipe(Schema.minLength(1)), provider: Schema.String.pipe(Schema.minLength(1)),
+  retrievalMode: Schema.optional(Schema.Literal("NONE", "WEB_SEARCH", "PROVIDER_GROUNDING", "MANUAL_CAPTURE")),
+  sampleNumber: Schema.optional(Schema.Int),
   requestedModel: Schema.NullOr(Schema.String), prompt: Schema.String.pipe(Schema.minLength(1)),
 })
 export type ProviderRequest = typeof ProviderRequest.Type
@@ -21,7 +23,10 @@ export interface ProviderObservation extends RawProviderEvidence {
   readonly observedModel: string | null
   readonly collectedAt: string
   readonly answerText: string
-  readonly retrievalMode: "unknown" | "grounded" | "parametric"
+  readonly retrievalMode: "unknown" | "grounded" | "parametric" | "NONE" | "WEB_SEARCH" | "PROVIDER_GROUNDING" | "MANUAL_CAPTURE"
+  readonly modelVersion?: string | null
+  readonly retrievalTool?: string | null
+  readonly requestParameters?: unknown
   readonly citations: ReadonlyArray<typeof Citation.Type>
   readonly rawResponse: unknown
   readonly providerMetadata: unknown

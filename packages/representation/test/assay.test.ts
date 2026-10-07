@@ -35,11 +35,11 @@ describe("parseMoneyFact", () => {
 
 describe("compareMoneyClaim", () => {
   it("MATCHES the same disclosed basis", () => {
-    expect(compareMoneyClaim(FACT, "It's $79 per month.")).toBe("MATCHES")
+    expect(compareMoneyClaim(FACT, "It's $79 flat per month.")).toBe("MATCHES")
   })
 
   it("CONTRADICTS only on the same disclosed basis", () => {
-    expect(compareMoneyClaim(FACT, "It costs $49 per month.")).toBe("CONTRADICTS")
+    expect(compareMoneyClaim(FACT, "It costs $49 flat per month.")).toBe("CONTRADICTS")
   })
 
   it("NOT_MENTIONED when the sample states no price", () => {
@@ -67,6 +67,13 @@ describe("compareMoneyClaim", () => {
     expect(compareMoneyClaim({ ...FACT, billingPeriod: "UNKNOWN" }, "It costs $79 per month.")).toBe("UNCLEAR")
   })
 
+  it("UNCLEAR when a specific unit is disclosed on only one side", () => {
+    for (const unit of ["SEAT", "USER", "LOCATION", "USAGE_UNIT"] as const) {
+      expect(compareMoneyClaim({ ...FACT, unit }, "It costs $49 flat per month.")).toBe("UNCLEAR")
+    }
+    expect(compareMoneyClaim({ ...FACT, unit: "UNKNOWN" }, "It costs $49 per month per seat.")).toBe("UNCLEAR")
+  })
+
   it("UNCLEAR on explicit per-seat vs flat mismatch", () => {
     const seatFact: MoneyFact = { ...FACT, unit: "SEAT" }
     expect(compareMoneyClaim(seatFact, "It costs $49 flat per month.")).toBe("UNCLEAR")
@@ -80,6 +87,15 @@ describe("confirmThreshold", () => {
     for (const c of [3, 4, 5]) expect(confirmThreshold(c, 5)).toBe("CONFIRMED")
   })
 
+  it("scales by successful samples without confirming a single answer", () => {
+    expect(confirmThreshold(4, 4)).toBe("CONFIRMED")
+    expect(confirmThreshold(1, 1)).toBe("ANECDOTAL")
+    expect(confirmThreshold(2, 3)).toBe("OBSERVED_INTERMITTENT")
+    expect(confirmThreshold(3, 20)).toBe("ANECDOTAL")
+    expect(confirmThreshold(8, 20)).toBe("OBSERVED_INTERMITTENT")
+    expect(confirmThreshold(12, 20)).toBe("CONFIRMED")
+  })
+
   it("refuses to construct a verdict from zero contradictions", () => {
     expect(() => confirmThreshold(0, 5)).toThrow(/no finding/)
   })
@@ -88,5 +104,24 @@ describe("confirmThreshold", () => {
     for (const [c, n] of [[-1, 5], [6, 5], [2, 0], [1.5, 5]] as const) {
       expect(() => confirmThreshold(c, n)).toThrow(/invalid counts/)
     }
+  })
+})
+
+describe("unit basis: unstated vs stated (natural answers must stay comparable)", () => {
+  const fact = parseMoneyFact("Pro costs $79/month")!
+  it("a page price with no unit language is UNSTATED", () => {
+    expect(fact.unit).toBe("UNSTATED")
+    expect(parseMoneyFact("$15 per agent per month")!.unit).toBe("UNKNOWN")
+    expect(parseMoneyFact("$10 per month for each user")!.unit).toBe("USER")
+  })
+  it("plain monthly answers contradict or match without a 'flat' keyword", () => {
+    expect(compareMoneyClaim(fact, "Acme's Pro plan costs $49/month.")).toBe("CONTRADICTS")
+    expect(compareMoneyClaim(fact, "Acme's Pro plan costs $49 per month.")).toBe("CONTRADICTS")
+    expect(compareMoneyClaim(fact, "Acme's Pro plan costs $79/month.")).toBe("MATCHES")
+  })
+  it("any stated or unrecognized basis on only one side stays UNCLEAR", () => {
+    for (const a of ["$49 per user per month", "$15 per agent per month", "$49 per seat per month", "$49/month per location"])
+      expect(compareMoneyClaim(fact, a)).toBe("UNCLEAR")
+    expect(compareMoneyClaim(parseMoneyFact("$79 per seat per month")!, "$49/month")).toBe("UNCLEAR")
   })
 })

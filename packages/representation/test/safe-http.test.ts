@@ -112,3 +112,25 @@ describe("redirect target scope", () => {
     expect(calls).toEqual(["https://example.com/docs/a", "https://other.example/x"])
   })
 })
+
+describe("assay SSRF round 2 regressions", () => {
+  it.each(["100.64.0.1", "100.127.255.254", "198.18.0.1", "198.19.255.254", "0.1.2.3", "255.255.255.255", "::7f00:1", "::127.0.0.1", "::ffff:7f00:1", "64:ff9b::a9fe:a9fe", "2002:7f00:1::", "2001::1", "2001:0:4136:e378::1", "0.0.0.0", "240.0.0.1"])("rejects forbidden DNS result %s before transport", async ip => {
+    let calls = 0
+    const ev = await safeFetch("https://example.com/pricing", { transport: {
+      lookup: async () => [ip], fetch: async () => { calls++; throw new Error("must not fetch") },
+    } })
+    expect(ev.failure).toBe("SECURITY_REJECTED"); expect(calls).toBe(0)
+  })
+  it("rejects missing Content-Type when an allowlist is requested", async () => {
+    const ev = await safeFetch("https://example.com/pricing", { transport: stubTransport({ "/pricing": { status: 200, headers: {}, body: "Acme $49 per month" } }, []), limits: { acceptedContentTypes: ["text/html"] } })
+    expect(ev.failure).toBe("UNSUPPORTED_CONTENT_TYPE")
+  })
+  it("an explicit opt-in keeps robots-style missing Content-Type pass-through", async () => {
+    const ev = await safeFetch("https://example.com/robots.txt", { transport: stubTransport({ "/robots.txt": { status: 200, headers: {}, body: "User-agent: *" } }, []), limits: { acceptedContentTypes: ["text/plain"], allowMissingContentType: true } })
+    expect(ev.failure).toBeNull()
+  })
+  it("global unicast IPv6 remains fetchable", async () => {
+    const ev = await safeFetch("https://example.com/pricing", { transport: { lookup: async () => ["2606:4700::1111"], fetch: async () => ({ status: 200, headers: { "content-type": "text/html" }, body: new TextEncoder().encode("ok"), peerIp: "2606:4700::1111" }) } })
+    expect(ev.failure).toBeNull()
+  })
+})
