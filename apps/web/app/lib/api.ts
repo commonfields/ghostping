@@ -576,6 +576,9 @@ export type FixProposal = {
   classification: string
   requiresApproval: boolean
   status: string
+  /** Exact prepared change an approval binds to (null until prepared). */
+  patchSha256: string | null
+  approvedPatchSha256: string | null
 }
 
 export type SiteMutation = {
@@ -589,6 +592,8 @@ export type SiteMutation = {
   state: string
   detail: string | null
   createdAt: string
+  targetPath: string | null
+  failureCode: string | null
 }
 
 export type SiteVerification = {
@@ -639,6 +644,10 @@ export const Search = {
       mutations: SiteMutation[]
       verifications: SiteVerification[]
     }>(Routes.getSiteFinding(businessId, siteId, findingId).path),
+  prepareFix: (businessId: string, proposalId: string) => {
+    const route = Routes.prepareFix(businessId, proposalId)
+    return api<{ proposal: FixProposal; patch: string; approvalInvalidated: boolean }>(route.path, { method: route.method, body: JSON.stringify({}) })
+  },
   approveFix: (businessId: string, proposalId: string, approved: boolean) => {
     const route = Routes.approveFix(businessId, proposalId)
     return api<{ proposal: FixProposal }>(route.path, { method: route.method, body: JSON.stringify({ approved }) })

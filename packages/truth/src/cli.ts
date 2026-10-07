@@ -5,6 +5,7 @@
 
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
+import { readContainedFile, writeContainedFile } from "@openrecord/fs-containment"
 import { applyArtifact, type ApplyIo } from "./apply.js"
 import { compileVerificationBindings, syncVerificationBindings } from "./bridge.js"
 import { compileProjection } from "./compiler.js"
@@ -121,16 +122,12 @@ const main = async (): Promise<void> => {
 }
 
 const readLock = async (root: string): Promise<ProjectionLock> => {
-  let raw: string
-  try {
-    raw = await readFile(resolve(root, ".openrecord/projections.lock.json"), "utf8")
-  } catch (e) {
-    // Missing lock means a fresh root: nothing is managed yet.
-    // Any other read failure leaves lock state unknown, so fail closed.
-    if ((e as { code?: string }).code === "ENOENT") return EMPTY_LOCK
-    throw e
-  }
-  const parsed: unknown = JSON.parse(raw)
+  // Missing lock means a fresh root: nothing is managed yet. Any other read
+  // failure (including a containment rejection) leaves lock state unknown,
+  // so it throws and the apply fails closed.
+  const lock = await readContainedFile(root, ".openrecord/projections.lock.json")
+  if (lock === null) return EMPTY_LOCK
+  const parsed: unknown = JSON.parse(new TextDecoder().decode(lock.bytes))
   if (parsed !== null && typeof parsed === "object" && "projections" in parsed) {
     return parsed as ProjectionLock
   }
@@ -139,24 +136,14 @@ const readLock = async (root: string): Promise<ProjectionLock> => {
 
 const fileIo = (root: string): ApplyIo => ({
   root,
-  read: async (rel) => {
-    try {
-      return new Uint8Array(await readFile(resolve(root, rel)))
-    } catch (e) {
-      if ((e as { code?: string }).code === "ENOENT") return null
-      throw e
-    }
-  },
+  read: async (rel) => (await readContainedFile(root, rel))?.bytes ?? null,
   readLock: () => readLock(root),
   writeLock: async (lock) => {
-    const { mkdir, writeFile } = await import("node:fs/promises")
-    await mkdir(resolve(root, ".openrecord"), { recursive: true })
-    await writeFile(resolve(root, ".openrecord/projections.lock.json"), `${JSON.stringify(lock, null, 2)}\n`)
+    await writeContainedFile(root, ".openrecord/projections.lock.json", `${JSON.stringify(lock, null, 2)}\n`, { createParents: true })
   },
   appendReceipt: async (receipt) => {
-    const { mkdir, writeFile } = await import("node:fs/promises")
-    await mkdir(resolve(root, ".openrecord/receipts"), { recursive: true })
-    await writeFile(resolve(root, `.openrecord/receipts/${receipt.id}.json`), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" })
+    // Receipts are append-only: the file must not exist yet.
+    await writeContainedFile(root, `.openrecord/receipts/${receipt.id}.json`, `${JSON.stringify(receipt, null, 2)}\n`, { createParents: true, expectedBeforeSha256: null })
   },
 })
 

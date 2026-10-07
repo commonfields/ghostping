@@ -153,8 +153,13 @@ suite("site inspection closed loop", () => {
       return yield* (yield* SiteFindingRepository).setStatus(business, findingId, to, "test", "test advance", null)
     }).pipe(Effect.provide(Repos)))
 
+  // The business created by the first test; later tests stay inside it so
+  // findings written concurrently by other suites are never picked up.
+  let loopBusiness = ""
+
   it("discovers the noindex page with exact evidence and proposes an approval-gated fix", async () => {
     const f = await setupSite()
+    loopBusiness = f.business
     expect(await runUntilDone(f.run)).toBe("SUCCEEDED")
     const run = (await pool.query("SELECT state, urls_inspected, urls_failed, findings_produced FROM site_inspection_runs WHERE id=$1", [f.run])).rows[0]
     expect(run.state).toBe("SUCCEEDED")
@@ -179,7 +184,8 @@ suite("site inspection closed loop", () => {
 
   it("reports VERIFIED_NOT_FIXED when production still shows the problem", async () => {
     const rows = (await pool.query(
-      `SELECT f.id, f.business_id FROM site_findings f JOIN site_inspection_runs r ON r.id = f.run_id WHERE f.finding_kind='BLOCKED_BY_META' ORDER BY f.detected_at DESC LIMIT 1`,
+      `SELECT f.id, f.business_id FROM site_findings f JOIN site_inspection_runs r ON r.id = f.run_id WHERE f.finding_kind='BLOCKED_BY_META' AND f.business_id = $1 ORDER BY f.detected_at DESC LIMIT 1`,
+      [loopBusiness],
     )).rows
     const target = rows[0] as { id: string; business_id: string }
     // Approve and apply the fix in the repo, but production still serves noindex.
@@ -199,7 +205,8 @@ suite("site inspection closed loop", () => {
     // Deploy the fix: production no longer serves noindex.
     bodies.set("/services/plumbing", { status: 200, contentType: "text/html", body: PLUMBING_FIXED })
     const rows = (await pool.query(
-      `SELECT id, business_id FROM site_findings WHERE finding_kind='BLOCKED_BY_META' ORDER BY detected_at DESC LIMIT 1`,
+      `SELECT id, business_id FROM site_findings WHERE finding_kind='BLOCKED_BY_META' AND business_id = $1 ORDER BY detected_at DESC LIMIT 1`,
+      [loopBusiness],
     )).rows
     const target = rows[0] as { id: string; business_id: string }
     for (const to of ["OPEN", "AWAITING_APPROVAL", "APPROVED", "FIX_IN_PROGRESS", "FIX_APPLIED"]) {

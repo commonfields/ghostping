@@ -21,6 +21,7 @@
     "@openrecord/db": "workspace:*",
     "@openrecord/discovery": "workspace:*",
     "@openrecord/domain": "workspace:*",
+    "@openrecord/fs-containment": "workspace:*",
     "@openrecord/protocol": "workspace:*",
     "@openrecord/representation": "workspace:*",
     "@openrecord/site-operator": "workspace:*",

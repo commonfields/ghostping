@@ -16,6 +16,10 @@ import { Label } from "@/components/ui/label"
 
 const label = (kind: string) => findingKindLabels[kind] ?? kind
 
+// Fix kinds with a deterministic source transform: approval must bind to
+// the exact prepared change (mirrors SOURCE_TRANSFORMS in site-operator).
+const AUTO_APPLY_KINDS = new Set(["REMOVE_NOINDEX_META"])
+
 export function SiteFindingPage() {
   const { id = "", siteId = "", findingId = "" } = useParams()
   const detail = useApi(`site-finding:${findingId}`, () => Search.getFinding(id, siteId, findingId))
@@ -29,6 +33,19 @@ export function SiteFindingPage() {
   const verifications = detail.data?.verifications ?? []
   const activeProposal: FixProposal | null = proposals.find((p) => p.status === "APPROVED" || p.status === "PROPOSED") ?? proposals[0] ?? null
   const latestVerification: SiteVerification | null = verifications[verifications.length - 1] ?? null
+
+  const automated = activeProposal !== null && activeProposal.classification !== "MANUAL_ONLY" && AUTO_APPLY_KINDS.has(activeProposal.fixKind)
+  const prepared = activeProposal?.patchSha256 != null
+
+  const prepare = () => {
+    if (!activeProposal || working) return
+    setWorking("prepare")
+    setError(null)
+    Search.prepareFix(id, activeProposal.id)
+      .then(() => detail.reload())
+      .catch((err: unknown) => setError(errorMessage(err)))
+      .finally(() => setWorking(null))
+  }
 
   const approve = (approved: boolean) => {
     if (!activeProposal || working) return
@@ -146,7 +163,9 @@ export function SiteFindingPage() {
                   ) : null}
                   {activeProposal.patch ? (
                     <div>
-                      <p className="text-xs font-medium text-muted-foreground">Diff</p>
+                      <p className="text-xs font-medium text-muted-foreground">
+                        {prepared ? `Exact change to ${activeProposal.filePath ?? "the source file"} (approval covers only this diff)` : "Diff"}
+                      </p>
                       <pre className="mt-1 overflow-x-auto rounded-lg bg-muted p-3 font-mono text-xs">{activeProposal.patch}</pre>
                     </div>
                   ) : null}
@@ -157,9 +176,14 @@ export function SiteFindingPage() {
                     </div>
                   ) : null}
                   <div className="flex flex-wrap gap-2">
+                    {activeProposal.status === "PROPOSED" && automated ? (
+                      <Button variant={prepared ? "outline" : "default"} onClick={prepare} disabled={working !== null}>
+                        {prepared ? "Re-read source file" : "Prepare exact change"}
+                      </Button>
+                    ) : null}
                     {activeProposal.status === "PROPOSED" ? (
                       <>
-                        <Button onClick={() => approve(true)} disabled={working !== null}>Approve fix</Button>
+                        <Button onClick={() => approve(true)} disabled={working !== null || (automated && !prepared)}>Approve fix</Button>
                         <Button variant="outline" onClick={() => approve(false)} disabled={working !== null}>Reject</Button>
                       </>
                     ) : null}

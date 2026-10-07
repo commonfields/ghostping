@@ -102,15 +102,25 @@ API + worker running, a business created.
 2. Business > Search > Register website (`POST .../search/sites`
    `{ rootUrl }`). For a local checkout, store
    `repoRef: { rootDir, fileMap: { "<page-url>": "index.html" } }`
-   (test/demo only; production paths must sit under `SITE_OPERATOR_ROOTS`).
+   (`rootDir` must resolve inside `SITE_OPERATOR_ROOTS`; the OS temp dir is
+   accepted only under test or with `SITE_OPERATOR_ALLOW_TMPDIR=1` for a
+   local demo).
 3. Inspect site (`POST .../sites/:siteId/runs`). The worker discovers the
    URL via robots/sitemap, records the raw observation, and creates a
    `BLOCKED_BY_META` finding with the exact meta tag as evidence.
 4. Open the finding: problem, affected URL, observed evidence, why it
    matters, recommended fix, confidence, history.
-5. Review the proposed fix (before/after diff of the noindex removal).
-6. Approve (`POST .../fixes/:proposalId/approve { approved: true }`).
-7. Apply (`POST .../fixes/:proposalId/apply`): the file change is staged
+5. Prepare the exact change (`POST .../fixes/:proposalId/prepare`): reads
+   the mapped source file and stores its path, before/after sha256 and the
+   patch hash; the UI shows the exact file diff.
+6. Approve (`POST .../fixes/:proposalId/approve { approved: true }`): the
+   approval binds to that patch hash. Re-preparing a different change
+   returns the proposal to PROPOSED (approval invalidated).
+7. Apply (`POST .../fixes/:proposalId/apply`, optional `idempotencyKey`):
+   refuses with `PreconditionFailed` if the file changed since preparation,
+   `ApprovalInvalidated` if the change differs from the approved one, and
+   `MutationFailed` if the bytes read back differ; the same key returns the
+   original result. On success the file change is staged
    in the site checkout (local adapter writes it; git adapter stages it
    inside the existing checkout and names the branch). Hosted code never
    shells out: commit and open the PR with normal git tooling, then record
@@ -142,9 +152,15 @@ Covered by `site-inspection.integration.test.ts` (test 2).
 - Redirects to private destinations fail closed (`TARGET_BLOCKED`).
 - Crawl bounds: 50 URLs/run, 1MB/page, 5 redirects, same-origin +
   path-prefix scope, 2-minute wall clock.
-- Mutations are confined to the site's `repoRef.rootDir` under
-  `SITE_OPERATOR_ROOTS` (or the OS temp dir for tests); unknown source
-  mappings refuse to guess.
+- Every filesystem read/write goes through `@openrecord/fs-containment`
+  (`resolveContainedPath`: lexical rejection, realpath'd root, no symlink
+  or hardlink ever followed, containment re-proved immediately before an
+  atomic rename). `repoRef.rootDir` must resolve inside `SITE_OPERATOR_ROOTS`
+  (OS temp dir only under test or `SITE_OPERATOR_ALLOW_TMPDIR=1`); unknown
+  source mappings refuse to guess. An architecture test forbids fs imports
+  elsewhere.
+- Approval binds to exact bytes (target path + before/after sha256); apply
+  is idempotent per key and records failures (`site_mutations.failure_code`).
 - Account isolation preserved end to end (tenancy triggers + scoped
   queries); cross-account reads are 404. Negative tests included.
 

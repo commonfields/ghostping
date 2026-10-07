@@ -13,6 +13,7 @@
     "truth": "tsx src/cli.ts"
   },
   "dependencies": {
+    "@openrecord/fs-containment": "workspace:*",
     "@openrecord/db": "workspace:*",
     "@openrecord/representation": "workspace:*",
     "pg": "8.13.1",

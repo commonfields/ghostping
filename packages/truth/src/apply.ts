@@ -3,9 +3,15 @@
 // atomic replacement (temp sibling + flush + rename). Never partial bytes.
 // Receipts are append-only records of local writes — never publication.
 
-import { createHash, randomUUID } from "node:crypto"
-import { promises as fs } from "node:fs"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { createHash } from "node:crypto"
+import {
+  ContainmentError,
+  PreconditionFailed,
+  resolveContainedPath,
+  validateCandidate,
+  writeContainedFile,
+  type ContainmentCode,
+} from "@openrecord/fs-containment"
 import { MATERIALIZATION_RECEIPT_SCHEMA, TRUTH_COMPILER_VERSION } from "./manifest.js"
 import type { ProjectionArtifactV1, ProjectionSourceRefV1 } from "./compiler.js"
 import { planProjection, type PlanEntry, type ProjectionLock } from "./plan.js"
@@ -50,52 +56,36 @@ export interface ApplyIo {
   readonly appendReceipt: (receipt: MaterializationReceiptV1) => Promise<void>
 }
 
-/** Resolve a declared relative path to an absolute path inside root. */
-export const resolveInsideRoot = (root: string, rel: string): string => {
+const CONTAINMENT_TO_APPLY: Partial<Record<ContainmentCode, string>> = {
+  ABSOLUTE_PATH: "AbsoluteOutputPath",
+  SYMLINK: "SymlinkEscape",
+  HARDLINKED_FILE: "SymlinkEscape",
+  NOT_A_DIRECTORY: "NotADirectory",
+}
+
+const toApplyError = (e: unknown, rel: string): unknown => {
+  if (e instanceof ContainmentError) return new ApplyError(CONTAINMENT_TO_APPLY[e.code] ?? "UnsafeOutputPath", `${e.code}: ${rel}`)
+  if (e instanceof PreconditionFailed) return new ApplyError("ConcurrentModification", rel)
+  return e
+}
+
+/** Truth's output-path policy (reserved names) on top of the shared
+ * lexical containment rules. Returns the validated relative path. */
+export const resolveInsideRoot = (_root: string, rel: string): string => {
   if (rel.startsWith("/") || /^[A-Za-z]:[\\/]/.test(rel)) throw new ApplyError("AbsoluteOutputPath", rel)
-  const parts = rel.split("/")
-  if (parts.some((s) => s === ".." || s === "")) throw new ApplyError("UnsafeOutputPath", rel)
-  if (rel === ".openrecord" || rel.startsWith(".openrecord/") || rel.startsWith(".git/") || rel.includes("/.git/")) {
+  try {
+    validateCandidate(rel)
+  } catch (e) {
+    throw toApplyError(e, rel)
+  }
+  // Case- and normalization-insensitive: on APFS/NTFS `.OPENRECORD/x` and
+  // NFD spellings name the same directory as `.openrecord/x`.
+  const folded = rel.normalize("NFC").toLowerCase().split("/")
+  if (folded[0] === ".openrecord" || folded.includes(".git")) {
     throw new ApplyError("ReservedOutputPath", rel)
   }
-  const abs = resolve(root, rel)
-  const relBack = relative(resolve(root), abs)
-  if (relBack === "" || relBack.startsWith("..") || resolve(root, relBack) !== abs) {
-    throw new ApplyError("PathEscapesRoot", rel)
-  }
-  return abs
+  return rel
 }
-
-/** Walk every path component: reject symlinks, device files, missing parents
- * are created only as real directories. Resolved at actual write time. */
-export const assertNoSymlinkEscape = async (root: string, abs: string, lstat: (p: string) => Promise<{ isSymbolicLink(): boolean; isDirectory(): boolean; isFile(): boolean }>): Promise<void> => {
-  const rootAbs = resolve(root)
-  let cursor = rootAbs
-  const rest = relative(rootAbs, abs).split(sep)
-  for (const seg of rest.slice(0, -1)) {
-    cursor = join(cursor, seg)
-    let st
-    try {
-      st = await lstat(cursor)
-    } catch (e) {
-      if ((e as { code?: string }).code === "ENOENT") return // rest does not exist yet; nothing to escape through
-      throw e
-    }
-    if (st.isSymbolicLink()) throw new ApplyError("SymlinkEscape", cursor)
-    if (!st.isDirectory()) throw new ApplyError("NotADirectory", cursor)
-  }
-  try {
-    const target = await lstat(abs)
-    if (target.isSymbolicLink()) throw new ApplyError("SymlinkEscape", abs)
-  } catch (e) {
-    if ((e as { code?: string }).code !== "ENOENT") throw e
-  }
-}
-
-const defaultLstat = async (p: string) => {
-  const st = await fs.lstat(p)
-  return { isSymbolicLink: () => st.isSymbolicLink(), isDirectory: () => st.isDirectory(), isFile: () => st.isFile() }
-};
 
 export const applyArtifact = async (
   artifact: ProjectionArtifactV1,
@@ -106,7 +96,7 @@ export const applyArtifact = async (
     now: string
     newId: () => string
   },
-  io: ApplyIo & { lstat?: typeof defaultLstat; writeFileAtomic?: (abs: string, bytes: Uint8Array) => Promise<void> },
+  io: ApplyIo,
 ): Promise<{ entry: PlanEntry; receipt: MaterializationReceiptV1 | null }> => {
   // Lock state must be known before planning: an unreadable lock fails the
   // apply instead of proceeding as if nothing were managed.
@@ -118,8 +108,10 @@ export const applyArtifact = async (
   }
   // Filesystem safety first: even a CONFLICT outcome must never launder a
   // symlink/traversal probe into a managed write path.
-  const abs = resolveInsideRoot(io.root, artifact.relative_output_path)
-  await assertNoSymlinkEscape(io.root, abs, io.lstat ?? defaultLstat)
+  const rel = resolveInsideRoot(io.root, artifact.relative_output_path)
+  await resolveContainedPath(io.root, rel).catch((e: unknown) => {
+    throw toApplyError(e, rel)
+  })
   const entry = await planProjection(artifact, io, lock)
   if (entry.action === "CONFLICT" || entry.action === "STALE_MANAGED_ARTIFACT") return { entry, receipt: null }
   const bytes = new TextEncoder().encode(artifact.canonical_bytes)
@@ -146,33 +138,12 @@ export const applyArtifact = async (
     await io.appendReceipt(receipt)
     return { entry, receipt }
   }
-  // CREATE or UPDATE: atomic sibling write + rename; never partial content.
-  const writeAtomic =
-    io.writeFileAtomic ??
-    (async (path: string, data: Uint8Array) => {
-      await fs.mkdir(dirname(path), { recursive: true })
-      const tmp = `${path}.openrecord-tmp-${randomUUID()}`
-      const handle = await fs.open(tmp, "w")
-      try {
-        await handle.writeFile(data)
-        await handle.sync()
-        await handle.close()
-      } catch (e) {
-        try {
-          await handle.close()
-        } catch {
-          // ignore
-        }
-        try {
-          await fs.unlink(tmp)
-        } catch {
-          // ignore
-        }
-        throw e
-      }
-      await fs.rename(tmp, path)
-    })
-  await writeAtomic(abs, bytes)
+  // CREATE or UPDATE through the shared primitive: atomic sibling write +
+  // rename, containment re-proved and the planned digest re-checked
+  // immediately before the rename (a concurrent edit fails, never merges).
+  await writeContainedFile(io.root, rel, bytes, { expectedBeforeSha256: entry.existing_digest, createParents: true }).catch((e: unknown) => {
+    throw toApplyError(e, rel)
+  })
   const nextLock: ProjectionLock = {
     projections: { ...lock.projections, [artifact.projection_id]: { digest: afterDigest, compiler: TRUTH_COMPILER_VERSION } },
   }

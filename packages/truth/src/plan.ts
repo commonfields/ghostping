@@ -4,7 +4,6 @@
 // OpenRecord never overwrites a file it cannot prove it manages.
 
 import { createHash } from "node:crypto"
-import { readFile } from "node:fs/promises"
 import type { ProjectionArtifactV1, ProjectionSourceRefV1 } from "./compiler.js"
 
 export type PlanAction = "CREATE" | "UPDATE" | "UNCHANGED" | "CONFLICT" | "STALE_MANAGED_ARTIFACT"
@@ -79,12 +78,3 @@ export const planStale = (lock: ProjectionLock, manifestIds: ReadonlySet<string>
       source_refs: [],
       reason: "projection removed from manifest; explicit deletion required",
     }))
-
-export const readFileBytes = async (path: string): Promise<Uint8Array | null> => {
-  try {
-    return new Uint8Array(await readFile(path))
-  } catch (e) {
-    if ((e as { code?: string }).code === "ENOENT") return null
-    throw e
-  }
-}

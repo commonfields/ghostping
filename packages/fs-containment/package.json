@@ -1,5 +1,5 @@
 {
-  "name": "@openrecord/site-operator",
+  "name": "@openrecord/fs-containment",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -11,14 +11,9 @@
     "test": "vitest run",
     "build": "tsc -p tsconfig.json"
   },
-  "dependencies": {
-    "@openrecord/fs-containment": "workspace:*",
-    "@openrecord/representation": "workspace:*",
-    "cheerio": "1.0.0",
-    "effect": "3.22.2"
-  },
   "devDependencies": {
     "@types/node": "24.10.1",
+    "effect": "3.22.2",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
   },

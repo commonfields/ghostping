@@ -326,6 +326,13 @@ describe("plan and apply", () => {
     expect(() => resolveInsideRoot(root, "../evil.json")).toThrowError(/UnsafeOutputPath/)
     expect(() => resolveInsideRoot(root, "/abs/evil.json")).toThrowError(/AbsoluteOutputPath/)
     expect(() => resolveInsideRoot(root, ".git/hooks/x")).toThrowError(/ReservedOutputPath/)
+    // Case/normalization aliases name the same directories on APFS/NTFS.
+    for (const alias of [".OPENRECORD/projections.lock.json", ".OpenRecord/receipts/x.json", "docs/.GIT/config", "a/.Git/hooks/pre-commit"]) {
+      expect(() => resolveInsideRoot(root, alias), alias).toThrowError(/ReservedOutputPath/)
+    }
+    for (const bad of ["a\\..\\evil.json", "%2e%2e/evil.json", "a/\0.json", "./x.json"]) {
+      expect(() => resolveInsideRoot(root, bad), bad).toThrowError(/UnsafeOutputPath/)
+    }
     // Symlink escape rejected.
     const outside = mkdtempSync(join(tmpdir(), "truth-outside-"))
     writeFileSync(join(outside, "secret.txt"), "secret")
