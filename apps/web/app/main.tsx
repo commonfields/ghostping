@@ -12,6 +12,7 @@ import { WorkspaceProvider } from "@/lib/workspace"
 import { SignIn, SignUp } from "./routes/auth"
 import { Home } from "./routes/home"
 import { BusinessLayout, Overview } from "./routes/business"
+import { AssayPage } from "./routes/assay"
 import { ChecksPage } from "./routes/checks"
 import { DiscoveryPage } from "./routes/discovery"
 import { IssueDetailPage } from "./routes/issue"
@@ -49,6 +50,7 @@ function App() {
               <Route path="overview" element={<Overview />} />
               <Route path="truth" element={<TruthPage />} />
               <Route path="facts" element={<Navigate to="../truth" replace />} />
+              <Route path="assay" element={<AssayPage />} />
               <Route path="checks" element={<ChecksPage />} />
               <Route path="search" element={<SearchOverviewPage />} />
               <Route path="search/sites/:siteId/runs/:runId" element={<SiteRunPage />} />

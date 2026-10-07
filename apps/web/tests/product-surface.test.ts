@@ -9,12 +9,13 @@ import { issueStateMeta, representationStateMeta } from "../app/components/statu
 
 describe("navigation", () => {
   it("sidebar follows the operational workflow order", () => {
-    expect(workspaceNavOrder).toEqual(["overview", "search", "issues", "representations", "truth", "checks"])
+    expect(workspaceNavOrder).toEqual(["overview", "assay", "search", "issues", "representations", "truth", "checks"])
     const items = workspaceNav("/businesses/b1")
     expect(items.map((i) => i.id)).toEqual(workspaceNavOrder)
-    expect(items.map((i) => i.label)).toEqual(["Overview", "Search", "Issues", "Representations", "Truth", "Checks"])
+    expect(items.map((i) => i.label)).toEqual(["Overview", "Prospect assay", "Search", "Issues", "Representations", "Truth", "Checks"])
     expect(items.map((i) => i.path)).toEqual([
       "/businesses/b1/overview",
+      "/businesses/b1/assay",
       "/businesses/b1/search",
       "/businesses/b1/issues",
       "/businesses/b1/representations",

@@ -37,7 +37,7 @@ describe("discovery route", () => {
     const main = await readAppFile("main.tsx")
     expect(main).toContain('path="representations/discovery"')
     expect(main).toContain("DiscoveryPage")
-    expect(workspaceNavOrder).toEqual(["overview", "search", "issues", "representations", "truth", "checks"])
+    expect(workspaceNavOrder).toEqual(["overview", "assay", "search", "issues", "representations", "truth", "checks"])
     expect(workspaceNav("/businesses/b1").map((i) => i.id)).toEqual(workspaceNavOrder)
   })
 

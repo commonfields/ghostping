@@ -1,6 +1,6 @@
 // Typed API client shared with the backend contract (packages/contracts).
 // Most server state comes from these calls; ordinary React state covers UI-local interaction.
-import { Routes } from "@openrecord/contracts"
+import { AssayRoutes, type AssayQueue, type RegisterAssaySourceRequest, type RunAssayRequest, type ReviewAssayFactRequest, type ReviewAssayFindingRequest, Routes } from "@openrecord/contracts"
 export class ApiError extends Error {
   readonly status: number
   readonly tag: string
@@ -221,7 +221,7 @@ export const Checks = {
 export type ProviderInfo = { id: string; enabled: boolean; models: string[] }
 
 export const Providers = {
-  list: () => api<{ providers: ProviderInfo[] }>("/api/providers"),
+  list: () => api<{ providers: ProviderInfo[]; assaySyntheticEnabled: boolean }>("/api/providers"),
 }
 
 export const Packets = {
@@ -670,4 +670,16 @@ export const Search = {
     api<{ status: string; detail: string; properties: Array<{ propertyUri: string; status: string }>; source: string }>(
       Routes.gscStatus(businessId).path,
     ),
+}
+
+export const Assay = {
+  queue: (businessId: string) => api<AssayQueue>(AssayRoutes.queue(businessId)),
+  registerSource: (businessId: string, input: typeof RegisterAssaySourceRequest.Type) =>
+    api(AssayRoutes.sources(businessId), { method: "POST", body: JSON.stringify(input) }),
+  run: (businessId: string, input: typeof RunAssayRequest.Type) =>
+    api(AssayRoutes.groups(businessId), { method: "POST", body: JSON.stringify(input) }),
+  reviewFact: (businessId: string, factId: string, input: typeof ReviewAssayFactRequest.Type) =>
+    api(AssayRoutes.reviewFact(businessId, factId), { method: "POST", body: JSON.stringify(input) }),
+  reviewFinding: (businessId: string, findingId: string, input: typeof ReviewAssayFindingRequest.Type) =>
+    api(AssayRoutes.reviewFinding(businessId, findingId), { method: "POST", body: JSON.stringify(input) }),
 }
