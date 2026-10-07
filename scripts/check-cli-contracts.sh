@@ -4,13 +4,13 @@
 # real binary in an isolated HOME with no network and no API secrets.
 # Fails closed: any unexpected exit status fails the script.
 #
-# Usage: GHOSTPING_BIN=target/debug/openrecord bash scripts/check-cli-contracts.sh
+# Usage: OPENRECORD_BIN=target/debug/openrecord bash scripts/check-cli-contracts.sh
 # Run from the repo root.
 
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BIN="${GHOSTPING_BIN:-${REPO_ROOT}/target/debug/openrecord}"
+BIN="${OPENRECORD_BIN:-${REPO_ROOT}/target/debug/openrecord}"
 
 if [ ! -x "${BIN}" ]; then
     echo "FAIL: binary not executable at ${BIN} (build it first: cargo build --bin openrecord)"

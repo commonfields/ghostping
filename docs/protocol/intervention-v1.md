@@ -2,7 +2,7 @@
 
 An intervention records something an operator changed, or tried to change, after an issue was found. It records **chronology, not causality**. A later re-observation that differs never implies that the intervention caused the difference.
 
-## `ghostping/intervention-v1`
+## `openrecord/intervention-v1`
 
 | Field | Meaning |
 | --- | --- |

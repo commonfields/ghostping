@@ -26,7 +26,7 @@ What is OpenRecord? / problem solved? / another GEO tool? / guarantee ChatGPT ch
 - CONTROLLED: README.md, docs/, GitHub repo (public, description set, no homepage).
 - PARTIALLY_CONTROLLED: github.com/urbiens/openrecord (platform chrome + robots policy not ours).
 - EXTERNAL: model outputs, third-party pages.
-- Not real: website/ (placeholder links), ghostping.dev (nonexistent).
+- Not real: website/ (placeholder links), openrecord.dev (nonexistent).
 
 ## Baseline observations (mock, plumbing only)
 
@@ -72,7 +72,7 @@ Partially. It executed the full loop on plumbing, caught no live misrepresentati
 
 - Canonical repo: `commonfields/openrecord` (urbiens 301-redirects; origin updated). Main: `60bda0c`.
 - Environment: local staging (API :3001, web :3000, worker, local PG; CI PG16 green).
-- Public sources: README.md + docs/ CONTROLLED (content via public repo); github.com/commonfields/openrecord PARTIALLY_CONTROLLED (chrome/robots uncontrolled); website/ local-only placeholder; ghostping.dev nonexistent (verified).
+- Public sources: README.md + docs/ CONTROLLED (content via public repo); github.com/commonfields/openrecord PARTIALLY_CONTROLLED (chrome/robots uncontrolled); website/ local-only placeholder; openrecord.dev nonexistent (verified).
 - Facts: 10 implementation-verified assertions (retained) + 1 honest TEXT fact (`github_description`).
 - Buyer questions: 12 retained.
 - Source observations: real fetch of github.com page (og:description) → OBSERVED → finding DRIFT (platform suffix vs approved text — informative, no action warranted).

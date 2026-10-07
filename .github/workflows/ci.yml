@@ -49,7 +49,7 @@ jobs:
         run: cargo test --locked --test evidence_protocol_fixtures
 
       - name: CLI exit contracts (isolated HOME, mock only, no network)
-        run: GHOSTPING_BIN="${{ github.workspace }}/target/debug/openrecord" bash scripts/check-cli-contracts.sh
+        run: OPENRECORD_BIN="${{ github.workspace }}/target/debug/openrecord" bash scripts/check-cli-contracts.sh
 
       - name: Release-script regression tests (stubbed cargo, no network)
         run: bash scripts/test-validate-release.sh
@@ -64,9 +64,9 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: ghostping
-          POSTGRES_PASSWORD: ghostping
-          POSTGRES_DB: ghostping
+          POSTGRES_USER: openrecord
+          POSTGRES_PASSWORD: openrecord
+          POSTGRES_DB: openrecord
         ports:
           - 5432:5432
         options: >-
@@ -75,8 +75,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgres://ghostping:ghostping@localhost:5432/ghostping
-      TEST_DATABASE_URL: postgres://ghostping:ghostping@localhost:5432/ghostping
+      DATABASE_URL: postgres://openrecord:openrecord@localhost:5432/openrecord
+      TEST_DATABASE_URL: postgres://openrecord:openrecord@localhost:5432/openrecord
       SESSION_SECRET: ci-test-secret-32-bytes-minimum-xyz
       NINE_ROUTER_ENABLED: "false"
       APP_BASE_URL: http://localhost:3000

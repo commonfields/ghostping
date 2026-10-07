@@ -55,7 +55,7 @@ describe("generated artifacts", () => {
   })
   it("committed JSON Schemas equal the Effect Schema generator output", () => {
     const built = buildSchemas()
-    const schemaDir = resolve(root, "schemas/ghostping")
+    const schemaDir = resolve(root, "schemas/openrecord")
     expect(readdirSync(schemaDir).sort()).toEqual(Object.keys(built).sort())
     for (const [name, text] of Object.entries(built)) expect(readFileSync(resolve(schemaDir, name), "utf8"), name).toBe(text)
   })
@@ -73,7 +73,7 @@ describe("protocol validation", () => {
   })
   it("rejects an unknown future version before trusting any other field", () => {
     expect(reasonOf(() => validatePacket({ ...packet("corrected-reobservation"), schema_version: 2 }))).toBe("UnsupportedSchemaVersion")
-    expect(reasonOf(() => validatePacket({ ...packet("corrected-reobservation"), schema: "ghostping/evidence-packet-v2" }))).toBe("UnsupportedSchemaVersion")
+    expect(reasonOf(() => validatePacket({ ...packet("corrected-reobservation"), schema: "openrecord/evidence-packet-v2" }))).toBe("UnsupportedSchemaVersion")
   })
   it("rejects malformed required fields, excess fields, and non-empty V1 signatures", () => {
     const p = packet("corrected-reobservation")

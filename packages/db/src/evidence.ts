@@ -810,7 +810,7 @@ const toObservation = (row: Row, citations: ReadonlyArray<Row>, embed: boolean):
         digest_sha256: digest,
         content_type: String(row["raw_content_type"]),
         received_at: ts(row["raw_received_at"] ?? row["raw_created_at"]),
-        reference: `ghostping://raw-evidence/${digest}`,
+        reference: `openrecord://raw-evidence/${digest}`,
         ...(embed && bytesHex !== null ? { embedded_bytes_base64: Buffer.from(bytesHex, "hex").toString("base64") } : {}),
       },
       normalized_answer_text: String(row["answer_text"]),

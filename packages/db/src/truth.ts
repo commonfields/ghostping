@@ -182,7 +182,7 @@ export const pgSyncStore = (databaseUrl: string): PgSyncStore => {
         await client.query("BEGIN")
         const lock = await client.query(`SELECT id FROM businesses WHERE id = $1 FOR UPDATE`, [businessId])
         if (lock.rows.length === 0) throw new Error(`BusinessNotFound: ${businessId}`)
-        await client.query("SET LOCAL ghostping.authority_sync = '1'")
+        await client.query("SET LOCAL openrecord.authority_sync = '1'")
         const q: TxQuery = (text, params = []) => client.query(text, params as never[])
         const out = await fn(txOps(q))
         await client.query("COMMIT")

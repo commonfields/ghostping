@@ -6,9 +6,9 @@ import { createHash } from "node:crypto"
 import { isAlias, isMap, isScalar, parseDocument } from "yaml"
 import { ManifestInvalid, parseManifestValue, type ManifestValue } from "./values.js"
 
-export const TRUTH_MANIFEST_SCHEMA = "ghostping/truth-manifest-v1" as const
-export const PROJECTION_ARTIFACT_SCHEMA = "ghostping/projection-artifact-v1" as const
-export const MATERIALIZATION_RECEIPT_SCHEMA = "ghostping/materialization-receipt-v1" as const
+export const TRUTH_MANIFEST_SCHEMA = "openrecord/truth-manifest-v1" as const
+export const PROJECTION_ARTIFACT_SCHEMA = "openrecord/projection-artifact-v1" as const
+export const MATERIALIZATION_RECEIPT_SCHEMA = "openrecord/materialization-receipt-v1" as const
 export const TRUTH_COMPILER_VERSION = "truth-compiler/1" as const
 
 export interface ManifestFactV1 {

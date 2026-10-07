@@ -1,9 +1,9 @@
 {
-  "schema": "ghostping/evidence-packet-v1",
+  "schema": "openrecord/evidence-packet-v1",
   "schema_version": 1,
   "id": "packet-claim-before",
   "issue": {
-    "schema": "ghostping/issue-v1",
+    "schema": "openrecord/issue-v1",
     "schema_version": 1,
     "id": "claim-before",
     "business_id": "business-acme",
@@ -19,7 +19,7 @@
   },
   "facts": [
     {
-      "schema": "ghostping/fact-v1",
+      "schema": "openrecord/fact-v1",
       "schema_version": 1,
       "id": "fact-acme-starter-price-v1",
       "business_id": "business-acme",
@@ -37,12 +37,12 @@
     }
   ],
   "original_observation": {
-    "schema": "ghostping/observation-v1",
+    "schema": "openrecord/observation-v1",
     "schema_version": 1,
     "id": "observation-before",
     "business_id": "business-acme",
     "measurement": {
-      "schema": "ghostping/measurement-context-v1",
+      "schema": "openrecord/measurement-context-v1",
       "schema_version": 1,
       "question": "How much does Acme Starter cost?",
       "question_id": "question-acme-starter-price",
@@ -52,7 +52,7 @@
       },
       "business_id": "business-acme",
       "surface": {
-        "schema": "ghostping/surface-v1",
+        "schema": "openrecord/surface-v1",
         "schema_version": 1,
         "kind": "DIRECT_API",
         "product": "Acme fixture provider API",
@@ -121,7 +121,7 @@
       "digest_sha256": "7067a313b33ca1b555a683cd2c1ea8592603db44b0827471a4600a3b7c93b85c",
       "content_type": "application/json",
       "received_at": "2026-10-01T00:00:00.000Z",
-      "reference": "ghostping://raw-evidence/7067a313b33ca1b555a683cd2c1ea8592603db44b0827471a4600a3b7c93b85c"
+      "reference": "openrecord://raw-evidence/7067a313b33ca1b555a683cd2c1ea8592603db44b0827471a4600a3b7c93b85c"
     },
     "normalized_answer_text": "$29/month",
     "citations": [
@@ -143,7 +143,7 @@
   },
   "claims": [
     {
-      "schema": "ghostping/claim-v1",
+      "schema": "openrecord/claim-v1",
       "schema_version": 1,
       "id": "claim-before",
       "business_id": "business-acme",
@@ -155,7 +155,7 @@
   ],
   "judgments": [
     {
-      "schema": "ghostping/judgment-v1",
+      "schema": "openrecord/judgment-v1",
       "schema_version": 1,
       "id": "judgment-before-1",
       "business_id": "business-acme",
@@ -167,7 +167,7 @@
       "created_at": "2026-10-01T00:00:00.000Z"
     },
     {
-      "schema": "ghostping/judgment-v1",
+      "schema": "openrecord/judgment-v1",
       "schema_version": 1,
       "id": "judgment-before-2",
       "business_id": "business-acme",
@@ -183,7 +183,7 @@
   ],
   "interventions": [
     {
-      "schema": "ghostping/intervention-v1",
+      "schema": "openrecord/intervention-v1",
       "schema_version": 1,
       "id": "intervention-pricing-page",
       "business_id": "business-acme",
@@ -214,7 +214,7 @@
   ],
   "reobservations": [
     {
-      "schema": "ghostping/reobservation-v1",
+      "schema": "openrecord/reobservation-v1",
       "schema_version": 1,
       "id": "reobservation-after",
       "business_id": "business-acme",
@@ -360,12 +360,12 @@
   ],
   "reobservation_observations": [
     {
-      "schema": "ghostping/observation-v1",
+      "schema": "openrecord/observation-v1",
       "schema_version": 1,
       "id": "observation-after",
       "business_id": "business-acme",
       "measurement": {
-        "schema": "ghostping/measurement-context-v1",
+        "schema": "openrecord/measurement-context-v1",
         "schema_version": 1,
         "question": "How much does Acme Starter cost?",
         "question_id": "question-acme-starter-price",
@@ -375,7 +375,7 @@
         },
         "business_id": "business-acme",
         "surface": {
-          "schema": "ghostping/surface-v1",
+          "schema": "openrecord/surface-v1",
           "schema_version": 1,
           "kind": "DIRECT_API",
           "product": "Acme fixture provider API",
@@ -444,7 +444,7 @@
         "digest_sha256": "b363f2a5475375e8483a70ab2717baf71548c5cf7e7368ca11327de9c9c30312",
         "content_type": "application/json",
         "received_at": "2026-10-02T00:00:00.000Z",
-        "reference": "ghostping://raw-evidence/b363f2a5475375e8483a70ab2717baf71548c5cf7e7368ca11327de9c9c30312"
+        "reference": "openrecord://raw-evidence/b363f2a5475375e8483a70ab2717baf71548c5cf7e7368ca11327de9c9c30312"
       },
       "normalized_answer_text": "$39/month",
       "citations": [
@@ -467,7 +467,7 @@
   ],
   "reobservation_claims": [
     {
-      "schema": "ghostping/claim-v1",
+      "schema": "openrecord/claim-v1",
       "schema_version": 1,
       "id": "claim-after",
       "business_id": "business-acme",
@@ -479,7 +479,7 @@
   ],
   "reobservation_judgments": [
     {
-      "schema": "ghostping/judgment-v1",
+      "schema": "openrecord/judgment-v1",
       "schema_version": 1,
       "id": "judgment-after",
       "business_id": "business-acme",
@@ -504,5 +504,5 @@
   "synthetic": true,
   "generated_at": "2026-10-02T01:00:00.000Z",
   "signatures": [],
-  "packet_digest": "a1962e85a84bdfa52ed3f99172f2779a4dbf0d8880da7ffd4421e0ae3b2c7215"
+  "packet_digest": "401fe772d8e4c1dce9bab04cbf5795dc2654ca610ef957932aaf2e6f864e2b24"
 }

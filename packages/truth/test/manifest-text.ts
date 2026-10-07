@@ -1,4 +1,4 @@
-export const VALID_MANIFEST_TEXT = `schema: ghostping/truth-manifest-v1
+export const VALID_MANIFEST_TEXT = `schema: openrecord/truth-manifest-v1
 business:
   key: acme
 authority:

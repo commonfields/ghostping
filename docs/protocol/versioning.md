@@ -1,6 +1,6 @@
 # Protocol versioning
 
-Evidence schema versions are independent of package, application, and CLI versions. Each portable object carries `schema` (for example `ghostping/evidence-packet-v1`) and an integer `schema_version`.
+Evidence schema versions are independent of package, application, and CLI versions. Each portable object carries `schema` (for example `openrecord/evidence-packet-v1`) and an integer `schema_version`.
 
 ## Readers
 
@@ -29,4 +29,4 @@ Because V1 readers reject unknown properties and re-derive every derived field, 
 
 ## Single source
 
-`packages/protocol` (Effect Schema) defines the schemas. JSON Schemas in `schemas/ghostping` and fixtures in `fixtures/evidence-protocol-v1` are generated. Tests fail when the committed files drift from the generators. The Rust reader is a second implementation by design. It must reach the same verdict, digest, classifications, and outcomes as TypeScript for every fixture, and CI runs that check in both languages.
+`packages/protocol` (Effect Schema) defines the schemas. JSON Schemas in `schemas/openrecord` and fixtures in `fixtures/evidence-protocol-v1` are generated. Tests fail when the committed files drift from the generators. The Rust reader is a second implementation by design. It must reach the same verdict, digest, classifications, and outcomes as TypeScript for every fixture, and CI runs that check in both languages.

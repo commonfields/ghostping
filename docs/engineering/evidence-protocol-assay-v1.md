@@ -17,7 +17,7 @@ Baseline: `ca4f314610d99373944b0553f9d1001c413227f3` (`origin/main`, 2026-10-02,
 
 ## Overloaded or ambiguous fields found
 
-- `observations.provider` mixed three things: gateway (`9router`), upstream provider, and surface identity. `ghostping/surface-v1` now separates `kind`, `product`, `gateway`, and requested and observed provider and model.
+- `observations.provider` mixed three things: gateway (`9router`), upstream provider, and surface identity. `openrecord/surface-v1` now separates `kind`, `product`, `gateway`, and requested and observed provider and model.
 - `retrieval_mode = 'unknown'` could not tell "unknown" from "not applicable". Knowledge states replace it in the protocol. The legacy column is kept for compatibility.
 - Raw evidence stored `JSON.stringify(parsed)`, not the wire bytes. `raw_bytes_hex` is added additively to the worker result. PostgreSQL stores the bytes only after it checks them against the digest.
 - Rust `ObservationEnvelope.surface` is a free string, and its provider/model fields cannot tell requested values from observed ones. It is retained as the local legacy record. Portable evidence uses `SurfaceIdentityV1`.

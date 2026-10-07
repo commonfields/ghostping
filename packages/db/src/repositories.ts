@@ -195,7 +195,7 @@ export const FactRepositoryLive = Layer.effect(
     // One active writer: direct hosted mutations fail closed for
     // repository-managed businesses (typed AuthorityError defect, never a
     // silent second truth). The manifest sync bypasses this layer with
-    // SET LOCAL ghostping.authority_sync = '1', which the hosted API never sets.
+    // SET LOCAL openrecord.authority_sync = '1', which the hosted API never sets.
     const assertHostedWritable = (businessId: string, op: string) =>
       Effect.gen(function*() {
         const modes = (yield* sql`SELECT writer FROM business_authority_mode WHERE business_id = ${businessId}`) as Array<
