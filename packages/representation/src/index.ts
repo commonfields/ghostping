@@ -1,6 +1,7 @@
 export * from "./types.js"
 export * from "./url.js"
 export * from "./comparators.js"
+export * from "./assay.js"
 export * from "./extraction.js"
 export * from "./safe-http.js"
 export * from "./collector.js"
