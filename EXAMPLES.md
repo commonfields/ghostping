@@ -1,6 +1,6 @@
-# Ghostping Examples
+# OpenRecord Examples
 
-Real-world before/after use cases showing how Ghostping helps improve AI visibility.
+Real-world before/after use cases showing how OpenRecord helps improve AI visibility.
 
 ---
 
@@ -17,9 +17,9 @@ Models: openai
 
 The tool wasn't mentioned when users asked about file search tools.
 
-### Ghostping Optimization
+### OpenRecord Optimization
 ```bash
-ghostping optimize mytool.com --niche "Rust CLI tool" --competitors "ripgrep,fd" --auto-apply
+openrecord optimize mytool.com --niche "Rust CLI tool" --competitors "ripgrep,fd" --auto-apply
 ```
 
 Generated content:
@@ -102,16 +102,16 @@ Mention rate: 25% (2/8 queries)
 ## Tips for Better Results
 
 1. **Be specific with niches** — "Rust CLI tool for data engineers" beats "Rust tool"
-2. **Add competitors** — helps Ghostping benchmark against known players
+2. **Add competitors** — helps OpenRecord benchmark against known players
 3. **Run audits regularly** — model behavior changes over time
-4. **Write quality content** — Ghostping generates drafts; polish them before committing
+4. **Write quality content** — OpenRecord generates drafts; polish them before committing
 5. **Use --evaluate** — see before/after citability estimates before writing files
 
 ---
 
 ## Caveats
 
-- Ghostping improves *probability*, not guarantee
+- OpenRecord improves *probability*, not guarantee
 - Results vary by niche competitiveness
 - Some models may never cite certain topics
 - Success requires ongoing iteration

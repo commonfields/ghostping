@@ -1,4 +1,4 @@
-# Ghostping pull-request CI.
+# OpenRecord pull-request CI.
 #
 # Separate from release publishing (.github/workflows/release.yml): this
 # workflow validates every push and pull request. Every gate relies on the
@@ -40,7 +40,7 @@ jobs:
         run: cargo test --all-targets --locked
 
       - name: Build the primary CLI
-        run: cargo build --locked --bin ghostping
+        run: cargo build --locked --bin openrecord
 
       - name: Release build (all targets)
         run: cargo build --release --locked
@@ -49,7 +49,7 @@ jobs:
         run: cargo test --locked --test evidence_protocol_fixtures
 
       - name: CLI exit contracts (isolated HOME, mock only, no network)
-        run: GHOSTPING_BIN="${{ github.workspace }}/target/debug/ghostping" bash scripts/check-cli-contracts.sh
+        run: GHOSTPING_BIN="${{ github.workspace }}/target/debug/openrecord" bash scripts/check-cli-contracts.sh
 
       - name: Release-script regression tests (stubbed cargo, no network)
         run: bash scripts/test-validate-release.sh
@@ -70,7 +70,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U ghostping"
+          --health-cmd "pg_isready -U openrecord"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10

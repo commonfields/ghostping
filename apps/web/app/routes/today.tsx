@@ -417,7 +417,7 @@ function OperationalSummary({ businessId }: { businessId: string }) {
               <Link to={`/businesses/${businessId}/truth`} className="font-medium tabular-nums hover:underline">
                 {counts.activeFacts} active
               </Link>
-              <span className="text-muted-foreground">{mode === "REPOSITORY_MANIFEST" ? "Managed by repository manifest" : "Managed in Ghostping"}</span>
+              <span className="text-muted-foreground">{mode === "REPOSITORY_MANIFEST" ? "Managed by repository manifest" : "Managed in OpenRecord"}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="text-muted-foreground">Sources</span>
@@ -561,7 +561,7 @@ function downloadCsv(a: Analytics, businessName: string) {
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }))
   const link = document.createElement("a")
   link.href = url
-  link.download = `ghostping-${businessName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${a.range.days}d.csv`
+  link.download = `openrecord-${businessName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${a.range.days}d.csv`
   link.click()
   URL.revokeObjectURL(url)
 }

@@ -35,19 +35,19 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            archive: ghostping-linux-x86_64.tar.gz
+            archive: openrecord-linux-x86_64.tar.gz
 
           - target: x86_64-apple-darwin
             os: macos-latest
-            archive: ghostping-macos-x86_64.tar.gz
+            archive: openrecord-macos-x86_64.tar.gz
 
           - target: aarch64-apple-darwin
             os: macos-latest
-            archive: ghostping-macos-aarch64.tar.gz
+            archive: openrecord-macos-aarch64.tar.gz
 
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            archive: ghostping-windows-x86_64.zip
+            archive: openrecord-windows-x86_64.zip
 
     steps:
       - uses: actions/checkout@v4
@@ -63,20 +63,20 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} --bin ghostping
+        run: cargo build --release --target ${{ matrix.target }} --bin openrecord
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../${{ matrix.archive }} ghostping
+          tar czf ../../../${{ matrix.archive }} openrecord
           cd -
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path target/${{ matrix.target }}/release/ghostping.exe `
+          Compress-Archive -Path target/${{ matrix.target }}/release/openrecord.exe `
             -DestinationPath ${{ matrix.archive }}
 
       - name: Upload release archive
@@ -97,12 +97,12 @@ jobs:
           latest: false
           tag: ${{ github.ref_name }}
           out-file-path: "dist"
-          fileName: "ghostping-*"
+          fileName: "openrecord-*"
 
       - name: Generate SHA256 checksums
         run: |
           cd dist
-          sha256sum ghostping-* > checksums.txt
+          sha256sum openrecord-* > checksums.txt
           cat checksums.txt
 
       - name: Upload checksums
@@ -133,24 +133,24 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
 
-          AARCH64_SHA=$(grep "ghostping-macos-aarch64.tar.gz" dist/checksums.txt | awk '{print $1}')
-          X86_64_SHA=$(grep "ghostping-macos-x86_64.tar.gz" dist/checksums.txt | awk '{print $1}')
-          LINUX_SHA=$(grep "ghostping-linux-x86_64.tar.gz" dist/checksums.txt | awk '{print $1}')
+          AARCH64_SHA=$(grep "openrecord-macos-aarch64.tar.gz" dist/checksums.txt | awk '{print $1}')
+          X86_64_SHA=$(grep "openrecord-macos-x86_64.tar.gz" dist/checksums.txt | awk '{print $1}')
+          LINUX_SHA=$(grep "openrecord-linux-x86_64.tar.gz" dist/checksums.txt | awk '{print $1}')
 
-          sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/ghostping.rb
-          sed -i "s/PLACEHOLDER_AARCH64_SHA256/${AARCH64_SHA}/" Formula/ghostping.rb
-          sed -i "s/PLACEHOLDER_X86_64_SHA256/${X86_64_SHA}/" Formula/ghostping.rb
-          sed -i "s/PLACEHOLDER_LINUX_SHA256/${LINUX_SHA}/" Formula/ghostping.rb
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/openrecord.rb
+          sed -i "s/PLACEHOLDER_AARCH64_SHA256/${AARCH64_SHA}/" Formula/openrecord.rb
+          sed -i "s/PLACEHOLDER_X86_64_SHA256/${X86_64_SHA}/" Formula/openrecord.rb
+          sed -i "s/PLACEHOLDER_LINUX_SHA256/${LINUX_SHA}/" Formula/openrecord.rb
 
           # Also replace already-filled SHA256s on re-release
-          sed -i "s/sha256 \"[a-f0-9]\{64\}\".*aarch64/sha256 \"${AARCH64_SHA}\" # aarch64/" Formula/ghostping.rb || true
+          sed -i "s/sha256 \"[a-f0-9]\{64\}\".*aarch64/sha256 \"${AARCH64_SHA}\" # aarch64/" Formula/openrecord.rb || true
 
-          cat Formula/ghostping.rb
+          cat Formula/openrecord.rb
 
       - name: Commit updated formula
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/ghostping.rb
+          git add Formula/openrecord.rb
           git diff --staged --quiet || git commit -m "chore: update Homebrew formula for ${{ github.ref_name }}"
           git push

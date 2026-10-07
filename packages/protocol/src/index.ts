@@ -1,4 +1,4 @@
-// Ghostping Evidence Protocol V1 — public entry point.
+// OpenRecord Evidence Protocol V1 — public entry point.
 export * from "./schema.js"
 export * from "./canonical.js"
 export * from "./measurement.js"

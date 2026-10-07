@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { parseCookies, verifyPassword, hashPassword } from "./auth.js"
-import { detectAuthorityConflicts } from "@ghostping/domain"
+import { detectAuthorityConflicts } from "@openrecord/domain"
 
 describe("auth", () => {
   it("hashes and verifies passwords (scrypt)", () => {

@@ -1,6 +1,6 @@
-# Ghostping Evidence Protocol
+# OpenRecord Evidence Protocol
 
-Ghostping's emerging core is **evidence-backed AI representation integrity**: measuring how AI systems represent an organization, and keeping every conclusion tied to the evidence behind it.
+OpenRecord's emerging core is **evidence-backed AI representation integrity**: measuring how AI systems represent an organization, and keeping every conclusion tied to the evidence behind it.
 
 The central law:
 
@@ -25,7 +25,7 @@ Every field in the protocol is exactly one of: **evidence** (raw response bytes,
 | Rust reader (independent re-derivation) | [`src/evidence_protocol.rs`](../../src/evidence_protocol.rs) |
 | Hosted persistence + packet export | [`packages/db/src/evidence.ts`](../../packages/db/src/evidence.ts), migration `0003_evidence_protocol_v1.sql` |
 
-Regenerate artifacts with `pnpm --filter @ghostping/protocol schemas` and `pnpm --filter @ghostping/protocol fixtures`. Tests fail if the committed files drift from the generators.
+Regenerate artifacts with `pnpm --filter @openrecord/protocol schemas` and `pnpm --filter @openrecord/protocol fixtures`. Tests fail if the committed files drift from the generators.
 
 ## Documents
 

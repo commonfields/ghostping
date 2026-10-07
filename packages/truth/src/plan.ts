@@ -1,7 +1,7 @@
 // Planner V1: desired artifacts vs working tree + managed-proof lock.
 // Actions: CREATE | UPDATE | UNCHANGED | CONFLICT, plus STALE_MANAGED_ARTIFACT
 // for projections removed from the manifest. Never PUBLISHED/DELIVERED/INDEXED.
-// Ghostping never overwrites a file it cannot prove it manages.
+// OpenRecord never overwrites a file it cannot prove it manages.
 
 import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
@@ -55,14 +55,14 @@ export const planProjection = async (
     if (proof !== undefined && proof.digest === artifact.digest_sha256) {
       return { ...base, action: "UNCHANGED", existing_digest: existing.digest, desired_digest: artifact.digest_sha256, reason: "managed bytes match desired" }
     }
-    return { ...base, action: "CONFLICT", existing_digest: existing.digest, desired_digest: artifact.digest_sha256, reason: "bytes match but no Ghostping management proof" }
+    return { ...base, action: "CONFLICT", existing_digest: existing.digest, desired_digest: artifact.digest_sha256, reason: "bytes match but no OpenRecord management proof" }
   }
   // Content differs from desired. UPDATE only when the lock proves the
-  // current bytes are Ghostping's last materialization.
+  // current bytes are OpenRecord's last materialization.
   if (proof !== undefined && proof.digest === existing.digest) {
     return { ...base, action: "UPDATE", existing_digest: existing.digest, desired_digest: artifact.digest_sha256, reason: "managed file differs from desired" }
   }
-  const reason = proof === undefined ? "existing file has no Ghostping management proof" : "file was modified after last Ghostping apply"
+  const reason = proof === undefined ? "existing file has no OpenRecord management proof" : "file was modified after last OpenRecord apply"
   return { ...base, action: "CONFLICT", existing_digest: existing.digest, desired_digest: artifact.digest_sha256, reason }
 }
 

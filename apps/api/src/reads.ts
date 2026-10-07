@@ -1,6 +1,6 @@
 // Product Surface V1 read model: DB repository -> representation domain
 // derivation -> API DTO -> React. Domain (effective observation, finding,
-// canonical citation match) lives here and in @ghostping/representation;
+// canonical citation match) lives here and in @openrecord/representation;
 // React only renders. No scores, no causality, no publication claims.
 import { Effect } from "effect"
 import {
@@ -11,8 +11,8 @@ import {
   type ObservedSourceValueV1,
   type SourceBindingV1,
   type SourceObservationV1,
-} from "@ghostping/representation"
-import { BusinessRepository, FactRepository, ProductReadRepository } from "@ghostping/db"
+} from "@openrecord/representation"
+import { BusinessRepository, FactRepository, ProductReadRepository } from "@openrecord/db"
 
 export interface FactDto {
   readonly id: string

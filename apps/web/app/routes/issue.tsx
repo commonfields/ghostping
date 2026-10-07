@@ -114,7 +114,7 @@ export function IssueDetailPage() {
       <Card className="shadow-(--float-shadow)">
         <CardHeader>
           <CardTitle>Source evidence</CardTitle>
-          <CardDescription>What the AI cited, and what Ghostping observed there.</CardDescription>
+          <CardDescription>What the AI cited, and what OpenRecord observed there.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {issue.citation_evidence.length === 0 ? (
@@ -486,7 +486,7 @@ function VerifySourceCard({ businessId, bindingId, onChecked }: { businessId: st
         <CardHeader>
           <CardTitle>Verify source</CardTitle>
           <CardDescription>
-            This action is not linked to a tracked representation, so Ghostping cannot verify the source automatically.
+            This action is not linked to a tracked representation, so OpenRecord cannot verify the source automatically.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -573,7 +573,7 @@ function BeforeAfterCompare({ businessId, claimId }: { businessId: string; claim
               </span>
             </div>
             <p className="text-sm text-muted-foreground">{comparison.comparabilityExplanation}</p>
-            <p className="text-xs text-muted-foreground">Causal attribution: unknown. Ghostping observes what changed; it does not claim why.</p>
+            <p className="text-xs text-muted-foreground">Causal attribution: unknown. OpenRecord observes what changed; it does not claim why.</p>
 
             {source && (source.beforeValue !== null || source.afterValue !== null) ? (
               <div className="grid gap-3 md:grid-cols-2">
@@ -701,13 +701,13 @@ export function CitationCard({ businessId, citation: c }: { businessId: string; 
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Representation <span className="font-medium text-foreground">Not tracked</span> — Ghostping does not observe this URL, so there is no
+          Representation <span className="font-medium text-foreground">Not tracked</span> — OpenRecord does not observe this URL, so there is no
           finding for it.
         </p>
       )}
       <p className="flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
         <BookCheckIcon className="mt-0.5 size-3.5 shrink-0" />
-        The AI cited a source{c.tracked ? " that Ghostping also observed" : ""}. Citation shows the source was referenced; it does not prove the
+        The AI cited a source{c.tracked ? " that OpenRecord also observed" : ""}. Citation shows the source was referenced; it does not prove the
         source caused the answer.
       </p>
       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

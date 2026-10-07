@@ -33,7 +33,7 @@ describe("navigation", () => {
     const finding = fs.readFileSync(new URL("../app/routes/site-finding.tsx", import.meta.url), "utf8")
     expect(finding).toContain("Observed evidence")
     expect(finding).toContain("Proposed fix")
-    expect(finding).toContain("Ghostping verified the fix on the live site")
+    expect(finding).toContain("OpenRecord verified the fix on the live site")
     expect(finding).not.toMatch(/score/i)
   })
 
@@ -59,7 +59,7 @@ describe("truth", () => {
     const fs = await import("node:fs")
     const text = fs.readFileSync(new URL("../app/routes/truth.tsx", import.meta.url), "utf8")
     expect(text).toContain("Managed by repository manifest")
-    expect(text).toContain("Managed in Ghostping")
+    expect(text).toContain("Managed in OpenRecord")
     expect(text).toContain("View history")
     expect(text).toContain("Unknown")
   })

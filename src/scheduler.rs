@@ -30,12 +30,12 @@ impl ScheduleInterval {
 
 /// A scheduled evidence-engine audit.
 ///
-/// The generated job runs the canonical CLI surface (`ghostping audit run`)
-/// from the project directory holding `ghostping.toml`, so scheduled runs
+/// The generated job runs the canonical CLI surface (`openrecord audit run`)
+/// from the project directory holding `openrecord.toml`, so scheduled runs
 /// produce evidence-engine records — never legacy tracker rows.
 #[derive(Debug, Clone)]
 pub struct ScheduledAudit {
-    /// Project directory containing `ghostping.toml`. The job runs with this
+    /// Project directory containing `openrecord.toml`. The job runs with this
     /// as its working directory.
     pub project_dir: PathBuf,
     /// Value for `--models` (e.g. `"ollama"`, `"openai,anthropic"`).
@@ -44,7 +44,7 @@ pub struct ScheduledAudit {
     /// Human-readable label used for the job name and log filename.
     /// Sanitized before use; see [`sanitize_label`].
     pub label: String,
-    /// Absolute path to the ghostping binary.
+    /// Absolute path to the openrecord binary.
     pub binary: String,
 }
 
@@ -81,7 +81,7 @@ impl ScheduledAudit {
 
     /// Log file for the scheduled job's output.
     pub fn log_path(&self) -> String {
-        format!("/tmp/ghostping-{}.log", sanitize_label(&self.label))
+        format!("/tmp/openrecord-{}.log", sanitize_label(&self.label))
     }
 }
 
@@ -141,7 +141,7 @@ pub fn validate_cron_hours(h: u32) -> Result<()> {
 /// periodically. Returns the path to the written plist file.
 pub fn install_launchd(job: &ScheduledAudit, interval: ScheduleInterval) -> Result<PathBuf> {
     let safe_label = sanitize_label(&job.label);
-    let label = format!("com.ghostping.audit.{}", safe_label);
+    let label = format!("com.openrecord.audit.{}", safe_label);
     let plist = render_plist(job, interval);
 
     let plist_dir = dirs::home_dir()
@@ -189,7 +189,7 @@ fn write_plist_to_dir(
     dir: &Path,
 ) -> Result<PathBuf> {
     let safe_label = sanitize_label(&job.label);
-    let path = dir.join(format!("com.ghostping.audit.{}.plist", safe_label));
+    let path = dir.join(format!("com.openrecord.audit.{}.plist", safe_label));
     // Reuse the production renderer by installing, then moving the file.
     let rendered = render_plist(job, interval);
     std::fs::create_dir_all(dir)?;
@@ -199,7 +199,7 @@ fn write_plist_to_dir(
 
 fn render_plist(job: &ScheduledAudit, interval: ScheduleInterval) -> String {
     let safe_label = sanitize_label(&job.label);
-    let label = format!("com.ghostping.audit.{}", safe_label);
+    let label = format!("com.openrecord.audit.{}", safe_label);
     let interval_secs = interval.hours() as u64 * 3600;
 
     let mut program_args = format!(
@@ -279,11 +279,11 @@ mod tests {
 
     #[test]
     fn test_argv_uses_current_audit_run_surface() {
-        let job = fixture_job("/usr/local/bin/ghostping");
+        let job = fixture_job("/usr/local/bin/openrecord");
         assert_eq!(
             job.argv(),
             vec![
-                "/usr/local/bin/ghostping",
+                "/usr/local/bin/openrecord",
                 "audit",
                 "run",
                 "--yes",
@@ -297,9 +297,9 @@ mod tests {
 
     #[test]
     fn test_argv_without_models_omits_flag() {
-        let mut job = fixture_job("/bin/ghostping");
+        let mut job = fixture_job("/bin/openrecord");
         job.models = None;
-        assert_eq!(job.argv(), vec!["/bin/ghostping", "audit", "run", "--yes"]);
+        assert_eq!(job.argv(), vec!["/bin/openrecord", "audit", "run", "--yes"]);
     }
 
     #[test]
@@ -307,7 +307,7 @@ mod tests {
         // Prove the generated job is executable: run argv[0..] against a
         // stub executable and assert it receives the audit run arguments.
         let dir = tempfile::TempDir::new().unwrap();
-        let stub = dir.path().join("ghostping-stub.sh");
+        let stub = dir.path().join("openrecord-stub.sh");
         let record = dir.path().join("args.txt");
         std::fs::write(
             &stub,
@@ -372,7 +372,7 @@ mod tests {
             project_dir: PathBuf::from("/tmp/p"),
             models: Some("a&b<\"c\">".to_string()),
             label: "evil\"><script>".to_string(),
-            binary: "/bin/ghostping".to_string(),
+            binary: "/bin/openrecord".to_string(),
         };
         let plist = render_plist(&job, ScheduleInterval::Daily);
         assert!(!plist.contains("evil\"><script>"));
@@ -394,7 +394,7 @@ mod tests {
             project_dir: PathBuf::from("/tmp/p'; evil"),
             models: Some("m; rm -rf /".to_string()),
             label: "x".to_string(),
-            binary: "/bin/ghostping".to_string(),
+            binary: "/bin/openrecord".to_string(),
         };
         let cmd = job.shell_command();
         // Single-quoted throughout; no bare metacharacters outside quotes.
@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_cron_rejects_invalid_custom_intervals() {
-        let job = fixture_job("/bin/ghostping");
+        let job = fixture_job("/bin/openrecord");
         assert!(cron_line(&job, ScheduleInterval::Custom(6)).is_ok());
         assert!(cron_line(&job, ScheduleInterval::Custom(24)).is_ok());
         assert!(cron_line(&job, ScheduleInterval::Custom(0)).is_err());

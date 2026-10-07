@@ -27,7 +27,7 @@ export const defaultPreferences: Preferences = {
   reduceMotion: false,
 }
 
-const KEY = "ghostping:preferences"
+const KEY = "openrecord:preferences"
 
 function load(): Preferences {
   try {
@@ -100,7 +100,7 @@ export function usePreferences(): Ctx {
 }
 
 // The email is remembered at sign in purely for display; the API's /me does not return it.
-const EMAIL_KEY = "ghostping:email"
+const EMAIL_KEY = "openrecord:email"
 
 export function rememberEmail(email: string) {
   try {

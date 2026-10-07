@@ -1,7 +1,7 @@
 // Representation Graph bridge: projection `verify` blocks compile into
 // the EXISTING SourceTarget / SourceBinding representation. No second
 // verification engine: HTTP collection, extraction, comparison, and
-// IN_SYNC / DRIFT / UNKNOWN stay in @ghostping/representation.
+// IN_SYNC / DRIFT / UNKNOWN stay in @openrecord/representation.
 
 import type { TruthManifestV1 } from "./manifest.js"
 

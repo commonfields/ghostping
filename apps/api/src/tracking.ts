@@ -5,14 +5,14 @@
 // no existence leak). Idempotent: re-tracking the identical binding
 // returns the existing row instead of duplicating it.
 import { Effect } from "effect"
-import { normalizeUrl } from "@ghostping/representation"
+import { normalizeUrl } from "@openrecord/representation"
 import {
   FactRepository,
   ProductReadRepository,
   SourceTargetRepository,
   type SourceBindingRow,
   type SourceTargetRow,
-} from "@ghostping/db"
+} from "@openrecord/db"
 
 export interface CreateTargetInput {
   readonly url: string

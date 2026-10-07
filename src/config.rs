@@ -148,10 +148,10 @@ impl Config {
     pub fn config_dir() -> PathBuf {
         home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join(".ghostping")
+            .join(".openrecord")
     }
 
-    /// Previous config location before the Ghostping rebrand.
+    /// Previous config location before the OpenRecord rebrand.
     /// Used for one-time automatic migration.
     pub fn legacy_config_dir() -> PathBuf {
         home_dir()
@@ -159,9 +159,9 @@ impl Config {
             .join(".llmention")
     }
 
-    /// Creates ~/.ghostping/ and ~/.ghostping/cache/ if they don't exist.
+    /// Creates ~/.openrecord/ and ~/.openrecord/cache/ if they don't exist.
     /// Returns (dir, is_first_run).
-    /// If a legacy ~/.llmention/ directory exists and ~/.ghostping/ does not,
+    /// If a legacy ~/.llmention/ directory exists and ~/.openrecord/ does not,
     /// it is migrated automatically (copied, original kept as backup).
     pub fn ensure_dir() -> Result<(PathBuf, bool)> {
         let dir = Self::config_dir();
@@ -229,8 +229,8 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result
     Ok(())
 }
 
-pub const EXAMPLE_CONFIG: &str = r#"# Ghostping configuration
-# ~/.ghostping/config.toml
+pub const EXAMPLE_CONFIG: &str = r#"# OpenRecord configuration
+# ~/.openrecord/config.toml
 
 # Cloud providers — set enabled = true and add your API key.
 # temperature = 0 gives deterministic, cacheable results (recommended).
@@ -274,7 +274,7 @@ enabled   = false
 
 # LLM-as-judge: re-evaluates each response with a local model for
 # higher-accuracy mention/sentiment detection. Uses Ollama.
-# Enable with: ghostping track ... --judge
+# Enable with: openrecord track ... --judge
 [judge]
 enabled   = false
 base_url  = "http://localhost:11434"

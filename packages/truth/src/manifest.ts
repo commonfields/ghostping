@@ -1,4 +1,4 @@
-// Truth manifest V1: versioned, fail-closed `ghostping.yaml` parsing.
+// Truth manifest V1: versioned, fail-closed `openrecord.yaml` parsing.
 // No env interpolation, no executable config, no JS, no YAML tags capable
 // of object construction, no anchors/aliases. Unknown fields rejected.
 
@@ -85,7 +85,7 @@ const checkOutputPath = (p: unknown): string => {
   if (p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p)) throw new ManifestInvalid("AbsoluteOutputPath", p)
   const parts = p.split("/")
   if (parts.some((seg) => seg === ".." || seg === "")) throw new ManifestInvalid("UnsafeOutputPath", p)
-  if (parts[0] === ".ghostping" || p === ".ghostping") throw new ManifestInvalid("ReservedOutputPath", p)
+  if (parts[0] === ".openrecord" || p === ".openrecord") throw new ManifestInvalid("ReservedOutputPath", p)
   if (p.includes(".git/") || p.startsWith(".git/")) throw new ManifestInvalid("ReservedOutputPath", p)
   return p
 }

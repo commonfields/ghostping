@@ -23,20 +23,20 @@ import {
   SiteTargetRepository,
   SiteVerificationRepository,
   type Session,
-} from "@ghostping/db"
+} from "@openrecord/db"
 import {
   ApplyFixRequest,
   ApproveFixRequest,
   CreateSiteRequest,
   RecordMutationIdentityRequest,
   decodeRouteId,
-} from "@ghostping/contracts"
+} from "@openrecord/contracts"
 import {
   GitSiteAdapter,
   LocalFileSiteAdapter,
   buildPatch,
   removeNoindexFromHtml,
-} from "@ghostping/site-operator"
+} from "@openrecord/site-operator"
 import {
   loadFindingDetail,
   loadSearchOverview,
@@ -259,7 +259,7 @@ export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
     ),
     // Apply an approved fix through the site adapter. Records the mutation
     // identity (branch/commit/PR) and moves the finding to FIX_APPLIED.
-    // Ghostping never merges automatically; GITHUB without credentials fails
+    // OpenRecord never merges automatically; GITHUB without credentials fails
     // closed with a blocked message.
     HttpRouter.post(
       "/api/businesses/:id/search/fixes/:proposalId/apply",
@@ -320,7 +320,7 @@ export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
               return yield* json(422, { _tag: "InvalidFactValue", reason: "noindex pattern not found in source; refusing to guess" })
             }
             const patch = buildPatch(filePath, before, after)
-            const branchName = requestedBranch ?? `ghostping/remove-noindex-${finding.id.slice(0, 8)}`
+            const branchName = requestedBranch ?? `openrecord/remove-noindex-${finding.id.slice(0, 8)}`
             const applied = yield* Effect.promise(() =>
               adapter.applyMutation({ rootDir, input: { filePath, before, after, message: `Remove noindex from ${finding.url}` }, branch: branchName }),
             ).pipe(Effect.catchAll((e) => Effect.succeed({ failed: String(e) } as const)))
@@ -384,7 +384,7 @@ export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
     // Externally observed mutation identity: the operator creates the
-    // commit/PR with normal git tooling (Ghostping never merges); this
+    // commit/PR with normal git tooling (OpenRecord never merges); this
     // endpoint records what was observed with guarded transitions.
     HttpRouter.post(
       "/api/businesses/:id/search/mutations/:mutationId/identity",
@@ -411,7 +411,7 @@ export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
           const current = yield* mutations.getScoped(businessId, mutationId)
           if (!current) return yield* json(404, { _tag: "MutationNotFound" })
           // Externally observed identity only: CREATED -> BRANCH_CREATED ->
-          // PR_OPEN -> MERGED (or FAILED). Ghostping never merges.
+          // PR_OPEN -> MERGED (or FAILED). OpenRecord never merges.
           if (!canRecordMutationState(current.state, body.state)) {
             return yield* json(409, { _tag: "Conflict", message: `cannot record ${body.state} from ${current.state}` })
           }

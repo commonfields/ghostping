@@ -262,14 +262,14 @@ export function SearchOverviewPage() {
       <Card className="shadow-(--float-shadow)">
         <CardHeader>
           <CardTitle>Search Console</CardTitle>
-          <CardDescription>What Google reports is kept separate from what Ghostping observed on the site.</CardDescription>
+          <CardDescription>What Google reports is kept separate from what OpenRecord observed on the site.</CardDescription>
         </CardHeader>
         <CardContent>
           {gsc.loading ? <Skeleton className="h-10" /> : (
             <p className="text-sm text-muted-foreground">
               {gsc.data?.status === "CONNECTED"
                 ? "Connected to Google Search Console."
-                : "Google Search Console is not connected. Ghostping reports what it observed on the site (indexable or blocked); it never claims Google indexed a page without Search Console evidence."}
+                : "Google Search Console is not connected. OpenRecord reports what it observed on the site (indexable or blocked); it never claims Google indexed a page without Search Console evidence."}
             </p>
           )}
         </CardContent>
@@ -302,7 +302,7 @@ function RegisterSiteDialog({ businessId, open, onOpenChange, onCreated }: { bus
         >
           <DialogHeader>
             <DialogTitle>Register website</DialogTitle>
-            <DialogDescription>Ghostping inspects only this explicitly registered site.</DialogDescription>
+            <DialogDescription>OpenRecord inspects only this explicitly registered site.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
             <Label htmlFor="site-url">Website URL</Label>

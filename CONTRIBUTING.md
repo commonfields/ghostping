@@ -1,6 +1,6 @@
-# Contributing to Ghostping
+# Contributing to OpenRecord
 
-Thank you for your interest in contributing! Ghostping is built for indie hackers and open-source maintainers — contributions that keep it fast, local, and useful are most welcome.
+Thank you for your interest in contributing! OpenRecord is built for indie hackers and open-source maintainers — contributions that keep it fast, local, and useful are most welcome.
 
 ---
 
@@ -11,7 +11,7 @@ Thank you for your interest in contributing! Ghostping is built for indie hacker
 | Bug fixes | `src/` — open a PR with a test |
 | New providers | `src/providers/` |
 | Prompt templates | `templates/community/` |
-| CLI polish | `src/bin/ghostping.rs` |
+| CLI polish | `src/bin/openrecord.rs` |
 | Tauri desktop | `tauri-app/` |
 | Documentation | `README.md`, `CONTRIBUTING.md` |
 
@@ -20,8 +20,8 @@ Thank you for your interest in contributing! Ghostping is built for indie hacker
 ## Dev Setup
 
 ```bash
-git clone https://github.com/commonfields/ghostping
-cd ghostping
+git clone https://github.com/commonfields/openrecord
+cd openrecord
 cargo build --release
 cargo test        # must pass all 23 tests
 cargo clippy
@@ -29,14 +29,14 @@ cargo clippy
 
 Binary must stay under **10 MB**:
 ```bash
-ls -lh target/release/ghostping
+ls -lh target/release/openrecord
 ```
 
 ---
 
 ## Creating a Community Prompt Plugin
 
-Plugins live in `~/.ghostping/plugins/<name>/` at runtime, and can be submitted to the repo under `templates/community/<name>/`.
+Plugins live in `~/.openrecord/plugins/<name>/` at runtime, and can be submitted to the repo under `templates/community/<name>/`.
 
 ### Structure
 
@@ -98,11 +98,11 @@ Example: ["query one", "query two"]
 
 ```bash
 # Install it
-cp -r templates/community/my-plugin ~/.ghostping/plugins/
+cp -r templates/community/my-plugin ~/.openrecord/plugins/
 
 # Use it
-ghostping generate "target query" --about "myproject.io is a ..." --plugin my-plugin
-ghostping optimize myproject.com --niche "my niche" --plugin my-plugin --dry-run
+openrecord generate "target query" --about "myproject.io is a ..." --plugin my-plugin
+openrecord optimize myproject.com --niche "my niche" --plugin my-plugin --dry-run
 ```
 
 ### Submitting a plugin
@@ -142,7 +142,7 @@ impl LlmProvider for MyProvider {
 
 2. Add config fields in `src/config.rs` under `ProvidersConfig`
 3. Wire it in `src/tracker.rs` → `build_providers_filtered()`
-4. Add a `doctor` check in `src/bin/ghostping.rs` → `run_doctor()`
+4. Add a `doctor` check in `src/bin/openrecord.rs` → `run_doctor()`
 
 ---
 
@@ -166,7 +166,7 @@ impl LlmProvider for MyProvider {
 
 Check before submitting:
 ```bash
-cargo build --release && ls -lh target/release/ghostping
+cargo build --release && ls -lh target/release/openrecord
 ```
 
 ---

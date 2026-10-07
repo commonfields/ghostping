@@ -1,12 +1,12 @@
-# Ghostping
+# OpenRecord
 
-[![CI](https://github.com/commonfields/ghostping/actions/workflows/ci.yml/badge.svg)](https://github.com/commonfields/ghostping/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/commonfields/ghostping?display_name=tag&sort=semver)](https://github.com/commonfields/ghostping/releases/latest)
-[![License: MIT](https://img.shields.io/github/license/commonfields/ghostping)](LICENSE)
+[![CI](https://github.com/commonfields/openrecord/actions/workflows/ci.yml/badge.svg)](https://github.com/commonfields/openrecord/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/commonfields/openrecord?display_name=tag&sort=semver)](https://github.com/commonfields/openrecord/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/commonfields/openrecord)](LICENSE)
 
 > Find what AI gets wrong about your business, trace it to evidence, correct what you control, and verify what changes.
 
-Ghostping is an evidence system for AI representation integrity. It records what a business says is true, observes what AI systems and web sources say, lets people review the difference, and verifies corrective work.
+OpenRecord is an evidence system for AI representation integrity. It records what a business says is true, observes what AI systems and web sources say, lets people review the difference, and verifies corrective work.
 
 It does not turn incomplete evidence into a score or claim that one change caused another:
 
@@ -17,7 +17,7 @@ It does not turn incomplete evidence into a score or claim that one change cause
 - [Who it's for](#who-its-for)
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
-- [What Ghostping does and doesn't do](#what-ghostping-does-and-doesnt-do)
+- [What OpenRecord does and doesn't do](#what-openrecord-does-and-doesnt-do)
 - [Security and privacy](#security-and-privacy)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
@@ -50,7 +50,7 @@ The flow reads top to bottom, from the smallest input to the broadest result. Ea
 
 ### Design rules
 
-- **Evidence over scores.** Ghostping shows concrete observations and issues, not an opaque accuracy or visibility score.
+- **Evidence over scores.** OpenRecord shows concrete observations and issues, not an opaque accuracy or visibility score.
 - **Unknown stays unknown.** Missing, failed, or ambiguous evidence is never treated as false.
 - **People make judgments.** Machines collect observations; reviewers decide what those observations mean.
 - **Verification is not causation.** A before-and-after change can be recorded without claiming what caused it.
@@ -62,14 +62,14 @@ The flow reads top to bottom, from the smallest input to the broadest result. Ea
 On macOS or Linux, install the latest CLI release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/commonfields/ghostping/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/commonfields/openrecord/main/scripts/install.sh | bash
 ```
 
 The installer verifies the download before installing. On Windows, use [`scripts/install.ps1`](scripts/install.ps1). To build from source instead:
 
 ```bash
 cargo build --release --locked
-./target/release/ghostping quickstart
+./target/release/openrecord quickstart
 ```
 
 ### Use the hosted web app
@@ -77,8 +77,8 @@ cargo build --release --locked
 Prerequisites: Node.js 24 (see [`.node-version`](.node-version)), pnpm, and PostgreSQL 16.
 
 ```bash
-git clone https://github.com/commonfields/ghostping.git
-cd ghostping
+git clone https://github.com/commonfields/openrecord.git
+cd openrecord
 pnpm install --frozen-lockfile
 ```
 
@@ -97,13 +97,13 @@ Every terminal needs `DATABASE_URL` (prefix each command or re-export it):
 
 ```bash
 # Terminal 1: HTTP API on port 3001
-DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @ghostping/api dev
+DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @openrecord/api dev
 
 # Terminal 2: AI-check and discovery workers
-DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @ghostping/worker dev
+DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @openrecord/worker dev
 
 # Terminal 3: web app on port 3000
-DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @ghostping/web dev
+DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @openrecord/web dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000), create an account and business, add approved facts, and run a check. The default mock provider is deterministic, offline, and needs no credentials. Live providers are optional and off by default.
@@ -112,9 +112,9 @@ Open [http://localhost:3000](http://localhost:3000), create an account and busin
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
-Live 9Router checks require an endpoint, API key, and comma-separated `NINE_ROUTER_MODELS` allowlist; see [`.env.example`](.env.example) for the complete configuration. Configuration fails closed when any value is invalid, and every check must request one allowlisted direct model. Ghostping never substitutes another model. `NINE_ROUTER_MODEL` remains a temporary single-model compatibility option and is ignored when `NINE_ROUTER_MODELS` is set.
+Live 9Router checks require an endpoint, API key, and comma-separated `NINE_ROUTER_MODELS` allowlist; see [`.env.example`](.env.example) for the complete configuration. Configuration fails closed when any value is invalid, and every check must request one allowlisted direct model. OpenRecord never substitutes another model. `NINE_ROUTER_MODEL` remains a temporary single-model compatibility option and is ignored when `NINE_ROUTER_MODELS` is set.
 
-## What Ghostping does and doesn't do
+## What OpenRecord does and doesn't do
 
 Does:
 
@@ -151,4 +151,4 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, cod
 
 ## License
 
-Ghostping is available under the [MIT License](LICENSE).
+OpenRecord is available under the [MIT License](LICENSE).

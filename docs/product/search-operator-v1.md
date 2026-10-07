@@ -19,14 +19,14 @@ OBSERVE (inspect site)
   -> MEASURE (counts by status: open / awaiting / in progress / pending / verified)
 ```
 
-A fix is complete only after Ghostping re-observes the live page.
+A fix is complete only after OpenRecord re-observes the live page.
 A merged PR alone never marks anything fixed.
 
 ## 2. Vocabulary (concrete language, enforced by tests)
 
 - Findings say what was observed: `Blocked from indexing`,
   `Canonical points elsewhere`, `Page not found`.
-- `SITE_INDEXABLE` (Ghostping-observed directives) and
+- `SITE_INDEXABLE` (OpenRecord-observed directives) and
   `GOOGLE_REPORTED_INDEXED` (what Search Console reports) are separate
   fields, separate UI cards, and never conflated.
 - Indexability values: `INDEXABLE`, `BLOCKED_BY_META`,
@@ -74,7 +74,7 @@ representation/discovery stack; Effect + Postgres patterns unchanged.
 - `APPROVAL_REQUIRED`: noindex removal, canonical corrections, internal-link
   fixes. The UI always shows the exact before/after diff first.
 - `MANUAL_ONLY`: titles, descriptions, schema, robots.txt, redirects,
-  content. Ghostping does not publish marketing copy.
+  content. OpenRecord does not publish marketing copy.
 - `SAFE_AUTOMATIC`: reserved for deterministic mechanical repairs
   (sitemap XML repair drafts it today; nothing auto-applies without a
   mutation record).
@@ -85,7 +85,7 @@ representation/discovery stack; Effect + Postgres patterns unchanged.
 
 - `VERIFICATION_PENDING`: a verification run is queued; outcome unknown.
 - `VERIFIED_FIXED`: a later inspection of the same URL no longer exhibits
-  the finding kind. Detail: `Ghostping verified the fix on the live site.`
+  the finding kind. Detail: `OpenRecord verified the fix on the live site.`
 - `VERIFIED_NOT_FIXED`: the live page still exhibits the issue, even though
   a mutation exists. The system does not lie about merges.
 - URLs absent from a run stay pending; they are never guessed.
@@ -116,7 +116,7 @@ API + worker running, a business created.
    shells out: commit and open the PR with normal git tooling, then record
    the observed identity on the finding page (`Record branch` ->
    `Record pull request`; `POST .../mutations/:id/identity`).
-   Ghostping does not merge; merge the PR by hand and record the merge.
+   OpenRecord does not merge; merge the PR by hand and record the merge.
 8. Deploy the merged change to the inspected target.
 9. Verify (`POST .../findings/:findingId/verify`): queues a fresh run;
    the worker re-inspects the live page. With noindex gone the finding

@@ -471,7 +471,7 @@ fn parse_observation_instant(at: &str) -> Result<i64> {
 }
 
 /// Authority conflict between co-active facts. Derived, never stored:
-/// Ghostping surfaces it and never chooses a winner.
+/// OpenRecord surfaces it and never chooses a winner.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FactAuthorityConflict {
     pub project_id: String,
@@ -1043,8 +1043,8 @@ mod tests {
     }
 
     fn seed_observation(storage: &AuditStorage) -> String {
-        let payload = serde_json::json!({"text": "Ghostping costs $29 per month."});
-        let raw = b"ghostping-observation-bytes";
+        let payload = serde_json::json!({"text": "OpenRecord costs $29 per month."});
+        let raw = b"openrecord-observation-bytes";
         // Capture the generated id via a second read: insert, then list.
         storage
             .insert_observation(&NewObservation {
@@ -1421,7 +1421,7 @@ mod tests {
         let mut new = fact("pricing", "monthly_price", "$39", FactValueType::Currency);
         new.valid_from = Some("2026-09-01");
         storage.insert_fact(&new).unwrap();
-        let mut undated = fact("brand", "name", "Ghostping", FactValueType::Text);
+        let mut undated = fact("brand", "name", "OpenRecord", FactValueType::Text);
         undated.valid_from = None;
         storage.insert_fact(&undated).unwrap();
 
@@ -1441,7 +1441,7 @@ mod tests {
             .collect();
         assert!(sept.contains(&"$39".to_string()));
         assert!(!sept.contains(&"$29".to_string()));
-        assert!(sept.contains(&"Ghostping".to_string()));
+        assert!(sept.contains(&"OpenRecord".to_string()));
     }
 
     #[test]
@@ -1450,7 +1450,7 @@ mod tests {
         let bad = NewClaim {
             project_id: "example.com",
             observation_id: "obs_nope",
-            claim_text: "Ghostping costs $29 per month.",
+            claim_text: "OpenRecord costs $29 per month.",
             source_span_text: None,
             source_part: None,
             start_offset: None,
@@ -1476,8 +1476,8 @@ mod tests {
         let spanned = NewClaim {
             project_id: "example.com",
             observation_id: &saved.observation_id,
-            claim_text: "Ghostping costs $29 per month.",
-            source_span_text: Some("Ghostping costs $29 per month."),
+            claim_text: "OpenRecord costs $29 per month.",
+            source_span_text: Some("OpenRecord costs $29 per month."),
             source_part: Some(0),
             start_offset: Some(0),
             end_offset: Some(32),
@@ -1505,7 +1505,7 @@ mod tests {
             .insert_claim(&NewClaim {
                 project_id: "example.com",
                 observation_id: &obs,
-                claim_text: "Ghostping costs $29 per month.",
+                claim_text: "OpenRecord costs $29 per month.",
                 source_span_text: None,
                 source_part: None,
                 start_offset: None,
@@ -1583,7 +1583,7 @@ mod tests {
             .insert_claim(&NewClaim {
                 project_id: "example.com",
                 observation_id: &obs,
-                claim_text: "Ghostping costs $29 per month.",
+                claim_text: "OpenRecord costs $29 per month.",
                 source_span_text: None,
                 source_part: None,
                 start_offset: None,

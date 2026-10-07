@@ -1,6 +1,6 @@
 # Jev Judgment Assay (research, not production)
 
-Evaluates whether TypeSafe AI's Jev can serve as Ghostping's narrow
+Evaluates whether TypeSafe AI's Jev can serve as OpenRecord's narrow
 probabilistic judgment layer. Read `PROTOCOL.md` first — it is
 preregistered and frozen.
 
@@ -38,7 +38,7 @@ engineering development material only — never real-world accuracy.
 
 Jev never decides what evidence exists. It receives `CandidateClaim` +
 `AuthoritativeFactSet` (Task A) or `CandidateClaim` + `CitationExcerpt`
-(Task B) and answers closed noul questions. Deterministic Ghostping code
+(Task B) and answers closed noul questions. Deterministic OpenRecord code
 composes labels and dispositions. No production path (`audit`,
 `observations`, `report`, `scheduler`, `Tauri`, `watch`, `chat`,
 `generate`) imports or calls the assay.

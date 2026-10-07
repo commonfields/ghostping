@@ -5,8 +5,8 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
-import { knownValue, PROTOCOL_VERSION, schemaId, serializePacket, surfaceForWorker } from "@ghostping/protocol"
-import { EvidenceLineageRepository, type IssueLineage } from "@ghostping/db"
+import { knownValue, PROTOCOL_VERSION, schemaId, serializePacket, surfaceForWorker } from "@openrecord/protocol"
+import { EvidenceLineageRepository, type IssueLineage } from "@openrecord/db"
 import { loadIssuePacket } from "./packet-read.js"
 
 const BIZ = "11111111-1111-4111-8111-111111111111"

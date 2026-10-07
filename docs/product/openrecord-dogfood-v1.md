@@ -1,30 +1,30 @@
-# Ghostping dogfood V1 (evidence, not marketing)
+# OpenRecord dogfood V1 (evidence, not marketing)
 
 Environment: local staging (API :3001, web :3000, worker, PostgreSQL 14 local; CI covers PG16).
-Dates: 2026-10-04. Business: "Ghostping" (demo account, local DB only — never production).
+Dates: 2026-10-04. Business: "OpenRecord" (demo account, local DB only — never production).
 LIVE_AI_DOGFOOD = BLOCKED (no provider credentials present or authorized; all AI observations below are mock plumbing).
 
 ## Approved assertions (10, all supported by implementation)
 
-- Ghostping is not a GEO visibility/ranking tool (no rank tracking exists).
-- Ghostping does not guarantee AI answer changes (no mechanism exists).
-- Ghostping uses no accuracy/visibility scores (none exist; guards tested).
-- Ghostping does not auto-fix sources (no writers exist).
-- Ghostping observes AI answers, tracks owned sources, requires human judgment, preserves raw evidence, supports mock + one pinned live model.
+- OpenRecord is not a GEO visibility/ranking tool (no rank tracking exists).
+- OpenRecord does not guarantee AI answer changes (no mechanism exists).
+- OpenRecord uses no accuracy/visibility scores (none exist; guards tested).
+- OpenRecord does not auto-fix sources (no writers exist).
+- OpenRecord observes AI answers, tracks owned sources, requires human judgment, preserves raw evidence, supports mock + one pinned live model.
 - Primary loop: know-observe-diagnose-act-verify-reobserve-record.
 
 ## Intended positioning (thesis, not fact)
 
-"Ghostping is an AI Representation Integrity system: know what AI tells customers, trace problems to evidence, correct what you control, verify afterward."
+"OpenRecord is an AI Representation Integrity system: know what AI tells customers, trace problems to evidence, correct what you control, verify afterward."
 
 ## Buyer questions (12, asked via API)
 
-What is Ghostping? / problem solved? / another GEO tool? / guarantee ChatGPT changes? / only pricing? / stale info on my site? / how is correctness known? / auto-fix third-party? / visibility score? / who should use it? / difference vs Profound/Scrunch? / evidence preserved?
+What is OpenRecord? / problem solved? / another GEO tool? / guarantee ChatGPT changes? / only pricing? / stale info on my site? / how is correctness known? / auto-fix third-party? / visibility score? / who should use it? / difference vs Profound/Scrunch? / evidence preserved?
 
 ## Controlled source inventory
 
 - CONTROLLED: README.md, docs/, GitHub repo (public, description set, no homepage).
-- PARTIALLY_CONTROLLED: github.com/urbiens/ghostping (platform chrome + robots policy not ours).
+- PARTIALLY_CONTROLLED: github.com/urbiens/openrecord (platform chrome + robots policy not ours).
 - EXTERNAL: model outputs, third-party pages.
 - Not real: website/ (placeholder links), ghostping.dev (nonexistent).
 
@@ -34,12 +34,12 @@ What is Ghostping? / problem solved? / another GEO tool? / guarantee ChatGPT cha
 
 ## Issues (real, from dogfood flow)
 
-1. WRONG: "Ghostping guarantees that ChatGPT will change its answer" CONTRADICTED by `guarantees_ai_answers=false`. Genuine loop output (claim→judgment→issue works).
-2. SERIOUS tool finding: real discovery against github.com/urbiens/ghostping SUCCEEDED (1 page) with 9 CURRENT/META candidates — all coincidental boolean matches (`octolytics-*=true/false`, `react-profiling=0` parsed as false) with no semantic relation to the asserted facts. Recorded as matcher-precision limitation; mitigated with candidate evidence transparency (locator+snippet display) rather than precision heuristics. Text/money assertions (the severe commercial cases) do not share this coincidence rate.
+1. WRONG: "OpenRecord guarantees that ChatGPT will change its answer" CONTRADICTED by `guarantees_ai_answers=false`. Genuine loop output (claim→judgment→issue works).
+2. SERIOUS tool finding: real discovery against github.com/urbiens/openrecord SUCCEEDED (1 page) with 9 CURRENT/META candidates — all coincidental boolean matches (`octolytics-*=true/false`, `react-profiling=0` parsed as false) with no semantic relation to the asserted facts. Recorded as matcher-precision limitation; mitigated with candidate evidence transparency (locator+snippet display) rather than precision heuristics. Text/money assertions (the severe commercial cases) do not share this coincidence rate.
 
 ## UNKNOWNs
 
-- Whether any live surface misrepresents Ghostping (no credentials → untested).
+- Whether any live surface misrepresents OpenRecord (no credentials → untested).
 - Actual model retrieval paths (citations only where providers give them).
 - Whether the GitHub page content would match TEXT assertions (only booleans asserted; page fetched once).
 
@@ -62,7 +62,7 @@ Not executed: nothing was changed, and live re-observation is BLOCKED on credent
 2. Before/after compare view (deferred; history tables suffice).
 3. Matcher key-relevance study for boolean META candidates (roadmap candidate, needs evidence first).
 
-## Did Ghostping materially help Ghostping?
+## Did OpenRecord materially help OpenRecord?
 
 Partially. It executed the full loop on plumbing, caught no live misrepresentation (couldn't look), but genuinely exposed a precision weakness in its own matcher plus two missing loop surfaces (since built). That is a legitimate assay result: useful, not yet pilot-proving.
 
@@ -70,9 +70,9 @@ Partially. It executed the full loop on plumbing, caught no live misrepresentati
 
 ## LIVE section — 2026-10-04 (this mission)
 
-- Canonical repo: `commonfields/ghostping` (urbiens 301-redirects; origin updated). Main: `60bda0c`.
+- Canonical repo: `commonfields/openrecord` (urbiens 301-redirects; origin updated). Main: `60bda0c`.
 - Environment: local staging (API :3001, web :3000, worker, local PG; CI PG16 green).
-- Public sources: README.md + docs/ CONTROLLED (content via public repo); github.com/commonfields/ghostping PARTIALLY_CONTROLLED (chrome/robots uncontrolled); website/ local-only placeholder; ghostping.dev nonexistent (verified).
+- Public sources: README.md + docs/ CONTROLLED (content via public repo); github.com/commonfields/openrecord PARTIALLY_CONTROLLED (chrome/robots uncontrolled); website/ local-only placeholder; ghostping.dev nonexistent (verified).
 - Facts: 10 implementation-verified assertions (retained) + 1 honest TEXT fact (`github_description`).
 - Buyer questions: 12 retained.
 - Source observations: real fetch of github.com page (og:description) → OBSERVED → finding DRIFT (platform suffix vs approved text — informative, no action warranted).
@@ -91,7 +91,7 @@ Partially. It executed the full loop on plumbing, caught no live misrepresentati
 
 ## LIVE RESUME section — 2026-10-04 (PR #23 merged, main f5ea719)
 
-- Canonical repo re-verified: `commonfields/ghostping`; urbiens URL 301-redirects (transfer, not a fork). Origin updated.
+- Canonical repo re-verified: `commonfields/openrecord`; urbiens URL 301-redirects (transfer, not a fork). Origin updated.
 - PR #23 MERGED (had been the blocker fix: deliberate target+binding creation + candidate Track dialog, exact-head CI green). Boundary invariants re-confirmed by inspection: no auto-promotion path in discovery/worker, tenant-scoped creation, 404s on unknown/cross-tenant, no intervention/truth/check side effects in tracking code.
 - Product-path acceptance on merged main, zero SQL: discovery candidate (META `octolytics-dimension-repository_public`) → Track → target (idempotent re-track returned existing row) → binding (META_CONTENT/BOOLEAN) → detail (UNKNOWN, never observed) → Verify source → FETCHED, OBSERVED `true`, finding IN_SYNC. Representations list holds exactly the 2 deliberate bindings — no auto-promotion.
 - Discovery re-run on canonical scope: SUCCEEDED, 1 page, 9 candidates — same boolean-chrome coincidence class (octolytics/react-profiling true/false). BOOLEAN precision finding stands, still mitigated by evidence transparency, not heuristics.

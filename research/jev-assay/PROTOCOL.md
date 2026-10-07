@@ -17,7 +17,7 @@ policy, truth maps, labels, or split without a protocol v2.
 
 ## Research question
 
-Can Jev classify narrow semantic relationships over Ghostping evidence
+Can Jev classify narrow semantic relationships over OpenRecord evidence
 with sufficiently high precision and useful coverage while being
 materially cheaper or faster than a conventional frontier-model judge?
 

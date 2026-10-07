@@ -11,19 +11,19 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-fn ghostping_bin() -> PathBuf {
+fn openrecord_bin() -> PathBuf {
     // Cargo provides the freshly built binary path to integration tests.
     // Fall back to a prebuilt target binary for ad-hoc runs.
-    let from_cargo = option_env!("CARGO_BIN_EXE_ghostping").map(PathBuf::from);
+    let from_cargo = option_env!("CARGO_BIN_EXE_openrecord").map(PathBuf::from);
     if let Some(p) = from_cargo {
         return p;
     }
     let dir = env!("CARGO_MANIFEST_DIR");
-    let debug = PathBuf::from(dir).join("target/debug/ghostping");
+    let debug = PathBuf::from(dir).join("target/debug/openrecord");
     if debug.exists() {
         return debug;
     }
-    PathBuf::from(dir).join("target/release/ghostping")
+    PathBuf::from(dir).join("target/release/openrecord")
 }
 
 struct Sandbox {
@@ -36,10 +36,10 @@ impl Sandbox {
     fn new() -> Self {
         let home = tempfile::TempDir::new().unwrap();
         let proj = tempfile::TempDir::new().unwrap();
-        let bin = ghostping_bin();
+        let bin = openrecord_bin();
         assert!(
             bin.exists(),
-            "ghostping binary missing at {}; build it first (cargo build --bin ghostping)",
+            "openrecord binary missing at {}; build it first (cargo build --bin openrecord)",
             bin.display()
         );
         Self { home, proj, bin }
@@ -52,7 +52,7 @@ impl Sandbox {
             .env("HOME", self.home.path())
             .env_remove("GHOSTPING_BIN")
             .output()
-            .expect("failed to spawn ghostping");
+            .expect("failed to spawn openrecord");
         let code = out.status.code().unwrap_or(-1);
         let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
         text.push_str(&String::from_utf8_lossy(&out.stderr));
@@ -60,11 +60,11 @@ impl Sandbox {
     }
 
     fn evidence_db(&self) -> PathBuf {
-        self.home.path().join(".ghostping/evidence.db")
+        self.home.path().join(".openrecord/evidence.db")
     }
 
     fn legacy_db(&self) -> PathBuf {
-        self.home.path().join(".ghostping/mentions.db")
+        self.home.path().join(".openrecord/mentions.db")
     }
 }
 
@@ -190,15 +190,15 @@ fn legacy_history_cannot_appear_as_current_evidence() {
 fn legacy_summaries_carry_explicit_source_marker() {
     // Unit-level pin: the legacy path's summary type is self-identifying,
     // so no consumer can mistake it for an evidence-engine AuditSummary.
-    assert_eq!(ghostping::tracker::AUDIT_SOURCE_LEGACY, "legacy-tracker");
-    let summary = ghostping::types::TrackSummary {
+    assert_eq!(openrecord::tracker::AUDIT_SOURCE_LEGACY, "legacy-tracker");
+    let summary = openrecord::types::TrackSummary {
         domain: "x.example".to_string(),
         total_queries: 1,
         mention_count: 1,
         citation_count: 0,
         models_with_mention: vec!["openai".to_string()],
         results: vec![],
-        source: ghostping::tracker::AUDIT_SOURCE_LEGACY.to_string(),
+        source: openrecord::tracker::AUDIT_SOURCE_LEGACY.to_string(),
     };
     assert_eq!(summary.source, "legacy-tracker");
 }

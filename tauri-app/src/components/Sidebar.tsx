@@ -58,7 +58,7 @@ const itemStyle = (active: boolean): React.CSSProperties => ({
 export default function Sidebar({ active, onChange }: Props) {
   return (
     <div style={styles.sidebar}>
-      <div style={styles.logo}>Ghostping</div>
+      <div style={styles.logo}>OpenRecord</div>
       <nav style={styles.nav}>
         {items.map((item) => (
           <div

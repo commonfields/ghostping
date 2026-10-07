@@ -37,7 +37,7 @@ export function Home() {
         <EmptyState
           icon={<Building2Icon />}
           title="Add your first business"
-          description="Ghostping compares what AI assistants say about a business with the facts you approve for it."
+          description="OpenRecord compares what AI assistants say about a business with the facts you approve for it."
           action={
             <Button onClick={() => setCreateOpen(true)}>
               <PlusIcon />

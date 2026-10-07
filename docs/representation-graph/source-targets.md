@@ -1,6 +1,6 @@
 # Source Targets & Bindings
 
-SourceTarget: exactly one configured URL Ghostping may observe (OWNED /
+SourceTarget: exactly one configured URL OpenRecord may observe (OWNED /
 THIRD_PARTY / UNKNOWN, enabled flag). Not a crawl seed.
 
 SourceBinding: fact → target + deterministic extractor (JSON_LD / CSS_TEXT /

@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
-import { knownValue, PROTOCOL_VERSION, schemaId, surfaceForWorker } from "@ghostping/protocol"
+import { knownValue, PROTOCOL_VERSION, schemaId, surfaceForWorker } from "@openrecord/protocol"
 import {
   BusinessRepository,
   CheckRunRepository,
@@ -19,7 +19,7 @@ import {
   type InterventionRow,
   type ReobservationIntentRow,
   type ReobservationRow,
-} from "@ghostping/db"
+} from "@openrecord/db"
 import {
   buildIssueLoop,
   buildLoopComparison,
@@ -163,7 +163,7 @@ describe("issue loop is derived, never stored", () => {
 
   it("computes match/change/outcome only via protocol measurement fns", () => {
     const text = source()
-    expect(text).toContain('from "@ghostping/protocol"')
+    expect(text).toContain('from "@openrecord/protocol"')
     for (const fn of ["compareMeasurements", "deriveObservedChange", "deriveOutcome", "latestJudgment", "soleClaim", "measurementSignature"]) {
       expect(text, `missing protocol import: ${fn}`).toContain(fn)
     }

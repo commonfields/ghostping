@@ -21,10 +21,10 @@ use crate::audit_storage::AuditStorage;
 pub const OBS_SCHEMA_VERSION: i64 = 1;
 /// Collector identity stamped on kernel-written observations.
 pub const OBS_COLLECTOR_VERSION: &str =
-    concat!("ghostping-observations/", env!("CARGO_PKG_VERSION"));
+    concat!("openrecord-observations/", env!("CARGO_PKG_VERSION"));
 
 /// Canonical observation types. First-party platform measurements and
-/// Ghostping-controlled sampling are different types by construction.
+/// OpenRecord-controlled sampling are different types by construction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ObservationType {
@@ -827,7 +827,9 @@ mod tests {
             raw
         );
         assert!(env.observation_id.starts_with("obs_"));
-        assert!(env.collector_version.starts_with("ghostping-observations/"));
+        assert!(env
+            .collector_version
+            .starts_with("openrecord-observations/"));
     }
 
     #[test]

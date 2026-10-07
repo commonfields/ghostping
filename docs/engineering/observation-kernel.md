@@ -1,6 +1,6 @@
 # Observation Kernel — architecture note (design only, not implemented)
 
-This note defines the next-layer contracts for Ghostping's future
+This note defines the next-layer contracts for OpenRecord's future
 Observation Kernel. It specifies shapes and invariants only. Per scope,
 no adapters are implemented here: no Search Console, no grounded-search
 adapters, no crawler-log ingestion, no referral analytics, no claim
@@ -25,7 +25,7 @@ Every observation collected by any adapter is stored as:
 | `observation_type` | enum | One of the payload classes |
 | `surface` | enum | e.g. `chatgpt`, `claude`, `perplexity`, `grok`, `gemini`, `ollama:<model>`, `origin-server`, `referrer`, `search-console` |
 | `collected_at` | RFC 3339 | Collection timestamp, not inference time |
-| `collector_version` | string | Adapter name + version, e.g. `ghostping-audit/0.4.0` |
+| `collector_version` | string | Adapter name + version, e.g. `openrecord-audit/0.4.0` |
 | `schema_version` | integer | Envelope schema version; readers must tolerate newer minor versions by ignoring unknown fields, never by guessing |
 | `provider` / `model` | optional strings | Where applicable; `null` for first-party surfaces |
 | `retrieval_mode` | optional enum | `UNKNOWN` \| `GROUNDED` \| `PARAMETRIC` — how the underlying answer was produced, when known |
@@ -49,7 +49,7 @@ Every observation collected by any adapter is stored as:
 - `CrawlerVisitObservation` — first-party log evidence a bot fetched a URL (timestamp, path, agent, status).
 - `ReferralObservation` — first-party evidence of inbound AI-referred traffic (referrer, landing path, session markers available).
 - `IntegrityObservation` — something about the collection was off: partial batch, clock skew, schema mismatch, adapter error. Always emitted alongside — never instead of — the affected observations.
-- `InterventionObservation` — Ghostping itself did something (published content, changed prompts, checkpoint stamped). Controlled-experiment evidence; distinct class from platform measurements.
+- `InterventionObservation` — OpenRecord itself did something (published content, changed prompts, checkpoint stamped). Controlled-experiment evidence; distinct class from platform measurements.
 - `ClaimObservation` — a verifiable factual claim extracted about the project (text span + source span). Extraction is a later slice; the class exists so claims are attributable from day one.
 
 ## Invariants (normative)
@@ -76,7 +76,7 @@ Every observation collected by any adapter is stored as:
    algorithms change.** `raw_ref` + `raw_digest` pin the evidence;
    re-running a new classifier over old bytes must yield the same
    observation with a new derived view — never a mutated observation.
-7. **First-party platform measurements and Ghostping-controlled
+7. **First-party platform measurements and OpenRecord-controlled
    experiments are different evidence classes.** `CrawlerVisit`/`Referral`
    (the world acting) vs `Intervention` (us acting). Comparing them is
    legitimate; conflating them is not.

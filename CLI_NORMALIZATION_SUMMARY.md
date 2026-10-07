@@ -1,8 +1,8 @@
-# Ghostping v0.2.1 CLI Normalization - Completion Summary
+# OpenRecord v0.2.1 CLI Normalization - Completion Summary
 
 ## Overview
 
-Successfully completed CLI normalization and release hardening for Ghostping v0.2.1. The evidence-first GEO engine workflow has been promoted from temporary `*2` commands to clean, production-ready command names.
+Successfully completed CLI normalization and release hardening for OpenRecord v0.2.1. The evidence-first GEO engine workflow has been promoted from temporary `*2` commands to clean, production-ready command names.
 
 ## Phase 1: CLI Cleanup ✓
 
@@ -10,16 +10,16 @@ Successfully completed CLI normalization and release hardening for Ghostping v0.
 
 | Old Command | New Command | Status |
 |------------|-------------|---------|
-| `ghostping init2` | `ghostping init` | ✓ Promoted |
-| `ghostping prompts2 discover` | `ghostping prompts discover` | ✓ Promoted |
-| `ghostping prompts2 list` | `ghostping prompts list` | ✓ Promoted |
-| `ghostping audit2 run` | `ghostping audit run` | ✓ Promoted |
-| `ghostping audit2 list` | `ghostping audit list` | ✓ Promoted |
-| `ghostping audit2 show <id>` | `ghostping audit show <id>` | ✓ Promoted |
-| `ghostping report2` | `ghostping report` | ✓ Promoted |
-| `ghostping generate2` | `ghostping generate` | ✓ Promoted |
-| `ghostping diagnose2 <url>` | `ghostping diagnose <url>` | ✓ Promoted |
-| `ghostping compare --before X --after Y` | `ghostping audit compare --before X --after Y` | ✓ Moved under audit |
+| `openrecord init2` | `openrecord init` | ✓ Promoted |
+| `openrecord prompts2 discover` | `openrecord prompts discover` | ✓ Promoted |
+| `openrecord prompts2 list` | `openrecord prompts list` | ✓ Promoted |
+| `openrecord audit2 run` | `openrecord audit run` | ✓ Promoted |
+| `openrecord audit2 list` | `openrecord audit list` | ✓ Promoted |
+| `openrecord audit2 show <id>` | `openrecord audit show <id>` | ✓ Promoted |
+| `openrecord report2` | `openrecord report` | ✓ Promoted |
+| `openrecord generate2` | `openrecord generate` | ✓ Promoted |
+| `openrecord diagnose2 <url>` | `openrecord diagnose <url>` | ✓ Promoted |
+| `openrecord compare --before X --after Y` | `openrecord audit compare --before X --after Y` | ✓ Moved under audit |
 
 ### Legacy Command Preservation
 - `audit` → `audit-legacy` (original domain-based audit)
@@ -29,7 +29,7 @@ Successfully completed CLI normalization and release hardening for Ghostping v0.
 ### New Command Structure
 
 ```
-ghostping
+openrecord
 ├── init                          # Initialize project (NEW PRIMARY)
 ├── prompts                       # Prompt management
 │   ├── discover
@@ -52,7 +52,7 @@ ghostping
 ```
 
 ### Files Modified
-- `src/bin/ghostping.rs` - Updated Commands enum and match arms
+- `src/bin/openrecord.rs` - Updated Commands enum and match arms
 
 ## Phase 2: Documentation Cleanup ✓
 
@@ -84,16 +84,16 @@ ghostping
 ### Smoke Tests Passed
 All clean workflow commands tested:
 ```bash
-ghostping init --name "Test" --website "https://example.com" --category "test" --yes
-ghostping prompts discover
-ghostping prompts list
-ghostping audit run --models mock --samples 3
-ghostping audit list
-ghostping audit show 1
-ghostping report --output ./reports/
-ghostping generate --output ./generated/
-ghostping audit compare --before 1 --after 2
-ghostping diagnose https://example.com
+openrecord init --name "Test" --website "https://example.com" --category "test" --yes
+openrecord prompts discover
+openrecord prompts list
+openrecord audit run --models mock --samples 3
+openrecord audit list
+openrecord audit show 1
+openrecord report --output ./reports/
+openrecord generate --output ./generated/
+openrecord audit compare --before 1 --after 2
+openrecord diagnose https://example.com
 ```
 
 ### Release Validation Script
@@ -102,14 +102,14 @@ Created `scripts/validate-release.sh` for automated pre-release checks.
 ## Phase 4: Product Polish ✓
 
 ### Terminal Output Improvements
-1. Fixed "Next command" suggestion: `ghostping generate2` → `ghostping generate`
+1. Fixed "Next command" suggestion: `openrecord generate2` → `openrecord generate`
 2. Fixed temperature formatting: `0.20000000298023224` → `0.20`
 3. Fixed llms.txt suggestion in diagnose output
 4. Verified audit list output is scannable
 5. Verified audit show output is informative but not overwhelming
 
 ### Files Modified
-- `src/bin/ghostping.rs` - Updated output strings
+- `src/bin/openrecord.rs` - Updated output strings
 
 ## Phase 5: Versioning ✓
 
@@ -134,7 +134,7 @@ test result: ok. 40 passed; 0 failed; 0 ignored
 
 ### Manual Smoke Test
 All 11 workflow commands executed successfully:
-- ✅ init - Creates ghostping.toml
+- ✅ init - Creates openrecord.toml
 - ✅ prompts discover - Generates 18 prompts
 - ✅ prompts list - Shows 24 prompts
 - ✅ audit run - Completes 48 queries
@@ -148,7 +148,7 @@ All 11 workflow commands executed successfully:
 ### No API Keys Required
 Mock provider workflow works 100% without API keys:
 ```bash
-ghostping audit run --models mock --samples 3
+openrecord audit run --models mock --samples 3
 ```
 
 ## Known Limitations
@@ -165,20 +165,20 @@ ghostping audit run --models mock --samples 3
 Simply remove the `2` suffix:
 ```bash
 # Before
-ghostping init2 --name "MyProject"
+openrecord init2 --name "MyProject"
 
 # After
-ghostping init --name "MyProject"
+openrecord init --name "MyProject"
 ```
 
 ### For v0.1 Legacy Users
 Use the `-legacy` suffix for original commands:
 ```bash
 # Original (v0.1)
-ghostping audit myproject.com
+openrecord audit myproject.com
 
 # Now (v0.3.0)
-ghostping audit-legacy myproject.com
+openrecord audit-legacy myproject.com
 ```
 
 ## Recommended Next Tasks
@@ -192,7 +192,7 @@ ghostping audit-legacy myproject.com
 ## Final Output Summary
 
 ### Files Changed
-1. `src/bin/ghostping.rs` - CLI command restructuring
+1. `src/bin/openrecord.rs` - CLI command restructuring
 2. `README.md` - Updated documentation
 3. `docs/v0.2-evidence-engine-guide.md` - Updated user guide
 4. `CHANGELOG.md` - Created release notes
@@ -213,4 +213,4 @@ ghostping audit-legacy myproject.com
 
 ## Product Status: ✅ RELEASE READY
 
-Ghostping v0.3.0 is ready for release with clean, professional CLI interface and comprehensive documentation.
+OpenRecord v0.3.0 is ready for release with clean, professional CLI interface and comprehensive documentation.

@@ -14,9 +14,9 @@ An intervention records something an operator changed, or tried to change, after
 | `actor` | `HUMAN`, `AGENT`, `SYSTEM`, or `UNKNOWN` |
 | `actor_id` | Knowledge. `UNKNOWN` unless identity is proven. Never fabricated. |
 | `notes` | Optional operator notes |
-| `evidence_before_digest`, `evidence_after_digest` | Knowledge (SHA-256). `UNKNOWN` unless Ghostping holds real content digests. V1 never scrapes to fill them. |
+| `evidence_before_digest`, `evidence_after_digest` | Knowledge (SHA-256). `UNKNOWN` unless OpenRecord holds real content digests. V1 never scrapes to fill them. |
 | `supersedes_id`, `correction_reason` | Both set only on a correcting record |
-| `created_at` | When Ghostping recorded the event |
+| `created_at` | When OpenRecord recorded the event |
 
 ## Append-only enforcement (PostgreSQL)
 

@@ -15,7 +15,7 @@ import {
   ProviderAttemptEvidenceRepository,
   QuestionRepository,
   type ReobservationRow,
-} from "@ghostping/db"
+} from "@openrecord/db"
 import {
   compareMeasurements,
   deriveObservedChange,
@@ -24,7 +24,7 @@ import {
   measurementSignature,
   requestConfigurationForWorker,
   surfaceForWorker,
-} from "@ghostping/protocol"
+} from "@openrecord/protocol"
 import {
   ProviderRegistry,
   ProviderAuth,
@@ -32,7 +32,7 @@ import {
   rawEvidence,
   type ProviderError,
   type ProviderObservation,
-} from "@ghostping/providers"
+} from "@openrecord/providers"
 import { CheckRunner, makeCheckRunnerLive } from "./check-runner.js"
 
 const ok: ProviderObservation = {
@@ -296,7 +296,7 @@ describe("measurement comparability (protocol authority only)", () => {
 
   it("different requested models produce different measurement signatures", () => {
     const modelA = hostedMeasurementContext({
-      businessId: "b1", questionId: "q1", checkRunId: "run-a", prompt: "What is Ghostping?",
+      businessId: "b1", questionId: "q1", checkRunId: "run-a", prompt: "What is OpenRecord?",
       provider: "9router", requestedModel: "provider/model-a", observedModel: null,
       observedAt: "2026-10-04T00:00:00.000Z",
     })

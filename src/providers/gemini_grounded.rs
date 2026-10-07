@@ -584,7 +584,7 @@ mod tests {
         let content = parse_grounded_response(&json).unwrap();
         assert_eq!(content.retrieval_mode, RetrievalMode::Grounded);
         assert_eq!(content.interpretation_version, GROUNDING_INTERP_VERSION);
-        assert!(content.text.contains("Ghostping"));
+        assert!(content.text.contains("OpenRecord"));
         assert_eq!(
             content.web_search_queries,
             vec!["best rust cli visibility tool"]

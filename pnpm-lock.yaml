@@ -32,28 +32,28 @@ importers:
       '@effect/sql-pg':
         specifier: 0.53.0
         version: 0.53.0(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(@effect/sql@0.52.1(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(effect@3.22.2)
-      '@ghostping/config':
+      '@openrecord/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@ghostping/contracts':
+      '@openrecord/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@ghostping/db':
+      '@openrecord/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@ghostping/discovery':
+      '@openrecord/discovery':
         specifier: workspace:*
         version: link:../../packages/discovery
-      '@ghostping/domain':
+      '@openrecord/domain':
         specifier: workspace:*
         version: link:../../packages/domain
-      '@ghostping/protocol':
+      '@openrecord/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
-      '@ghostping/representation':
+      '@openrecord/representation':
         specifier: workspace:*
         version: link:../../packages/representation
-      '@ghostping/site-operator':
+      '@openrecord/site-operator':
         specifier: workspace:*
         version: link:../../packages/site-operator
       effect:
@@ -84,7 +84,7 @@ importers:
       '@fontsource-variable/inter':
         specifier: 5.3.0
         version: 5.3.0
-      '@ghostping/contracts':
+      '@openrecord/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       class-variance-authority:
@@ -118,7 +118,7 @@ importers:
         specifier: 3.7.0
         version: 3.7.0
     devDependencies:
-      '@ghostping/domain':
+      '@openrecord/domain':
         specifier: workspace:*
         version: link:../../packages/domain
       '@tailwindcss/vite':
@@ -166,31 +166,31 @@ importers:
       '@effect/sql-pg':
         specifier: 0.53.0
         version: 0.53.0(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(@effect/sql@0.52.1(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(effect@3.22.2)
-      '@ghostping/config':
+      '@openrecord/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@ghostping/contracts':
+      '@openrecord/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@ghostping/db':
+      '@openrecord/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@ghostping/discovery':
+      '@openrecord/discovery':
         specifier: workspace:*
         version: link:../../packages/discovery
-      '@ghostping/domain':
+      '@openrecord/domain':
         specifier: workspace:*
         version: link:../../packages/domain
-      '@ghostping/protocol':
+      '@openrecord/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
-      '@ghostping/providers':
+      '@openrecord/providers':
         specifier: workspace:*
         version: link:../../packages/providers
-      '@ghostping/representation':
+      '@openrecord/representation':
         specifier: workspace:*
         version: link:../../packages/representation
-      '@ghostping/site-operator':
+      '@openrecord/site-operator':
         specifier: workspace:*
         version: link:../../packages/site-operator
       cheerio:
@@ -237,7 +237,7 @@ importers:
 
   packages/contracts:
     dependencies:
-      '@ghostping/domain':
+      '@openrecord/domain':
         specifier: workspace:*
         version: link:../domain
       effect:
@@ -262,16 +262,16 @@ importers:
       '@effect/sql-pg':
         specifier: 0.53.0
         version: 0.53.0(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(@effect/sql@0.52.1(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(effect@3.22.2)
-      '@ghostping/domain':
+      '@openrecord/domain':
         specifier: workspace:*
         version: link:../domain
-      '@ghostping/protocol':
+      '@openrecord/protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@ghostping/representation':
+      '@openrecord/representation':
         specifier: workspace:*
         version: link:../representation
-      '@ghostping/truth':
+      '@openrecord/truth':
         specifier: workspace:*
         version: link:../truth
       effect:
@@ -299,7 +299,7 @@ importers:
 
   packages/discovery:
     dependencies:
-      '@ghostping/representation':
+      '@openrecord/representation':
         specifier: workspace:*
         version: link:../representation
       cheerio:
@@ -341,7 +341,7 @@ importers:
         specifier: 3.22.2
         version: 3.22.2
     devDependencies:
-      '@ghostping/domain':
+      '@openrecord/domain':
         specifier: workspace:*
         version: link:../domain
       '@types/node':
@@ -365,7 +365,7 @@ importers:
       '@effect/platform-node':
         specifier: 0.108.2
         version: 0.108.2(@effect/cluster@0.60.2(@effect/platform@0.97.2(effect@3.22.2))(@effect/rpc@0.76.2(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/sql@0.52.1(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/workflow@0.19.1(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(@effect/rpc@0.76.2(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(@effect/rpc@0.76.2(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/sql@0.52.1(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(effect@3.22.2)
-      '@ghostping/config':
+      '@openrecord/config':
         specifier: workspace:*
         version: link:../config
       effect:
@@ -403,7 +403,7 @@ importers:
 
   packages/site-operator:
     dependencies:
-      '@ghostping/representation':
+      '@openrecord/representation':
         specifier: workspace:*
         version: link:../representation
       cheerio:
@@ -425,10 +425,10 @@ importers:
 
   packages/truth:
     dependencies:
-      '@ghostping/db':
+      '@openrecord/db':
         specifier: workspace:*
         version: link:../db
-      '@ghostping/representation':
+      '@openrecord/representation':
         specifier: workspace:*
         version: link:../representation
       pg:

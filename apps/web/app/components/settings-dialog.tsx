@@ -95,7 +95,7 @@ const sectionMeta: Record<SettingsSection, { title: string; description: string 
   general: { title: "General", description: "Appearance, language and how the app opens." },
   agent: { title: "Agent", description: "How the chat box behaves when you talk to the agent." },
   checks: { title: "Checks", description: "Defaults for running buyer questions against AI providers." },
-  shortcuts: { title: "Keyboard shortcuts", description: "Move around Ghostping without the mouse." },
+  shortcuts: { title: "Keyboard shortcuts", description: "Move around OpenRecord without the mouse." },
   account: { title: "Account", description: "Your sign-in details and current session." },
   privacy: { title: "Privacy and data", description: "What leaves your browser, and what is kept." },
   about: { title: "About", description: "Version and build information." },
@@ -561,7 +561,7 @@ function PrivacySection() {
 
 function AboutSection() {
   return (
-    <Group title="Ghostping">
+    <Group title="OpenRecord">
       <Row label="Version" description="Hosted web app">
         <span className="text-sm text-muted-foreground tabular-nums">0.1.0</span>
       </Row>

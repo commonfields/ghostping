@@ -1,7 +1,7 @@
 // SEARCH_OPERATOR_V1 domain vocabulary.
 //
 // Concrete language only: findings name observable problems, never scores.
-// Indexability (what Ghostping observed about crawl/index directives) is
+// Indexability (what OpenRecord observed about crawl/index directives) is
 // distinct from Google-reported indexing (what Search Console reports).
 // The two are never interchangeable.
 

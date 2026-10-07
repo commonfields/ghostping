@@ -27,12 +27,12 @@ import {
   SiteVerificationRepositoryLive,
   type RawDigestMismatch,
   type RowDecodeError,
-} from "@ghostping/db"
+} from "@openrecord/db"
 import { CheckRunner, CheckRunnerLive } from "./check-runner.js"
 import { DiscoveryRunner, DiscoveryRunnerLive } from "./discovery-runner.js"
 import { SiteInspectionRunner, SiteInspectionRunnerLive } from "./site-inspection-runner.js"
-import { NineRouterSettingsLive } from "@ghostping/config"
-import { MockProviderLive, NineRouterProviderLive, ProviderRegistryLive } from "@ghostping/providers"
+import { NineRouterSettingsLive } from "@openrecord/config"
+import { MockProviderLive, NineRouterProviderLive, ProviderRegistryLive } from "@openrecord/providers"
 import { NodeHttpClient } from "@effect/platform-node"
 
 // Worker configuration comes from the Effect ConfigProvider (process env by

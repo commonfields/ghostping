@@ -23,8 +23,8 @@ import {
   type ObservationRow,
   type ReobservationIntentRow,
   type ReobservationRow,
-} from "@ghostping/db"
-import { CreateReobservationRequest, decodeRouteId } from "@ghostping/contracts"
+} from "@openrecord/db"
+import { CreateReobservationRequest, decodeRouteId } from "@openrecord/contracts"
 import { listRecheckAttempts, requestRecheck } from "./reobservations.js"
 
 const BIZ_A = "11111111-1111-4111-8111-111111111111"

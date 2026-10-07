@@ -1,8 +1,8 @@
-// Ghostping Evidence Protocol V1 — canonical domain schemas.
+// OpenRecord Evidence Protocol V1 — canonical domain schemas.
 //
 // These Effect Schemas are the single source of truth. JSON Schemas in
 // `schemas/ghostping` are generated from them (`pnpm --filter
-// @ghostping/protocol schemas`) and a test fails when they drift.
+// @openrecord/protocol schemas`) and a test fails when they drift.
 //
 // Design rule: every field is exactly one of evidence, authority,
 // interpretation, action, or derived view. Hidden dimensions use explicit
@@ -102,7 +102,7 @@ export const MeasurementContextV1 = Schema.Struct({
   business_id: Id,
   surface: SurfaceIdentityV1,
   observed_at: Timestamp,
-  /** What Ghostping requested (sampling, streaming, …). Not provider-effective state. */
+  /** What OpenRecord requested (sampling, streaming, …). Not provider-effective state. */
   measurement_configuration: KnowledgeJson,
   sample_number: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
   repeat_id: KnowledgeString,
@@ -310,7 +310,7 @@ export const ReobservationV1 = Schema.Struct({
 })
 export type ReobservationV1 = typeof ReobservationV1.Type
 
-/** One thing Ghostping does not know, addressed by object id and field. */
+/** One thing OpenRecord does not know, addressed by object id and field. */
 export const ExplicitUnknownV1 = Schema.Struct({ subject_id: Id, field: Schema.String })
 export type ExplicitUnknownV1 = typeof ExplicitUnknownV1.Type
 

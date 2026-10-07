@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use colored::Colorize;
 use std::path::{Path, PathBuf};
 
-use ghostping::{
+use openrecord::{
     agent::optimizer::{self, OptimizeOptions},
     audit_engine::{build_providers_for_project, AuditEngine, AuditOptions, PromptInput},
     audit_storage::{AuditStorage, NewGeneratedAsset, NewPrompt},
@@ -40,18 +40,18 @@ const TAGLINE: &str = "The private, local-first GEO companion for indie builders
 
 #[derive(Parser)]
 #[command(
-    name = "ghostping",
+    name = "openrecord",
     about = "The private, local-first GEO companion for indie builders",
-    long_about = "Ghostping — The private, local-first GEO companion for indie builders.
+    long_about = "OpenRecord — The private, local-first GEO companion for indie builders.
 
 Track, generate, and optimize your visibility in AI answers (ChatGPT, Claude, Perplexity, Grok, Ollama).
 
 Quick start:
-  ghostping init                            # create project
-  ghostping prompts discover                # build prompt set
-  ghostping audit run --models mock         # free end-to-end test
-  ghostping optimize myproject.com --niche \"your niche\"  # auto-optimize
-  ghostping quickstart                      # guided beginner flow
+  openrecord init                            # create project
+  openrecord prompts discover                # build prompt set
+  openrecord audit run --models mock         # free end-to-end test
+  openrecord optimize myproject.com --niche \"your niche\"  # auto-optimize
+  openrecord quickstart                      # guided beginner flow
 
 Key commands:
   audit    — Evidence audit (prompts × samples × providers)
@@ -89,9 +89,9 @@ enum Commands {
     /// Run prompts against configured models and record brand mentions
     ///
     /// Examples:
-    ///   ghostping track myproject.com
-    ///   ghostping track myproject.com --prompts prompts.txt --models openai,ollama
-    ///   ghostping track myproject.com --judge
+    ///   openrecord track myproject.com
+    ///   openrecord track myproject.com --prompts prompts.txt --models openai,ollama
+    ///   openrecord track myproject.com --judge
     Track {
         /// Domain or brand to track (e.g. myproject.com)
         domain: String,
@@ -108,22 +108,22 @@ enum Commands {
     /// comprehensive results including raw responses, citations, and metrics.
     ///
     /// Examples:
-    ///   ghostping audit run                        # Run audit with stored prompts
-    ///   ghostping audit run --models mock          # Test with mock provider
-    ///   ghostping audit run --samples 5            # More samples per prompt
-    ///   ghostping audit list                       # List previous audits
-    ///   ghostping audit show 42                    # Show audit details
-    ///   ghostping audit compare --before 1 --after 2  # Compare two runs
+    ///   openrecord audit run                        # Run audit with stored prompts
+    ///   openrecord audit run --models mock          # Test with mock provider
+    ///   openrecord audit run --samples 5            # More samples per prompt
+    ///   openrecord audit list                       # List previous audits
+    ///   openrecord audit show 42                    # Show audit details
+    ///   openrecord audit compare --before 1 --after 2  # Compare two runs
     #[command(subcommand)]
     Audit(AuditCommand),
     /// Quick audit using 12 smart default prompts — legacy mode
     ///
     /// This is the legacy audit command. For evidence-based audits,
-    /// use: ghostping audit run
+    /// use: openrecord audit run
     ///
     /// Examples:
-    ///   ghostping audit-legacy myproject.com
-    ///   ghostping audit-legacy myproject.com --niche "CLI tool"
+    ///   openrecord audit-legacy myproject.com
+    ///   openrecord audit-legacy myproject.com --niche "CLI tool"
     #[command(name = "audit-legacy")]
     AuditLegacy {
         /// Domain or brand to audit
@@ -140,11 +140,11 @@ enum Commands {
     },
     /// Show mention history and trends from the local database (legacy)
     ///
-    /// For the new evidence-based reports, use: ghostping report
+    /// For the new evidence-based reports, use: openrecord report
     ///
     /// Examples:
-    ///   ghostping report-legacy myproject.com
-    ///   ghostping report-legacy myproject.com --days 30
+    ///   openrecord report-legacy myproject.com
+    ///   openrecord report-legacy myproject.com --days 30
     #[command(name = "report-legacy")]
     ReportLegacy {
         /// Domain or brand
@@ -159,12 +159,12 @@ enum Commands {
     /// Autonomous GEO agent: discover prompts, audit visibility, generate content, show lift
     ///
     /// Examples:
-    ///   ghostping optimize igrisinertial.com --niche "deterministic edge runtime"
-    ///   ghostping optimize myproject.com --niche "rust cli tool" --competitors "ripgrep,fd" --steps 5
-    ///   ghostping optimize myproject.com --niche "..." --dry-run
-    ///   ghostping optimize myproject.com --niche "..." --auto-apply
-    ///   ghostping optimize myproject.com --niche "Rust CLI" --plugin rust-crate
-    ///   ghostping optimize myproject.com --niche "..." --max-rounds 3
+    ///   openrecord optimize igrisinertial.com --niche "deterministic edge runtime"
+    ///   openrecord optimize myproject.com --niche "rust cli tool" --competitors "ripgrep,fd" --steps 5
+    ///   openrecord optimize myproject.com --niche "..." --dry-run
+    ///   openrecord optimize myproject.com --niche "..." --auto-apply
+    ///   openrecord optimize myproject.com --niche "Rust CLI" --plugin rust-crate
+    ///   openrecord optimize myproject.com --niche "..." --max-rounds 3
     Optimize {
         /// Domain or brand to optimize (e.g. myproject.com)
         domain: String,
@@ -192,10 +192,10 @@ enum Commands {
     },
     /// Generate GEO-optimized markdown content for a target query (legacy)
     ///
-    /// For content generation from audit gaps, use: ghostping generate
+    /// For content generation from audit gaps, use: openrecord generate
     ///
     /// Examples:
-    ///   ghostping generate-legacy "best tool" --about "..."
+    ///   openrecord generate-legacy "best tool" --about "..."
     #[command(name = "generate-legacy")]
     GenerateLegacy {
         /// Target query or topic to generate content for
@@ -219,9 +219,9 @@ enum Commands {
     /// Manage saved projects (domain + niche pairs for quick re-auditing)
     ///
     /// Examples:
-    ///   ghostping projects
-    ///   ghostping projects add myproject.com --niche "Rust CLI tool"
-    ///   ghostping projects remove myproject.com
+    ///   openrecord projects
+    ///   openrecord projects add myproject.com --niche "Rust CLI tool"
+    ///   openrecord projects remove myproject.com
     Projects {
         #[command(subcommand)]
         action: Option<ProjectAction>,
@@ -229,8 +229,8 @@ enum Commands {
     /// Watch a domain and re-audit it on a fixed interval
     ///
     /// Examples:
-    ///   ghostping watch myproject.com --niche "Rust CLI tool"
-    ///   ghostping watch myproject.com --interval 30 --models ollama
+    ///   openrecord watch myproject.com --niche "Rust CLI tool"
+    ///   openrecord watch myproject.com --interval 30 --models ollama
     Watch {
         /// Domain or brand to watch
         domain: String,
@@ -244,9 +244,9 @@ enum Commands {
     /// Manage installed prompt plugins
     ///
     /// Examples:
-    ///   ghostping plugins
-    ///   ghostping plugins enable rust-crate
-    ///   ghostping plugins disable rust-crate
+    ///   openrecord plugins
+    ///   openrecord plugins enable rust-crate
+    ///   openrecord plugins disable rust-crate
     Plugins {
         #[command(subcommand)]
         action: Option<PluginAction>,
@@ -256,19 +256,19 @@ enum Commands {
     /// Discover project-specific prompts or browse community templates.
     ///
     /// Examples:
-    ///   ghostping prompts discover              # Generate prompts from project config
-    ///   ghostping prompts list                  # List stored prompts
-    ///   ghostping prompts templates list        # Browse community templates
-    ///   ghostping prompts templates search rust
-    ///   ghostping prompts templates install rust-crate
+    ///   openrecord prompts discover              # Generate prompts from project config
+    ///   openrecord prompts list                  # List stored prompts
+    ///   openrecord prompts templates list        # Browse community templates
+    ///   openrecord prompts templates search rust
+    ///   openrecord prompts templates install rust-crate
     #[command(subcommand)]
     Prompts(PromptsCommand),
     /// Export a shareable visibility report
     ///
     /// Examples:
-    ///   ghostping share myproject.com
-    ///   ghostping share myproject.com --days 30 > report.md
-    ///   ghostping share myproject.com --format json > report.json
+    ///   openrecord share myproject.com
+    ///   openrecord share myproject.com --days 30 > report.md
+    ///   openrecord share myproject.com --format json > report.json
     Share {
         /// Domain to export
         domain: String,
@@ -282,8 +282,8 @@ enum Commands {
     /// Show personal usage stats and trends
     ///
     /// Examples:
-    ///   ghostping stats myproject.com
-    ///   ghostping stats myproject.com --days 30
+    ///   openrecord stats myproject.com
+    ///   openrecord stats myproject.com --days 30
     Stats {
         /// Domain to show stats for (omit to list all tracked domains)
         domain: Option<String>,
@@ -294,8 +294,8 @@ enum Commands {
     /// Interactive goal-oriented GEO assistant in your terminal
     ///
     /// Examples:
-    ///   ghostping chat
-    ///   ghostping chat --models ollama
+    ///   openrecord chat
+    ///   openrecord chat --models ollama
     Chat,
     /// Print command documentation as markdown
     Docs,
@@ -305,14 +305,14 @@ enum Commands {
     Doctor,
     /// Guided beginner flow — prints the recommended steps to get started
     Quickstart,
-    /// Initialize a new Ghostping project
+    /// Initialize a new OpenRecord project
     ///
-    /// Creates ghostping.toml in the current directory for project-specific
+    /// Creates openrecord.toml in the current directory for project-specific
     /// configuration including prompts, competitors, and audit settings.
     ///
     /// Examples:
-    ///   ghostping init
-    ///   ghostping init --name "MyProject" --website "https://example.com" --yes
+    ///   openrecord init
+    ///   openrecord init --name "MyProject" --website "https://example.com" --yes
     Init {
         /// Project name
         #[arg(short, long)]
@@ -333,10 +333,10 @@ enum Commands {
     /// Set up automatic background auditing (launchd on macOS, prints cron line on Linux)
     ///
     /// Examples:
-    ///   ghostping schedule myproject.com
-    ///   ghostping schedule myproject.com --niche "Rust CLI tool" --interval weekly
-    ///   ghostping schedule myproject.com --interval daily
-    ///   ghostping schedule myproject.com --uninstall
+    ///   openrecord schedule myproject.com
+    ///   openrecord schedule myproject.com --niche "Rust CLI tool" --interval weekly
+    ///   openrecord schedule myproject.com --interval daily
+    ///   openrecord schedule myproject.com --uninstall
     Schedule {
         /// Domain label for the scheduled job (used for the job name and log file)
         domain: String,
@@ -351,11 +351,11 @@ enum Commands {
     /// Stamp a publish checkpoint — records your current mention rate as a before/after baseline
     ///
     /// Run this right after publishing GEO content. Then re-audit in a few days and run
-    /// `ghostping results <domain>` to see whether your rate improved.
+    /// `openrecord results <domain>` to see whether your rate improved.
     ///
     /// Examples:
-    ///   ghostping publish myproject.com
-    ///   ghostping publish myproject.com --note "published geo/ section on blog"
+    ///   openrecord publish myproject.com
+    ///   openrecord publish myproject.com --note "published geo/ section on blog"
     Publish {
         /// Domain to stamp
         domain: String,
@@ -366,8 +366,8 @@ enum Commands {
     /// Show before/after visibility delta since your last publish checkpoint
     ///
     /// Examples:
-    ///   ghostping results myproject.com
-    ///   ghostping results myproject.com --all
+    ///   openrecord results myproject.com
+    ///   openrecord results myproject.com --all
     Results {
         /// Domain to inspect
         domain: String,
@@ -382,10 +382,10 @@ enum Commands {
     /// and content gaps from your audit runs.
     ///
     /// Examples:
-    ///   ghostping report                           # Report from latest audit
-    ///   ghostping report --run 42                  # Report from specific audit
-    ///   ghostping report --output ./reports/       # Custom output directory
-    ///   ghostping report --full                    # Include full raw responses
+    ///   openrecord report                           # Report from latest audit
+    ///   openrecord report --run 42                  # Report from specific audit
+    ///   openrecord report --output ./reports/       # Custom output directory
+    ///   openrecord report --full                    # Include full raw responses
     Report {
         /// Audit run ID (latest if not specified)
         #[arg(short, long)]
@@ -409,9 +409,9 @@ enum Commands {
     /// markdown content assets to fill those gaps.
     ///
     /// Examples:
-    ///   ghostping generate                          # Generate from latest audit
-    ///   ghostping generate --from-audit 42          # Generate from specific run
-    ///   ghostping generate --output ./content/      # Custom output directory
+    ///   openrecord generate                          # Generate from latest audit
+    ///   openrecord generate --from-audit 42          # Generate from specific run
+    ///   openrecord generate --output ./content/      # Custom output directory
     Generate {
         /// Source audit run ID or "latest"
         #[arg(short, long, default_value = "latest")]
@@ -429,7 +429,7 @@ enum Commands {
     /// and understand your content.
     ///
     /// Examples:
-    ///   ghostping diagnose https://example.com
+    ///   openrecord diagnose https://example.com
     Diagnose {
         /// URL to diagnose
         url: String,
@@ -441,36 +441,36 @@ enum Commands {
     /// API mentions/citations.
     ///
     /// Examples:
-    ///   ghostping observations import-gsc --file Queries.csv --date 2026-09-01
-    ///   ghostping observations report
+    ///   openrecord observations import-gsc --file Queries.csv --date 2026-09-01
+    ///   openrecord observations report
     #[command(subcommand)]
     Observations(ObservationsCommand),
     /// Business-approved facts (versioned registry, human-authored)
     ///
     /// Examples:
-    ///   ghostping facts add --subject pricing --predicate monthly_price --value '$39' --type currency --source manual
-    ///   ghostping facts list
+    ///   openrecord facts add --subject pricing --predicate monthly_price --value '$39' --type currency --source manual
+    ///   openrecord facts list
     #[command(subcommand)]
     Facts(Box<FactsCommand>),
     /// Candidate claims manually selected from existing observations
     ///
     /// Examples:
-    ///   ghostping claims add --observation obs_... --text 'Ghostping costs $29 per month'
-    ///   ghostping claims list
+    ///   openrecord claims add --observation obs_... --text 'OpenRecord costs $29 per month'
+    ///   openrecord claims list
     #[command(subcommand)]
     Claims(Box<ClaimsCommand>),
     /// Human judgments relating claims to facts (append-only)
     ///
     /// Examples:
-    ///   ghostping judgments add --claim CLM-0001 --fact FACT-0002 --verdict contradicted --reviewer human
-    ///   ghostping judgments list --claim CLM-0001
+    ///   openrecord judgments add --claim CLM-0001 --fact FACT-0002 --verdict contradicted --reviewer human
+    ///   openrecord judgments list --claim CLM-0001
     #[command(subcommand)]
     Judgments(Box<JudgmentsCommand>),
     /// Derived integrity findings (claim + latest judgment + facts)
     ///
     /// Examples:
-    ///   ghostping integrity report
-    ///   ghostping integrity report --claim CLM-0001
+    ///   openrecord integrity report
+    ///   openrecord integrity report --claim CLM-0001
     #[command(subcommand)]
     Integrity(Box<IntegrityCommand>),
 }
@@ -487,8 +487,8 @@ enum ObservationsCommand {
     /// against a genuine authorized sample.
     ///
     /// Examples:
-    ///   ghostping observations import-gsc --file Queries.csv --report generic-search --date 2026-09-01
-    ///   ghostping observations import-gsc --file AiPages.csv --report generative-ai-search --start-date 2026-09-01 --end-date 2026-09-07
+    ///   openrecord observations import-gsc --file Queries.csv --report generic-search --date 2026-09-01
+    ///   openrecord observations import-gsc --file AiPages.csv --report generative-ai-search --start-date 2026-09-01 --end-date 2026-09-07
     ImportGsc {
         /// Path to the authorized CSV export file
         #[arg(long)]
@@ -513,7 +513,7 @@ enum ObservationsCommand {
     /// replay and testing. No API calls.
     ///
     /// Examples:
-    ///   ghostping observations import-grounded --file response.json --prompt "best rust cli" --group smoke
+    ///   openrecord observations import-grounded --file response.json --prompt "best rust cli" --group smoke
     ImportGrounded {
         /// Path to a recorded generateContent response JSON file
         #[arg(long)]
@@ -530,7 +530,7 @@ enum ObservationsCommand {
     /// Unknown stays unknown; no visibility score.
     ///
     /// Examples:
-    ///   ghostping observations report
+    ///   openrecord observations report
     Report,
 }
 
@@ -699,8 +699,8 @@ enum PromptsCommand {
     /// Generates prompts from your project category, audience, and competitors.
     ///
     /// Examples:
-    ///   ghostping prompts discover
-    ///   ghostping prompts discover --limit 20
+    ///   openrecord prompts discover
+    ///   openrecord prompts discover --limit 20
     Discover {
         /// Limit number of prompts to generate
         #[arg(short, long)]
@@ -711,16 +711,16 @@ enum PromptsCommand {
     /// Shows all prompts discovered for your project with metadata.
     ///
     /// Examples:
-    ///   ghostping prompts list
+    ///   openrecord prompts list
     List,
     /// Browse and install community prompt templates
     ///
     /// Access community-contributed prompt templates.
     ///
     /// Examples:
-    ///   ghostping prompts templates list
-    ///   ghostping prompts templates search rust
-    ///   ghostping prompts templates install rust-crate
+    ///   openrecord prompts templates list
+    ///   openrecord prompts templates search rust
+    ///   openrecord prompts templates install rust-crate
     #[command(subcommand)]
     Templates(PromptTemplatesCommand),
 }
@@ -748,9 +748,9 @@ enum AuditCommand {
     /// Execute multi-sample audits across configured models.
     ///
     /// Examples:
-    ///   ghostping audit run
-    ///   ghostping audit run --models mock --samples 3
-    ///   ghostping audit run --temperature 0.5
+    ///   openrecord audit run
+    ///   openrecord audit run --models mock --samples 3
+    ///   openrecord audit run --temperature 0.5
     Run {
         /// Number of samples per prompt
         #[arg(short, long)]
@@ -771,8 +771,8 @@ enum AuditCommand {
     /// List previous audit runs
     ///
     /// Examples:
-    ///   ghostping audit list
-    ///   ghostping audit list --limit 10
+    ///   openrecord audit list
+    ///   openrecord audit list --limit 10
     List {
         /// Limit results
         #[arg(short, long, default_value = "20")]
@@ -781,7 +781,7 @@ enum AuditCommand {
     /// Show details of a specific audit run
     ///
     /// Examples:
-    ///   ghostping audit show 42
+    ///   openrecord audit show 42
     Show {
         /// Audit run ID
         id: i64,
@@ -791,7 +791,7 @@ enum AuditCommand {
     /// Shows before/after metrics and visibility changes.
     ///
     /// Examples:
-    ///   ghostping audit compare --before 10 --after 20
+    ///   openrecord audit compare --before 10 --after 20
     Compare {
         /// Before audit run ID
         #[arg(long)]
@@ -820,7 +820,7 @@ async fn main() -> Result<()> {
     if is_first_run {
         print_welcome();
         // Bootstrap config on very first run
-        let path = ghostping::config::config_path();
+        let path = openrecord::config::config_path();
         if !path.exists() {
             std::fs::write(&path, EXAMPLE_CONFIG)?;
             println!(
@@ -1238,7 +1238,7 @@ async fn main() -> Result<()> {
                         if let Some(p) = prev_rate {
                             if p - rate > 5.0 {
                                 scheduler::notify(
-                                    "Ghostping — Visibility Drop",
+                                    "OpenRecord — Visibility Drop",
                                     &format!(
                                         "{}: mention rate dropped {:.0}pp to {:.0}%",
                                         domain,
@@ -1271,7 +1271,7 @@ async fn main() -> Result<()> {
                     if installed.is_empty() {
                         println!(
                             "\n  No plugins installed. Try:\n  {}\n",
-                            "ghostping prompts templates install rust-crate".cyan()
+                            "openrecord prompts templates install rust-crate".cyan()
                         );
                     } else {
                         use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
@@ -1313,7 +1313,7 @@ async fn main() -> Result<()> {
                             "\n  {}  Plugin {} is not installed. Run:\n  {}\n",
                             "!".yellow(),
                             name.cyan(),
-                            format!("ghostping prompts templates install {}", name).cyan()
+                            format!("openrecord prompts templates install {}", name).cyan()
                         );
                     }
                 }
@@ -1335,7 +1335,7 @@ async fn main() -> Result<()> {
                     "\n  {}  No data for {}. Run {} first.\n",
                     "!".yellow(),
                     domain.cyan(),
-                    format!("ghostping audit-legacy {}", domain).cyan()
+                    format!("openrecord audit-legacy {}", domain).cyan()
                 );
             } else {
                 match format {
@@ -1362,13 +1362,13 @@ async fn main() -> Result<()> {
                 if domains.is_empty() {
                     println!(
                         "\n  No data yet. Run {} to start tracking.\n",
-                        "ghostping audit run".cyan()
+                        "openrecord audit run".cyan()
                     );
                 } else {
                     for d in &domains {
                         println!("  {}  {}", "·".dimmed(), d.cyan());
                     }
-                    println!("\n  {}  ghostping stats <domain>\n", "→".cyan());
+                    println!("\n  {}  openrecord stats <domain>\n", "→".cyan());
                 }
             }
             Some(domain) => {
@@ -1408,10 +1408,10 @@ async fn main() -> Result<()> {
 
             let binary_path = std::env::current_exe()
                 .map(|p| p.display().to_string())
-                .unwrap_or_else(|_| "ghostping".to_string());
+                .unwrap_or_else(|_| "openrecord".to_string());
 
             // Scheduled jobs run the canonical evidence audit from the
-            // project directory holding ghostping.toml.
+            // project directory holding openrecord.toml.
             let job = scheduler::ScheduledAudit {
                 project_dir: std::env::current_dir()?,
                 models: cli.models.clone(),
@@ -1423,7 +1423,7 @@ async fn main() -> Result<()> {
                 // macOS-only: Linux cron derives its label inside
                 // `ScheduledAudit`, so this binding lives here.
                 let safe_label = scheduler::sanitize_label(&domain);
-                let label = format!("com.ghostping.audit.{}", safe_label);
+                let label = format!("com.openrecord.audit.{}", safe_label);
                 let plist_path = dirs::home_dir()
                     .unwrap_or_default()
                     .join("Library/LaunchAgents")
@@ -1467,15 +1467,15 @@ async fn main() -> Result<()> {
                     println!("  {}  Logs:  {}", "→".cyan(), job.log_path().dimmed());
                     println!();
                     println!(
-                        "  {}  The job runs {} from {} (project must contain ghostping.toml).",
+                        "  {}  The job runs {} from {} (project must contain openrecord.toml).",
                         "→".cyan(),
-                        "ghostping audit run".cyan(),
+                        "openrecord audit run".cyan(),
                         job.project_dir.display().to_string().dimmed()
                     );
                     println!(
                         "  {}  To remove: {}\n",
                         "→".cyan(),
-                        format!("ghostping schedule {} --uninstall", domain).cyan()
+                        format!("openrecord schedule {} --uninstall", domain).cyan()
                     );
                 }
             }
@@ -1516,7 +1516,7 @@ async fn main() -> Result<()> {
                     "\n  {}  No audit data for {}. Run {} first.\n",
                     "!".yellow(),
                     domain.cyan(),
-                    format!("ghostping audit-legacy {}", domain).cyan()
+                    format!("openrecord audit-legacy {}", domain).cyan()
                 );
             } else {
                 storage.record_publish_snapshot(
@@ -1546,7 +1546,7 @@ async fn main() -> Result<()> {
                 println!(
                     "  {}  Re-audit in a few days, then run {} to measure lift.",
                     "Tip".yellow().bold(),
-                    format!("ghostping results {}", domain).cyan()
+                    format!("openrecord results {}", domain).cyan()
                 );
                 println!();
             }
@@ -1559,7 +1559,7 @@ async fn main() -> Result<()> {
                     "\n  {}  No publish checkpoints for {}. Run {} after publishing content.\n",
                     "!".yellow(),
                     domain.cyan(),
-                    format!("ghostping publish {}", domain).cyan()
+                    format!("openrecord publish {}", domain).cyan()
                 );
             } else {
                 let (current_rate, current_mentioned, current_total) =
@@ -1598,9 +1598,9 @@ async fn main() -> Result<()> {
                 Ok(Some((p, d))) => (p, d),
                 Ok(None) => {
                     println!(
-                        "\n  {} No ghostping.toml found. Run {} first.\n",
+                        "\n  {} No openrecord.toml found. Run {} first.\n",
                         "!".yellow(),
-                        "ghostping init".cyan()
+                        "openrecord init".cyan()
                     );
                     std::process::exit(1);
                 }
@@ -1633,9 +1633,9 @@ async fn main() -> Result<()> {
                 Ok(Some((p, d))) => (p, d),
                 Ok(None) => {
                     println!(
-                        "\n  {} No ghostping.toml found. Run {} first.\n",
+                        "\n  {} No openrecord.toml found. Run {} first.\n",
                         "!".yellow(),
-                        "ghostping init".cyan()
+                        "openrecord init".cyan()
                     );
                     std::process::exit(1);
                 }
@@ -1701,9 +1701,9 @@ async fn main() -> Result<()> {
                 Ok(Some((p, d))) => (p, d),
                 Ok(None) => {
                     println!(
-                        "\n  {} No ghostping.toml found. Run {} first.\n",
+                        "\n  {} No openrecord.toml found. Run {} first.\n",
                         "!".yellow(),
-                        "ghostping init".cyan()
+                        "openrecord init".cyan()
                     );
                     std::process::exit(1);
                 }
@@ -1730,9 +1730,9 @@ async fn main() -> Result<()> {
                 Ok(Some((p, d))) => (p, d),
                 Ok(None) => {
                     println!(
-                        "\n  {} No ghostping.toml found. Run {} first.\n",
+                        "\n  {} No openrecord.toml found. Run {} first.\n",
                         "!".yellow(),
-                        "ghostping init".cyan()
+                        "openrecord init".cyan()
                     );
                     std::process::exit(1);
                 }
@@ -1760,15 +1760,15 @@ async fn main() -> Result<()> {
                 FactsCommand::Add(add) => run_facts_add(
                     &project,
                     &storage,
-                    ghostping::integrity::NewFact {
+                    openrecord::integrity::NewFact {
                         project_id: &project.domain(),
                         subject: &add.subject,
                         predicate: &add.predicate,
                         value: &add.value,
-                        value_type: ghostping::integrity::FactValueType::parse(&add.r#type)?,
+                        value_type: openrecord::integrity::FactValueType::parse(&add.r#type)?,
                         valid_from: add.valid_from.as_deref(),
                         valid_until: add.valid_until.as_deref(),
-                        source_kind: ghostping::integrity::FactSourceKind::parse(&add.source)?,
+                        source_kind: openrecord::integrity::FactSourceKind::parse(&add.source)?,
                         source_ref: add.source_ref.as_deref(),
                         source_digest: None,
                         notes: add.notes.as_deref(),
@@ -1800,7 +1800,7 @@ async fn main() -> Result<()> {
                 } => run_claims_add(
                     &project,
                     &storage,
-                    ghostping::integrity::NewClaim {
+                    openrecord::integrity::NewClaim {
                         project_id: &project.domain(),
                         observation_id: &observation,
                         claim_text: &text,
@@ -1832,10 +1832,10 @@ async fn main() -> Result<()> {
                 } => run_judgments_add(
                     &project,
                     &storage,
-                    ghostping::integrity::NewJudgment {
+                    openrecord::integrity::NewJudgment {
                         claim_id: &claim,
                         fact_ids: &fact,
-                        verdict: ghostping::integrity::JudgmentVerdict::parse(&verdict)?,
+                        verdict: openrecord::integrity::JudgmentVerdict::parse(&verdict)?,
                         rationale: rationale.as_deref(),
                         reviewer: &reviewer,
                         supersedes_judgment_id: supersedes.as_deref(),
@@ -1877,9 +1877,9 @@ async fn main() -> Result<()> {
                 Ok(Some((p, d))) => (p, d),
                 Ok(None) => {
                     println!(
-                        "\n  {} No ghostping.toml found. Run {} first.\n",
+                        "\n  {} No openrecord.toml found. Run {} first.\n",
                         "!".yellow(),
-                        "ghostping init".cyan()
+                        "openrecord init".cyan()
                     );
                     std::process::exit(1);
                 }
@@ -1943,7 +1943,7 @@ fn no_providers_error() -> ! {
     eprintln!("  Options:");
     eprintln!(
         "    • Add an API key in {}",
-        "~/.ghostping/config.toml".cyan()
+        "~/.openrecord/config.toml".cyan()
     );
     eprintln!(
         "    • Or run {} and set {} for free local inference",
@@ -1952,7 +1952,7 @@ fn no_providers_error() -> ! {
     );
     eprintln!(
         "\n  Run {} to see setup instructions.\n",
-        "ghostping config".cyan()
+        "openrecord config".cyan()
     );
     std::process::exit(1);
 }
@@ -2024,7 +2024,7 @@ fn is_missing_api_key(api_key: &str) -> bool {
 fn provider_config<'a>(
     config: &'a Config,
     provider: &str,
-) -> Option<&'a ghostping::config::ProviderConfig> {
+) -> Option<&'a openrecord::config::ProviderConfig> {
     match normalize_provider_name(provider) {
         "openai" => config.providers.openai.as_ref(),
         "anthropic" => config.providers.anthropic.as_ref(),
@@ -2153,7 +2153,7 @@ fn ensure_cloud_api_keys(selected: &[String], config: &Config) -> Result<()> {
 
         if missing {
             bail!(
-                "Missing {} API key. Set {} or configure {} in ~/.ghostping/config.toml. For local testing without API keys, run: ghostping audit run --models mock --samples 3",
+                "Missing {} API key. Set {} or configure {} in ~/.openrecord/config.toml. For local testing without API keys, run: openrecord audit run --models mock --samples 3",
                 provider_display_name(provider),
                 env_var,
                 provider_config_path(provider)
@@ -2184,10 +2184,10 @@ fn warn_cloud_audit_if_needed(selected: &[String], config: &Config, yes: bool) {
 
 fn run_config_command() -> Result<()> {
     let (dir, _) = Config::ensure_dir()?;
-    let path = ghostping::config::config_path();
+    let path = openrecord::config::config_path();
 
     println!();
-    println!("{}", "Ghostping — Configuration".bold());
+    println!("{}", "OpenRecord — Configuration".bold());
     println!("{}", "━".repeat(56).dimmed());
     println!();
     println!("  Config dir   {}", dir.display().to_string().cyan());
@@ -2242,7 +2242,7 @@ fn run_config_command() -> Result<()> {
     println!(
         "  {}  Run {} after editing to verify your setup.",
         "Tip".yellow().bold(),
-        "ghostping doctor".cyan()
+        "openrecord doctor".cyan()
     );
     println!();
     Ok(())
@@ -2250,12 +2250,12 @@ fn run_config_command() -> Result<()> {
 
 async fn run_doctor(config: &Config, base_dir: &Path) -> Result<()> {
     println!();
-    println!("{}", "Ghostping Doctor".bold());
+    println!("{}", "OpenRecord Doctor".bold());
     println!("{}", "━".repeat(56).dimmed());
     println!();
 
     // ── Paths ──
-    let config_path = ghostping::config::config_path();
+    let config_path = openrecord::config::config_path();
     check(
         "Config file  ",
         config_path.exists(),
@@ -2264,12 +2264,12 @@ async fn run_doctor(config: &Config, base_dir: &Path) -> Result<()> {
     check(
         "Cache dir    ",
         base_dir.join("cache").exists(),
-        "~/.ghostping/cache/",
+        "~/.openrecord/cache/",
     );
     check(
         "Database     ",
         base_dir.join("mentions.db").exists(),
-        "~/.ghostping/mentions.db",
+        "~/.openrecord/mentions.db",
     );
 
     println!();
@@ -2397,13 +2397,13 @@ async fn run_doctor(config: &Config, base_dir: &Path) -> Result<()> {
         println!(
             "  {} At least one provider is active. Try: {}",
             "✓".green().bold(),
-            "ghostping audit run --models mock --samples 3".cyan()
+            "openrecord audit run --models mock --samples 3".cyan()
         );
     } else {
         println!(
             "  {} No providers enabled. Edit {} to get started.",
             "✗".red().bold(),
-            "~/.ghostping/config.toml".cyan()
+            "~/.openrecord/config.toml".cyan()
         );
     }
     println!();
@@ -2431,26 +2431,26 @@ fn check(label: &str, ok: bool, detail: &str) {
 
 fn run_quickstart() -> Result<()> {
     println!();
-    println!("{}", "Ghostping Quickstart".bold());
+    println!("{}", "OpenRecord Quickstart".bold());
     println!("{}", "━".repeat(56).dimmed());
     println!();
     println!("  {}  {}", "1.".bold(), "Create config".bold());
-    println!("      {}", "ghostping config".cyan());
+    println!("      {}", "openrecord config".cyan());
     println!();
     println!(
         "  {}  {}",
         "2.".bold(),
         "Add your API key (or enable Ollama for free)".bold()
     );
-    println!("      {}", "Edit ~/.ghostping/config.toml".cyan());
+    println!("      {}", "Edit ~/.openrecord/config.toml".cyan());
     println!();
     println!("  {}  {}", "3.".bold(), "Verify your setup".bold());
-    println!("      {}", "ghostping doctor".cyan());
+    println!("      {}", "openrecord doctor".cyan());
     println!();
     println!("  {}  {}", "4.".bold(), "Run your first audit".bold());
     println!(
         "      {}",
-        "ghostping init --yes && ghostping prompts discover && ghostping audit run".cyan()
+        "openrecord init --yes && openrecord prompts discover && openrecord audit run".cyan()
     );
     println!();
     println!(
@@ -2460,7 +2460,7 @@ fn run_quickstart() -> Result<()> {
     );
     println!(
         "      {}",
-        "ghostping optimize myproject.com --niche \"your niche\" --auto-apply".cyan()
+        "openrecord optimize myproject.com --niche \"your niche\" --auto-apply".cyan()
     );
     println!();
     println!("{}", "─".repeat(56).dimmed());
@@ -2468,7 +2468,7 @@ fn run_quickstart() -> Result<()> {
     println!(
         "  {}  Need help? Run {} for full documentation.",
         "Tip".yellow().bold(),
-        "ghostping docs".cyan()
+        "openrecord docs".cyan()
     );
     println!();
     Ok(())
@@ -2477,7 +2477,7 @@ fn run_quickstart() -> Result<()> {
 fn build_judge_provider(
     flag: bool,
     config: &Config,
-) -> Option<std::sync::Arc<dyn ghostping::providers::LlmProvider>> {
+) -> Option<std::sync::Arc<dyn openrecord::providers::LlmProvider>> {
     if flag || config.judge.enabled {
         tracker::build_judge(config)
     } else {
@@ -2541,48 +2541,48 @@ fn resolve_discover_template(name: Option<&str>, config_dir: &Path) -> Option<St
 }
 
 fn generate_docs() -> String {
-    let mut out = String::from("# Ghostping — Command Reference\n\n");
+    let mut out = String::from("# OpenRecord — Command Reference\n\n");
     out.push_str("Local-first GEO (Generative Engine Optimization) agent for indie hackers.\n\n");
     out.push_str("---\n\n");
 
     let commands = [
         ("audit run", "Evidence audit: prompts × samples × providers, stored with citations.",
-         "ghostping audit run --models mock --samples 3\nghostping audit run --models ollama --samples 3\nghostping audit list\nghostping audit show 1\nghostping audit compare --before 1 --after 2"),
+         "openrecord audit run --models mock --samples 3\nopenrecord audit run --models ollama --samples 3\nopenrecord audit list\nopenrecord audit show 1\nopenrecord audit compare --before 1 --after 2"),
         ("audit-legacy", "Legacy one-shot domain scan (mentions.db, not evidence).",
-         "ghostping audit-legacy myproject.com --niche \"Rust CLI tool\""),
+         "openrecord audit-legacy myproject.com --niche \"Rust CLI tool\""),
         ("track", "Run custom prompts from a file and record brand mentions.",
-         "ghostping track myproject.com --prompts prompts.txt\nghostping track myproject.com --prompts prompts.json --models anthropic"),
+         "openrecord track myproject.com --prompts prompts.txt\nopenrecord track myproject.com --prompts prompts.json --models anthropic"),
         ("report", "Markdown evidence report for an audit run.",
-         "ghostping report\nghostping report --run 1 --output ./reports/"),
+         "openrecord report\nopenrecord report --run 1 --output ./reports/"),
         ("report-legacy", "Mention history and trends from the legacy database.",
-         "ghostping report-legacy myproject.com\nghostping report-legacy myproject.com --days 30"),
+         "openrecord report-legacy myproject.com\nopenrecord report-legacy myproject.com --days 30"),
         ("generate", "Draft content assets from evidence audit gaps.",
-         "ghostping generate\nghostping generate --from-audit 1 --output ./generated/"),
+         "openrecord generate\nopenrecord generate --from-audit 1 --output ./generated/"),
         ("generate-legacy", "Generate GEO-optimized markdown content for a target query.",
-         "ghostping generate-legacy \"best rust cli tool\" --about \"myproject.io is a ...\"\nghostping generate-legacy \"...\" --plugin rust-crate --about \"...\"\nghostping generate-legacy \"...\" --evaluate"),
+         "openrecord generate-legacy \"best rust cli tool\" --about \"myproject.io is a ...\"\nopenrecord generate-legacy \"...\" --plugin rust-crate --about \"...\"\nopenrecord generate-legacy \"...\" --evaluate"),
         ("optimize", "5-step autonomous GEO agent: discover, audit, generate, refine, evaluate.",
-         "ghostping optimize myproject.com --niche \"Rust CLI tool\"\nghostping optimize myproject.com --niche \"...\" --steps 5 --auto-apply\nghostping optimize myproject.com --niche \"...\" --max-rounds 3\nghostping optimize myproject.com --niche \"...\" --plugin rust-crate"),
+         "openrecord optimize myproject.com --niche \"Rust CLI tool\"\nopenrecord optimize myproject.com --niche \"...\" --steps 5 --auto-apply\nopenrecord optimize myproject.com --niche \"...\" --max-rounds 3\nopenrecord optimize myproject.com --niche \"...\" --plugin rust-crate"),
         ("chat", "Structured TUI assistant — state a goal, get a guided GEO plan.",
-         "ghostping chat\nghostping chat --models ollama"),
+         "openrecord chat\nopenrecord chat --models ollama"),
         ("projects", "Manage saved domain + niche pairs.",
-         "ghostping projects\nghostping projects add myproject.com --niche \"Rust CLI tool\"\nghostping projects remove myproject.com"),
+         "openrecord projects\nopenrecord projects add myproject.com --niche \"Rust CLI tool\"\nopenrecord projects remove myproject.com"),
         ("watch", "Background polling audit on a fixed interval.",
-         "ghostping watch myproject.com --niche \"Rust CLI tool\"\nghostping watch myproject.com --interval 30 --models ollama"),
+         "openrecord watch myproject.com --niche \"Rust CLI tool\"\nopenrecord watch myproject.com --interval 30 --models ollama"),
         ("stats", "Personal usage trends and per-day breakdown.",
-         "ghostping stats\nghostping stats myproject.com\nghostping stats myproject.com --days 30"),
+         "openrecord stats\nopenrecord stats myproject.com\nopenrecord stats myproject.com --days 30"),
         ("share", "Export a shareable visibility report.",
-         "ghostping share myproject.com\nghostping share myproject.com --days 30 > report.md\nghostping share myproject.com --format json > report.json"),
+         "openrecord share myproject.com\nopenrecord share myproject.com --days 30 > report.md\nopenrecord share myproject.com --format json > report.json"),
         ("prompts", "Discover project prompts; browse/install template packs.",
-         "ghostping prompts discover\nghostping prompts list\nghostping prompts templates list\nghostping prompts templates search rust\nghostping prompts templates install rust-crate"),
+         "openrecord prompts discover\nopenrecord prompts list\nopenrecord prompts templates list\nopenrecord prompts templates search rust\nopenrecord prompts templates install rust-crate"),
         ("plugins", "Manage installed plugins.",
-         "ghostping plugins\nghostping plugins enable rust-crate\nghostping plugins disable rust-crate"),
-        ("config", "Create ~/.ghostping/config.toml and show setup instructions.", "ghostping config"),
-        ("doctor", "Verify config, providers, and Ollama connectivity.", "ghostping doctor"),
-        ("docs", "Print this command reference as markdown.", "ghostping docs > COMMANDS.md"),
+         "openrecord plugins\nopenrecord plugins enable rust-crate\nopenrecord plugins disable rust-crate"),
+        ("config", "Create ~/.openrecord/config.toml and show setup instructions.", "openrecord config"),
+        ("doctor", "Verify config, providers, and Ollama connectivity.", "openrecord doctor"),
+        ("docs", "Print this command reference as markdown.", "openrecord docs > COMMANDS.md"),
         ("observations import-gsc", "Import a Search Console CSV export as first-party observations.",
-         "ghostping observations import-gsc --file Queries.csv --date 2026-09-01"),
+         "openrecord observations import-gsc --file Queries.csv --date 2026-09-01"),
         ("observations report", "First-party impressions vs sampled mentions, separate denominators.",
-         "ghostping observations report"),
+         "openrecord observations report"),
     ];
 
     for (name, desc, examples) in &commands {
@@ -2600,7 +2600,7 @@ fn generate_docs() -> String {
     out.push_str("| `--verbose` | Show raw LLM response previews |\n");
     out.push_str("| `--quiet` | Suppress progress output (CI-friendly) |\n\n");
     out.push_str("---\n\n");
-    out.push_str("_Generated by `ghostping docs` — [Ghostping](https://github.com/commonfields/ghostping)_\n");
+    out.push_str("_Generated by `openrecord docs` — [OpenRecord](https://github.com/commonfields/openrecord)_\n");
     out
 }
 
@@ -2617,7 +2617,7 @@ fn run_projects_list(storage: &Storage) -> anyhow::Result<()> {
     if projects.is_empty() {
         println!(
             "\n  No projects yet. Add one:\n  {}\n",
-            "ghostping projects add myproject.com --niche \"your niche\"".cyan()
+            "openrecord projects add myproject.com --niche \"your niche\"".cyan()
         );
         return Ok(());
     }
@@ -2646,7 +2646,7 @@ fn run_projects_list(storage: &Storage) -> anyhow::Result<()> {
     }
     println!("{table}");
     println!(
-        "\n  {}  ghostping audit <domain>  or  ghostping optimize <domain> --niche <niche>\n",
+        "\n  {}  openrecord audit <domain>  or  openrecord optimize <domain> --niche <niche>\n",
         "Tip".yellow().bold()
     );
     Ok(())
@@ -2663,9 +2663,9 @@ fn run_init2(
 ) -> Result<()> {
     use std::io::{self, Write};
 
-    // Check if ghostping.toml already exists
-    if PathBuf::from("ghostping.toml").exists() && !force {
-        println!("\n  {} ghostping.toml already exists", "!".yellow());
+    // Check if openrecord.toml already exists
+    if PathBuf::from("openrecord.toml").exists() && !force {
+        println!("\n  {} openrecord.toml already exists", "!".yellow());
         println!("  Use {} to overwrite\n", "--force".cyan());
         return Ok(());
     }
@@ -2735,15 +2735,15 @@ fn run_init2(
     println!("  Next steps:");
     println!(
         "    1. Edit {} to customize your project",
-        "ghostping.toml".cyan()
+        "openrecord.toml".cyan()
     );
     println!(
         "    2. Run {} to discover prompts",
-        "ghostping prompts discover".cyan()
+        "openrecord prompts discover".cyan()
     );
     println!(
         "    3. Run {} to start auditing",
-        "ghostping audit run".cyan()
+        "openrecord audit run".cyan()
     );
     println!();
 
@@ -2818,7 +2818,7 @@ fn run_prompts_list(project: &ProjectConfig, storage: &AuditStorage) -> Result<(
     if prompts.is_empty() {
         println!(
             "\n  No prompts found. Run {} first.\n",
-            "ghostping prompts discover".cyan()
+            "openrecord prompts discover".cyan()
         );
         return Ok(());
     }
@@ -2856,7 +2856,7 @@ async fn run_prompts_templates(
     template_cmd: PromptTemplatesCommand,
 ) -> Result<()> {
     use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
-    use ghostping::marketplace::{builtin, registry};
+    use openrecord::marketplace::{builtin, registry};
 
     match template_cmd {
         PromptTemplatesCommand::List => {
@@ -2884,7 +2884,7 @@ async fn run_prompts_templates(
             }
             println!("{table}");
             println!(
-                "\n  {}  ghostping prompts templates install <name>\n",
+                "\n  {}  openrecord prompts templates install <name>\n",
                 "→".cyan()
             );
         }
@@ -2926,7 +2926,7 @@ async fn run_prompts_templates(
                     "\n  {}  Template {} not found. Run {} to see available templates.\n",
                     "✗".red().bold(),
                     name.cyan(),
-                    "ghostping prompts templates list".cyan()
+                    "openrecord prompts templates list".cyan()
                 );
             }
             Some(info) => {
@@ -2963,7 +2963,7 @@ async fn run_prompts_templates(
                     "\n  {}  Use it with:\n  {}\n",
                     "→".cyan(),
                     format!(
-                        "ghostping generate-legacy \"...\" --plugin {} --about \"...\"",
+                        "openrecord generate-legacy \"...\" --plugin {} --about \"...\"",
                         name
                     )
                     .cyan()
@@ -2993,7 +2993,7 @@ async fn run_audit_run(
     // Get prompts
     let prompts = storage.list_prompts(&project.domain())?;
     if prompts.is_empty() {
-        bail!("No prompts found for this project. Run 'ghostping prompts discover' first.");
+        bail!("No prompts found for this project. Run 'openrecord prompts discover' first.");
     }
 
     let is_mock_run = request.models.as_deref() == Some("mock");
@@ -3007,7 +3007,7 @@ async fn run_audit_run(
 
     // Build providers
     let providers = if is_mock_run {
-        use ghostping::providers::mock::MockProviderBuilder;
+        use openrecord::providers::mock::MockProviderBuilder;
         vec![std::sync::Arc::new(
             MockProviderBuilder::new("mock")
                 .with_default_response(
@@ -3017,13 +3017,13 @@ async fn run_audit_run(
                 )
                 .build(),
         )
-            as std::sync::Arc<dyn ghostping::providers::LlmProvider>]
+            as std::sync::Arc<dyn openrecord::providers::LlmProvider>]
     } else {
         build_providers_for_project(&project.providers, global_config, request.models.as_deref())
     };
 
     if providers.is_empty() {
-        bail!("No providers configured. Check ~/.ghostping/config.toml or use --models mock");
+        bail!("No providers configured. Check ~/.openrecord/config.toml or use --models mock");
     }
 
     // Build options
@@ -3101,7 +3101,7 @@ async fn run_audit_run(
             );
             println!(
                 "  marked 'completed_with_errors', not 'completed'. See {} for diagnostics.",
-                format!("ghostping audit show {}", result.run_id).cyan()
+                format!("openrecord audit show {}", result.run_id).cyan()
             );
             for failure in result.failed_queries.iter().take(5) {
                 println!("    {} {}", "·".dimmed(), failure.dimmed());
@@ -3121,7 +3121,7 @@ async fn run_audit_run(
         println!();
         println!(
             "  Next: {} to generate content",
-            "ghostping generate".cyan()
+            "openrecord generate".cyan()
         );
         println!();
     }
@@ -3141,7 +3141,7 @@ fn run_audit_list(project: &ProjectConfig, storage: &AuditStorage, limit: usize)
     if runs.is_empty() {
         println!(
             "\n  No audit runs found. Run {} first.\n",
-            "ghostping audit run".cyan()
+            "openrecord audit run".cyan()
         );
         return Ok(());
     }
@@ -3166,7 +3166,7 @@ fn run_audit_list(project: &ProjectConfig, storage: &AuditStorage, limit: usize)
         let summary = r
             .summary_json
             .as_deref()
-            .and_then(|s| serde_json::from_str::<ghostping::audit_storage::AuditSummary>(s).ok());
+            .and_then(|s| serde_json::from_str::<openrecord::audit_storage::AuditSummary>(s).ok());
 
         if let Some(s) = summary {
             let coverage = if s.failed_queries > 0 {
@@ -3246,7 +3246,7 @@ fn run_audit_show(storage: &AuditStorage, id: i64) -> Result<()> {
             let errors = storage.get_audit_errors(id).unwrap_or_default();
             let live_summary = storage.get_audit_summary(id).ok();
             let stored_summary = r.summary_json.as_deref().and_then(|s| {
-                serde_json::from_str::<ghostping::audit_storage::AuditSummary>(s).ok()
+                serde_json::from_str::<openrecord::audit_storage::AuditSummary>(s).ok()
             });
             if let Some(summary) = live_summary.as_ref().or(stored_summary.as_ref()) {
                 println!();
@@ -3579,7 +3579,7 @@ fn generate_markdown_report(
         )
     };
     report.push_str(&format!(
-        r#"# Ghostping Evidence Report
+        r#"# OpenRecord Evidence Report
 
 ## {}
 {mock_notice}
@@ -3635,7 +3635,7 @@ fn generate_markdown_report(
 
     let mut by_provider: std::collections::HashMap<
         String,
-        Vec<&ghostping::audit_storage::AuditResult>,
+        Vec<&openrecord::audit_storage::AuditResult>,
     > = std::collections::HashMap::new();
     for r in &results {
         by_provider.entry(r.provider.clone()).or_default().push(r);
@@ -3683,7 +3683,7 @@ fn generate_markdown_report(
 
 ---
 
-_Generated by [Ghostping](https://github.com/commonfields/ghostping) — local-first AI visibility tooling_
+_Generated by [OpenRecord](https://github.com/commonfields/openrecord) — local-first AI visibility tooling_
 "#,
         run.samples_per_prompt,
         Utc::now().format("%Y-%m-%d %H:%M UTC"),
@@ -3694,8 +3694,8 @@ _Generated by [Ghostping](https://github.com/commonfields/ghostping) — local-f
     Ok(report)
 }
 
-fn parse_import_report(identity: &str) -> Result<ghostping::observations::ReportIdentity> {
-    use ghostping::observations::ReportIdentity;
+fn parse_import_report(identity: &str) -> Result<openrecord::observations::ReportIdentity> {
+    use openrecord::observations::ReportIdentity;
     match identity {
         "generic-search" => Ok(ReportIdentity::GenericSearch),
         "generative-ai-search" => Ok(ReportIdentity::GenerativeAiSearch),
@@ -3711,8 +3711,8 @@ fn parse_import_period(
     date: Option<&str>,
     start_date: Option<&str>,
     end_date: Option<&str>,
-) -> Result<ghostping::gsc::ImportPeriod> {
-    use ghostping::gsc::ImportPeriod;
+) -> Result<openrecord::gsc::ImportPeriod> {
+    use openrecord::gsc::ImportPeriod;
     match (date, start_date, end_date) {
         (Some(d), None, None) => ImportPeriod::single(d),
         (None, Some(s), Some(e)) => ImportPeriod::range(s, e),
@@ -3721,16 +3721,16 @@ fn parse_import_period(
     }
 }
 
-/// Load ghostping.toml + evidence.db for project-scoped commands.
+/// Load openrecord.toml + evidence.db for project-scoped commands.
 /// Exits non-zero when no project is configured.
 fn load_project_storage(base_dir: &std::path::Path) -> Result<(ProjectConfig, AuditStorage)> {
     let (project, _dir) = match ProjectConfig::find_and_load() {
         Ok(Some((p, d))) => (p, d),
         Ok(None) => {
             println!(
-                "\n  {} No ghostping.toml found. Run {} first.\n",
+                "\n  {} No openrecord.toml found. Run {} first.\n",
                 "!".yellow(),
-                "ghostping init".cyan()
+                "openrecord init".cyan()
             );
             std::process::exit(1);
         }
@@ -3746,7 +3746,7 @@ fn load_project_storage(base_dir: &std::path::Path) -> Result<(ProjectConfig, Au
 fn run_facts_add(
     project: &ProjectConfig,
     storage: &AuditStorage,
-    fact: ghostping::integrity::NewFact,
+    fact: openrecord::integrity::NewFact,
 ) -> Result<()> {
     let id = storage.insert_fact(&fact)?;
     let saved = storage.get_fact(&id)?.unwrap();
@@ -3772,7 +3772,7 @@ fn run_facts_add(
         println!("    supersedes {} (kept, marked superseded)", prev.dimmed());
     }
     // Surface authority conflicts loudly; the write already succeeded and
-    // stays. Ghostping never chooses between conflicting facts.
+    // stays. OpenRecord never chooses between conflicting facts.
     let conflicts = storage.authority_conflicts(&project.domain())?;
     if conflicts
         .iter()
@@ -3781,7 +3781,7 @@ fn run_facts_add(
         println!(
             "    {} this fact participates in a FACT_AUTHORITY_CONFLICT — see {}.",
             "⚠".yellow().bold(),
-            "ghostping facts conflicts".cyan()
+            "openrecord facts conflicts".cyan()
         );
     }
     println!();
@@ -3793,16 +3793,16 @@ fn run_facts_list(project: &ProjectConfig, storage: &AuditStorage) -> Result<()>
     if facts.is_empty() {
         println!(
             "\n  No facts recorded. Add one with {}.\n",
-            "ghostping facts add".cyan()
+            "openrecord facts add".cyan()
         );
         return Ok(());
     }
     println!();
     for f in &facts {
         let status = match f.status {
-            ghostping::integrity::FactStatus::Active => "active".green().to_string(),
-            ghostping::integrity::FactStatus::Superseded => "superseded".yellow().to_string(),
-            ghostping::integrity::FactStatus::Retired => "retired".dimmed().to_string(),
+            openrecord::integrity::FactStatus::Active => "active".green().to_string(),
+            openrecord::integrity::FactStatus::Superseded => "superseded".yellow().to_string(),
+            openrecord::integrity::FactStatus::Retired => "retired".dimmed().to_string(),
         };
         println!(
             "  {} {} = {}  [{}] ({})",
@@ -3818,7 +3818,7 @@ fn run_facts_list(project: &ProjectConfig, storage: &AuditStorage) -> Result<()>
 }
 
 fn run_facts_conflicts(project: &ProjectConfig, storage: &AuditStorage) -> Result<()> {
-    use ghostping::integrity::AuthorityConflictKind;
+    use openrecord::integrity::AuthorityConflictKind;
     let conflicts = storage.authority_conflicts(&project.domain())?;
     if conflicts.is_empty() {
         println!(
@@ -3858,7 +3858,7 @@ fn run_facts_conflicts(project: &ProjectConfig, storage: &AuditStorage) -> Resul
         );
         println!();
         println!(
-            "  {} resolution required — Ghostping never chooses automatically",
+            "  {} resolution required — OpenRecord never chooses automatically",
             "→".cyan()
         );
         println!();
@@ -3918,7 +3918,7 @@ fn run_facts_retire(storage: &AuditStorage, fact_id: &str) -> Result<()> {
 fn run_claims_add(
     project: &ProjectConfig,
     storage: &AuditStorage,
-    claim: ghostping::integrity::NewClaim,
+    claim: openrecord::integrity::NewClaim,
 ) -> Result<()> {
     let id = storage.insert_claim(&claim)?;
     let saved = storage.get_claim(&id)?.unwrap();
@@ -3945,7 +3945,7 @@ fn run_claims_list(project: &ProjectConfig, storage: &AuditStorage) -> Result<()
     if claims.is_empty() {
         println!(
             "\n  No claims recorded. Add one with {}.\n",
-            "ghostping claims add".cyan()
+            "openrecord claims add".cyan()
         );
         return Ok(());
     }
@@ -3958,7 +3958,7 @@ fn run_claims_list(project: &ProjectConfig, storage: &AuditStorage) -> Result<()
         println!(
             "  {} \"{}\"  [{}] ({})",
             c.claim_id.cyan(),
-            ghostping::types::truncate_chars(&c.claim_text, 56).dimmed(),
+            openrecord::types::truncate_chars(&c.claim_text, 56).dimmed(),
             judged,
             c.claim_origin.as_str().dimmed()
         );
@@ -3982,7 +3982,7 @@ fn run_claims_show(storage: &AuditStorage, claim_id: &str) -> Result<()> {
     if let Some(span) = &c.source_span_text {
         println!(
             "    span: \"{}\"",
-            ghostping::types::truncate_chars(span, 80).dimmed()
+            openrecord::types::truncate_chars(span, 80).dimmed()
         );
         if let (Some(part), Some(s), Some(e)) = (c.source_part, c.start_offset, c.end_offset) {
             println!("    offsets: part {} bytes [{}..{}]", part, s, e);
@@ -4029,7 +4029,7 @@ fn run_claims_show(storage: &AuditStorage, claim_id: &str) -> Result<()> {
 fn run_judgments_add(
     _project: &ProjectConfig,
     storage: &AuditStorage,
-    judgment: ghostping::integrity::NewJudgment,
+    judgment: openrecord::integrity::NewJudgment,
 ) -> Result<()> {
     let before = storage.list_judgments(judgment.claim_id)?.len();
     let id = storage.insert_judgment(&judgment)?;
@@ -4140,7 +4140,7 @@ fn run_integrity_export_assay(
     claim_filter: Option<&str>,
     verdict_filter: Option<&str>,
 ) -> Result<()> {
-    use ghostping::integrity::JudgmentVerdict;
+    use openrecord::integrity::JudgmentVerdict;
 
     // Labels originate ONLY from HumanJudgment records. Findings alone,
     // parsers, mocks, or classifiers can never produce human_adjudicated.
@@ -4284,7 +4284,7 @@ fn run_integrity_report(
     if claims.is_empty() {
         println!(
             "\n  No claims recorded. Start with {}.\n",
-            "ghostping claims add".cyan()
+            "openrecord claims add".cyan()
         );
         return Ok(());
     }
@@ -4359,13 +4359,13 @@ fn run_integrity_report(
                     println!(
                         "    {} referenced fact(s) participate in an unresolved FACT_AUTHORITY_CONFLICT — see {}.",
                         "⚠".yellow().bold(),
-                        "ghostping facts conflicts".cyan()
+                        "openrecord facts conflicts".cyan()
                     );
                 }
                 if let Some(r) = &j.rationale {
                     println!("    rationale: {}", r.dimmed());
                 }
-                if j.verdict == ghostping::integrity::JudgmentVerdict::Supported {
+                if j.verdict == openrecord::integrity::JudgmentVerdict::Supported {
                     println!("    {} describes this observation only — not a promise about future answers.",
                         "note:".dimmed());
                 }
@@ -4401,7 +4401,7 @@ fn run_observations_import_gsc(
         bail!("Import file not found: {}", file.display());
     }
     let outcome =
-        ghostping::gsc::import_gsc_csv(storage, &project.domain(), file, identity, &period)?;
+        openrecord::gsc::import_gsc_csv(storage, &project.domain(), file, identity, &period)?;
 
     println!();
     if outcome.skipped_file {
@@ -4439,7 +4439,7 @@ fn run_observations_import_gsc(
                 "  {}  {} conflicting measurement(s): first import kept, conflicts recorded                  as integrity observations. See {}.",
                 "⚠".yellow().bold(),
                 outcome.conflicts,
-                "ghostping observations report".cyan()
+                "openrecord observations report".cyan()
             );
         }
     }
@@ -4454,10 +4454,10 @@ fn run_observations_import_grounded(
     prompt: &str,
     group: &str,
 ) -> Result<()> {
-    use ghostping::observations::{
+    use openrecord::observations::{
         FailureClass, NewObservation, ObservationType, ReportIdentity, RetrievalMode,
     };
-    use ghostping::providers::gemini_grounded::parse_grounded_response;
+    use openrecord::providers::gemini_grounded::parse_grounded_response;
 
     if !file.exists() {
         bail!("Import file not found: {}", file.display());
@@ -4512,8 +4512,8 @@ fn run_observations_import_grounded(
     let dedupe_key = format!(
         "grounded|{}|{}|{}",
         group,
-        ghostping::observations::sha256_hex(prompt.as_bytes()),
-        ghostping::observations::sha256_hex(&bytes),
+        openrecord::observations::sha256_hex(prompt.as_bytes()),
+        openrecord::observations::sha256_hex(&bytes),
     );
     let collected_at = chrono::Utc::now().to_rfc3339();
     let stored = storage.insert_observation(&NewObservation {
@@ -4572,8 +4572,8 @@ fn run_observations_import_grounded(
     Ok(())
 }
 
-fn render_int_value(value: Option<i64>, sem: ghostping::gsc::ValueSemantics) -> String {
-    use ghostping::gsc::ValueSemantics;
+fn render_int_value(value: Option<i64>, sem: openrecord::gsc::ValueSemantics) -> String {
+    use openrecord::gsc::ValueSemantics;
     match (value, sem) {
         (None, _) => "unknown".to_string(),
         (Some(0), ValueSemantics::Reported) => "0 (reported by source)".to_string(),
@@ -4582,10 +4582,10 @@ fn render_int_value(value: Option<i64>, sem: ghostping::gsc::ValueSemantics) -> 
 }
 
 fn run_observations_report(project: &ProjectConfig, storage: &AuditStorage) -> Result<()> {
-    use ghostping::observation_views::{
+    use openrecord::observation_views::{
         summarize_first_party, summarize_provenance, summarize_retrieval, summarize_sampled,
     };
-    use ghostping::observations::{ObservationType, ReportIdentity};
+    use openrecord::observations::{ObservationType, ReportIdentity};
 
     let domain = project.domain();
     let all_gsc =
@@ -4630,7 +4630,7 @@ fn run_observations_report(project: &ProjectConfig, storage: &AuditStorage) -> R
         );
         println!(
             "      {}",
-            "ghostping observations import-gsc --file Queries.csv --report generic-search --date YYYY-MM-DD"
+            "openrecord observations import-gsc --file Queries.csv --report generic-search --date YYYY-MM-DD"
                 .cyan()
         );
     }
@@ -4675,7 +4675,7 @@ fn run_observations_report(project: &ProjectConfig, storage: &AuditStorage) -> R
                         format!(
                             "{}={}",
                             k.dimmed(),
-                            ghostping::types::truncate_chars(v, 48).cyan()
+                            openrecord::types::truncate_chars(v, 48).cyan()
                         )
                     })
                     .collect::<Vec<_>>()
@@ -4795,7 +4795,7 @@ fn run_observations_report(project: &ProjectConfig, storage: &AuditStorage) -> R
                 println!(
                     "        {} {} → {}",
                     icon,
-                    ghostping::types::truncate_chars(text, 48).dimmed(),
+                    openrecord::types::truncate_chars(text, 48).dimmed(),
                     if attribution == "Verified" {
                         uris.cyan().to_string()
                     } else {
@@ -4853,7 +4853,7 @@ fn run_observations_report(project: &ProjectConfig, storage: &AuditStorage) -> R
         println!(
             "    {} No sampled audits. Run {}.",
             "·".dimmed(),
-            "ghostping audit run".cyan()
+            "openrecord audit run".cyan()
         );
     } else {
         println!(
@@ -4975,7 +4975,7 @@ async fn run_diagnose2(url: &str) -> Result<()> {
         }
         _ => {
             println!(
-                "  {} llms.txt not found (generate with: ghostping generate)",
+                "  {} llms.txt not found (generate with: openrecord generate)",
                 "○".dimmed()
             );
         }

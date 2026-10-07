@@ -8,7 +8,7 @@ import {
 } from "@effect/platform"
 import { Effect, Schema } from "effect"
 import { SqlClient } from "@effect/sql"
-import { AppBaseUrl } from "@ghostping/config"
+import { AppBaseUrl } from "@openrecord/config"
 import {
   AgentMessageRequest,
   CreateBusinessRequest,
@@ -25,7 +25,7 @@ import {
   SignInRequest,
   SignUpRequest,
   SupersedeFactRequest,
-} from "@ghostping/contracts"
+} from "@openrecord/contracts"
 import {
   AuthRepository,
   BusinessRepository,
@@ -67,10 +67,10 @@ import {
   collectSourceBinding,
   type DiscoveryRunRow,
   type Session,
-} from "@ghostping/db"
-import { MATCHER_VERSION, POLICY_VERSION } from "@ghostping/discovery"
-import { AuthorityError } from "@ghostping/db"
-import { Timestamp } from "@ghostping/protocol"
+} from "@openrecord/db"
+import { MATCHER_VERSION, POLICY_VERSION } from "@openrecord/discovery"
+import { AuthorityError } from "@openrecord/db"
+import { Timestamp } from "@openrecord/protocol"
 import {
   assertLinearLineage,
   assembleCitationEvidence,

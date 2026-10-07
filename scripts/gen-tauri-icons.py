@@ -1,4 +1,4 @@
-"""Generate a minimal Ghostping app icon set (pure stdlib, no PIL).
+"""Generate a minimal OpenRecord app icon set (pure stdlib, no PIL).
 
 Design: dark rounded square, teal ring (ping motif), white core dot.
 Outputs Tauri's required bundle icons into tauri-app/src-tauri/icons/.
@@ -68,7 +68,7 @@ def main():
         subprocess.run(["sips", "-z", str(px), str(px), master, "--out", dest], check=True, capture_output=True)
         print("wrote", dest)
     # .icns via iconset + iconutil
-    iconset = os.path.join(ICONS, "ghostping.iconset")
+    iconset = os.path.join(ICONS, "openrecord.iconset")
     os.makedirs(iconset, exist_ok=True)
     for name, px in [("icon_16x16.png", 16), ("icon_32x32.png", 32), ("icon_128x128.png", 128),
                      ("icon_256x256.png", 256), ("icon_512x512.png", 512)]:

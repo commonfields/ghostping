@@ -2,8 +2,8 @@
 // Stub-transport tests against the real makeRobotsFetcher + safeFetch path
 // (no network, loopback never touched: TEST-NET addresses only).
 import { describe, expect, it } from "vitest"
-import type { FetchResponse, HttpTransport } from "@ghostping/representation"
-import { fetchAndParseRobots } from "@ghostping/discovery"
+import type { FetchResponse, HttpTransport } from "@openrecord/representation"
+import { fetchAndParseRobots } from "@openrecord/discovery"
 import { makeRobotsFetcher } from "./discovery-runner.js"
 
 const PEER = "93.184.216.34"

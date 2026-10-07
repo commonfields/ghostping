@@ -1,13 +1,13 @@
-# Ghostping v0.2 Evidence Engine - Implementation Summary
+# OpenRecord v0.2 Evidence Engine - Implementation Summary
 
 ## Overview
 
-This implementation transforms Ghostping into an evidence-first local GEO workbench. The following components have been added or enhanced:
+This implementation transforms OpenRecord into an evidence-first local GEO workbench. The following components have been added or enhanced:
 
 ## New Files Created
 
 ### 1. `/src/project_config.rs` - Project-level Configuration
-- **Purpose**: Defines project-specific configuration via `ghostping.toml`
+- **Purpose**: Defines project-specific configuration via `openrecord.toml`
 - **Key Features**:
   - Project metadata (name, website, category, description, audience)
   - Competitor tracking
@@ -117,23 +117,23 @@ This implementation transforms Ghostping into an evidence-first local GEO workbe
 ## Integration Points
 
 ### With Existing Code
-- Preserves existing `~/.ghostping/config.toml` for global provider settings
+- Preserves existing `~/.openrecord/config.toml` for global provider settings
 - Extends existing SQLite database (backward compatible)
 - Uses existing provider implementations
 - Leverages existing parser for mention/citation/sentiment detection
 
 ### New CLI Workflow (to be integrated)
 ```bash
-ghostping init                    # Create ghostping.toml
-ghostping prompts discover        # Generate prompts from project config
-ghostping audit run               # Run multi-sample audit
-ghostping audit list              # Show audit history
-ghostping audit show <id>         # Show audit details
-ghostping audit compare --before <id> --after <id>  # Compare runs
-ghostping generate --from-audit latest  # Create content from gaps
-ghostping report --format markdown      # Generate evidence report
-ghostping diagnose <url>          # Check crawlability
-ghostping doctor                  # Verify setup
+openrecord init                    # Create openrecord.toml
+openrecord prompts discover        # Generate prompts from project config
+openrecord audit run               # Run multi-sample audit
+openrecord audit list              # Show audit history
+openrecord audit show <id>         # Show audit details
+openrecord audit compare --before <id> --after <id>  # Compare runs
+openrecord generate --from-audit latest  # Create content from gaps
+openrecord report --format markdown      # Generate evidence report
+openrecord diagnose <url>          # Check crawlability
+openrecord doctor                  # Verify setup
 ```
 
 ## Metrics and Scoring
@@ -155,8 +155,8 @@ visibility_score = mention_rate * 0.35
 
 ## Security and Privacy
 
-- Project config stored locally in `ghostping.toml`
-- API keys remain in `~/.ghostping/config.toml` only
+- Project config stored locally in `openrecord.toml`
+- API keys remain in `~/.openrecord/config.toml` only
 - Raw responses stored locally in SQLite
 - No external data transmission except explicit LLM queries
 
@@ -176,7 +176,7 @@ Key test areas:
 
 ## Next Steps for Full Integration
 
-1. **Update CLI binary** (`src/bin/ghostping.rs`):
+1. **Update CLI binary** (`src/bin/openrecord.rs`):
    - Add new Commands variants for evidence workflow
    - Integrate new command handlers
    - Preserve backward compatibility with existing commands
@@ -189,7 +189,7 @@ Key test areas:
 3. **Documentation**:
    - Update README with new workflow
    - Add examples for each command
-   - Document ghostping.toml schema
+   - Document openrecord.toml schema
 
 4. **Additional Tests**:
    - Integration tests with mock providers

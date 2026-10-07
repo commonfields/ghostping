@@ -6,7 +6,7 @@
 
 use anyhow::{bail, Result};
 use clap::{Parser, ValueEnum};
-use ghostping::jev_assay::*;
+use openrecord::jev_assay::*;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, ValueEnum)]

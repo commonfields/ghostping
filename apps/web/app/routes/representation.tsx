@@ -52,7 +52,7 @@ export function RepresentationDetailPage() {
         <Card className="shadow-(--float-shadow)">
           <CardHeader>
             <CardTitle>Approved facts</CardTitle>
-            <CardDescription>The version Ghostping compares against.</CardDescription>
+            <CardDescription>The version OpenRecord compares against.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-baseline gap-2">
@@ -67,7 +67,7 @@ export function RepresentationDetailPage() {
         <Card className="shadow-(--float-shadow)">
           <CardHeader>
             <CardTitle>Source</CardTitle>
-            <CardDescription>One configured URL Ghostping is allowed to observe.</CardDescription>
+            <CardDescription>One configured URL OpenRecord is allowed to observe.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <a href={d.source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-[15px] font-medium hover:underline">

@@ -1,5 +1,5 @@
 {
-  "name": "@ghostping/protocol",
+  "name": "@openrecord/protocol",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -21,7 +21,7 @@
     "tsx": "4.19.2",
     "typescript": "5.9.3",
     "vitest": "3.2.4",
-    "@ghostping/domain": "workspace:*"
+    "@openrecord/domain": "workspace:*"
   },
   "engines": {
     "node": ">=24 <25"

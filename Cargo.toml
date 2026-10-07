@@ -14,24 +14,24 @@ targets = [
 ]
 
 [package]
-name = "ghostping"
+name = "openrecord"
 version = "0.3.0"
 edition = "2021"
 description = "Local-first GEO agent: track, generate, and optimize your brand's visibility in LLMs"
 license = "MIT"
 keywords = ["geo", "llm", "visibility", "seo", "cli"]
 categories = ["command-line-utilities", "development-tools"]
-repository = "https://github.com/commonfields/ghostping"
-homepage = "https://github.com/commonfields/ghostping"
-documentation = "https://github.com/commonfields/ghostping#readme"
+repository = "https://github.com/commonfields/openrecord"
+homepage = "https://github.com/commonfields/openrecord"
+documentation = "https://github.com/commonfields/openrecord#readme"
 readme = "README.md"
 
 [[bin]]
-name = "ghostping"
-path = "src/bin/ghostping.rs"
+name = "openrecord"
+path = "src/bin/openrecord.rs"
 
 [lib]
-name = "ghostping"
+name = "openrecord"
 path = "src/lib.rs"
 
 [profile.release]
@@ -74,7 +74,7 @@ async-trait = "0.1"
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
-# Directories (for ~/.ghostping)
+# Directories (for ~/.openrecord)
 dirs = "5"
 
 # Hashing (for cache keys)

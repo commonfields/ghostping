@@ -6,7 +6,7 @@
 
 ## Why Effect
 
-Hosted Ghostping is an orchestration-heavy product: auth, account-scoped
+Hosted OpenRecord is an orchestration-heavy product: auth, account-scoped
 persistence, an async check queue, a child-process worker boundary, bounded
 retries, and append-only evidence. Effect gives us:
 
@@ -37,7 +37,7 @@ retries, and append-only evidence. Effect gives us:
 - **Rust owns:** provider requests, provider-specific parsing,
   grounding/citation interpretation, raw evidence, observation
   normalization, provider-specific UNKNOWN handling. The Rust engine is a
-  leaf dependency of the hosted worker (`ghostping-worker`).
+  leaf dependency of the hosted worker (`openrecord-worker`).
 
 Rules: Rust never touches Postgres; React never invokes providers; the
 Effect API never parses provider-specific payloads.
@@ -85,7 +85,7 @@ judgment + facts + observation); there is no `issues` truth table.
 
 `POST check-runs` → `QUEUED` → worker claims with ONE atomic statement
 (`WITH candidate ... FOR UPDATE SKIP LOCKED` + `UPDATE ... WHERE status =
-'QUEUED' ... RETURNING`) → `RUNNING` → `ghostping-worker` → raw evidence
+'QUEUED' ... RETURNING`) → `RUNNING` → `openrecord-worker` → raw evidence
 stored (exact bytes + digest + mime) → immutable `Observation` →
 `SUCCEEDED`, or typed `FAILED` (`failure_class`, `failure_detail_safe`).
 Exactly zero or one worker can win a given CheckRun; state transitions are
@@ -102,9 +102,9 @@ the number of provider attempts per CheckRun is always recoverable.
 
 ## Rust worker contract
 
-- Input `ghostping-worker-job-v1`: `{contract_version, run_id, provider,
+- Input `openrecord-worker-job-v1`: `{contract_version, run_id, provider,
   model, prompt}` — no API keys (env only).
-- Output `ghostping-worker-result-v1`: `{contract_version, run_id,
+- Output `openrecord-worker-result-v1`: `{contract_version, run_id,
   status, provider, requested_model, observed_model, collected_at,
   answer_text, retrieval_mode, citations, raw_digest, raw_response,
   failure_class, failure_detail_safe}`.
@@ -167,14 +167,14 @@ they must use the same Node 24 major.
 pnpm install
 docker compose up -d postgres   # or: brew services start postgresql
 pnpm db:migrate
-cargo build --bin ghostping-worker
+cargo build --bin openrecord-worker
 pnpm dev
 ```
 (requires Node 24; see `.node-version`)
 
 ## Future deployment shape
 
-`apps/web` + `apps/api` + `apps/worker` + `ghostping-worker` + Postgres
+`apps/web` + `apps/api` + `apps/worker` + `openrecord-worker` + Postgres
 (+ object storage later behind the raw-evidence repository). No
 architecture changes needed; Dockerfiles can be added per process (Node 24
 major, matching `.node-version`). No Kubernetes in V1.

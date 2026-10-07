@@ -8,8 +8,8 @@ import { Context, Effect, Exit, Layer, Redacted, Scope } from "effect"
 import pg from "pg"
 import { PgClient } from "@effect/sql-pg"
 import type { SqlClient } from "@effect/sql"
-import type { FetchResponse, HttpTransport } from "@ghostping/representation"
-import { compareMoney } from "@ghostping/representation"
+import type { FetchResponse, HttpTransport } from "@openrecord/representation"
+import { compareMoney } from "@openrecord/representation"
 import { ObservationRepository, ObservationRepositoryLive } from "./repositories.js"
 import {
   InterventionBindingRepository,

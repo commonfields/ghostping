@@ -2,7 +2,7 @@
 //
 // Plain application code; no LLM. Short sentences, one fact per sentence,
 // active voice, fixed terminology, explicit unknowns. Inspired by controlled
-// language practice; Ghostping makes no ASD-STE100 compliance claim.
+// language practice; OpenRecord makes no ASD-STE100 compliance claim.
 //
 // This is a disposable view: the packet is the evidence.
 import { factsAt } from "./measurement.js"
@@ -25,7 +25,7 @@ const VERDICT_SENTENCE: Record<Verdict, string> = {
 }
 
 const surfaceSentence = (o: ObservationV1): string =>
-  `Ghostping measured ${o.measurement.surface.product}, ${SURFACE_LABEL[o.measurement.surface.kind]}.`
+  `OpenRecord measured ${o.measurement.surface.product}, ${SURFACE_LABEL[o.measurement.surface.kind]}.`
 
 const factSentences = (packet: EvidencePacketV1, judgment: JudgmentV1, observedAt: string): Array<string> => {
   const lines: Array<string> = []
@@ -64,16 +64,16 @@ export const renderEvidencePacket = (packet: EvidencePacketV1): string => {
   if (cited.length === 0) lines.push("The AI response returned no citations.")
   for (const c of cited) lines.push(`The AI response cited ${c.uri}.`)
   if (cited.length > 0 && before && before.verdict !== "SUPPORTED") {
-    lines.push("Ghostping cannot prove that a citation caused the response.")
+    lines.push("OpenRecord cannot prove that a citation caused the response.")
   }
 
   for (const i of packet.interventions) {
     lines.push(`An operator recorded ${i.type} for ${i.target} at ${i.performed_at}.`)
     if (i.supersedes_id !== null) lines.push(`This record corrects intervention ${i.supersedes_id}.`)
-    lines.push(i.actor === "UNKNOWN" ? "Ghostping does not know who performed this action." : `The actor type was ${i.actor}.`)
+    lines.push(i.actor === "UNKNOWN" ? "OpenRecord does not know who performed this action." : `The actor type was ${i.actor}.`)
   }
   if (packet.interventions.length > 0 && packet.reobservations.length === 0) {
-    lines.push("Ghostping has not observed an outcome after the intervention.")
+    lines.push("OpenRecord has not observed an outcome after the intervention.")
   }
 
   packet.reobservations.forEach((r, index) => {
@@ -102,11 +102,11 @@ export const renderEvidencePacket = (packet: EvidencePacketV1): string => {
   })
   if (packet.interventions.length > 0 || packet.reobservations.length > 0) {
     lines.push("Causal attribution is UNKNOWN.")
-    lines.push("Ghostping does not know whether any intervention caused a later response.")
+    lines.push("OpenRecord does not know whether any intervention caused a later response.")
   }
   for (const u of packet.explicit_unknowns) {
     if (u.field === "causal_attribution" || u.field === "outcome_after_intervention") continue
-    lines.push(`Ghostping does not know ${u.field} for ${u.subject_id}.`)
+    lines.push(`OpenRecord does not know ${u.field} for ${u.subject_id}.`)
   }
   return lines.join("\n")
 }

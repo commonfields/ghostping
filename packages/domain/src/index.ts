@@ -1,4 +1,4 @@
-// Canonical hosted domain model for Ghostping Hosted V1.
+// Canonical hosted domain model for OpenRecord Hosted V1.
 // All contracts derive from Effect Schema. No duplicated Zod/OpenAPI/decoders.
 import { Schema } from "effect"
 

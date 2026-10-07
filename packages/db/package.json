@@ -1,5 +1,5 @@
 {
-  "name": "@ghostping/db",
+  "name": "@openrecord/db",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -16,10 +16,10 @@
   "dependencies": {
     "@effect/sql": "0.52.1",
     "@effect/sql-pg": "0.53.0",
-    "@ghostping/domain": "workspace:*",
-    "@ghostping/protocol": "workspace:*",
-    "@ghostping/representation": "workspace:*",
-    "@ghostping/truth": "workspace:*",
+    "@openrecord/domain": "workspace:*",
+    "@openrecord/protocol": "workspace:*",
+    "@openrecord/representation": "workspace:*",
+    "@openrecord/truth": "workspace:*",
     "effect": "3.22.2",
     "pg": "8.13.1"
   },

@@ -2,7 +2,7 @@
 name = "rust-crate"
 version = "1.0.0"
 description = "GEO optimization for open-source Rust crates and CLI tools"
-author = "ghostping-community"
+author = "openrecord-community"
 tags = ["rust", "cli", "open-source"]
 
 [templates]

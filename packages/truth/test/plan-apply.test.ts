@@ -23,7 +23,7 @@ import {
   type ResolvedFact,
   type SyncedFact,
 } from "../src/index.js"
-import { deriveFinding } from "@ghostping/representation"
+import { deriveFinding } from "@openrecord/representation"
 import { VALID_MANIFEST_TEXT } from "./manifest-text.js"
 
 const memStore = (): FactSyncStore & { modes: Map<string, "HOSTED" | "REPOSITORY_MANIFEST">; rows: Map<string, SyncedFact & { business: string }> } => {
@@ -236,19 +236,19 @@ const fileIo = (root: string) => ({
   },
   readLock: async (): Promise<ProjectionLock> => {
     try {
-      return JSON.parse(await readFile(resolve(root, ".ghostping/projections.lock.json"), "utf8")) as ProjectionLock
+      return JSON.parse(await readFile(resolve(root, ".openrecord/projections.lock.json"), "utf8")) as ProjectionLock
     } catch {
       return { projections: {} }
     }
   },
   writeLock: async (lock: ProjectionLock) => {
-    await mkdir(resolve(root, ".ghostping"), { recursive: true })
-    await writeFile(resolve(root, ".ghostping/projections.lock.json"), `${JSON.stringify(lock, null, 2)}\n`)
+    await mkdir(resolve(root, ".openrecord"), { recursive: true })
+    await writeFile(resolve(root, ".openrecord/projections.lock.json"), `${JSON.stringify(lock, null, 2)}\n`)
   },
   appendReceipt: async (receipt: unknown) => {
     const r = receipt as { id: string }
-    await mkdir(resolve(root, ".ghostping/receipts"), { recursive: true })
-    await writeFile(resolve(root, `.ghostping/receipts/${r.id}.json`), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" })
+    await mkdir(resolve(root, ".openrecord/receipts"), { recursive: true })
+    await writeFile(resolve(root, `.openrecord/receipts/${r.id}.json`), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" })
   },
 })
 
@@ -279,7 +279,7 @@ describe("plan and apply", () => {
     expect(readFileSync(resolve(root, artifact!.relative_output_path), "utf8")).toBe(artifact!.canonical_bytes)
     // Receipt carries no publication claims.
     expect(JSON.stringify(applied.receipt)).not.toMatch(/publish|index|retriev|caus/i)
-    const lock = JSON.parse(readFileSync(resolve(root, ".ghostping/projections.lock.json"), "utf8")) as ProjectionLock
+    const lock = JSON.parse(readFileSync(resolve(root, ".openrecord/projections.lock.json"), "utf8")) as ProjectionLock
     expect(lock.projections["starter-offer"]?.digest).toBe(artifact!.digest_sha256)
     expect(JSON.stringify(lock)).not.toMatch(/49\.00|USD/)
     const planned = await planProjection(artifact!, io, lock)
@@ -296,7 +296,7 @@ describe("plan and apply", () => {
     await applyArtifact(first.artifacts[0]!, { businessKey: "acme", manifestDigest: first.manifest.digest, actor: { kind: "AGENT", id: null }, now: "2026-10-03T00:00:00.000Z", newId: () => "r1" }, io)
     // Price change -> UPDATE with before/after digests.
     const second = compileAll(VALID_MANIFEST_TEXT.replace('amount: "49.00"', 'amount: "59.00"'))
-    const lock = JSON.parse(readFileSync(resolve(root, ".ghostping/projections.lock.json"), "utf8")) as ProjectionLock
+    const lock = JSON.parse(readFileSync(resolve(root, ".openrecord/projections.lock.json"), "utf8")) as ProjectionLock
     const planned = await planProjection(second.artifacts[0]!, io, lock)
     expect(planned.action).toBe("UPDATE")
     const applied = await applyArtifact(second.artifacts[0]!, { businessKey: "acme", manifestDigest: second.manifest.digest, actor: { kind: "AGENT", id: null }, now: "2026-10-04T00:00:00.000Z", newId: () => "r2" }, io)
@@ -305,7 +305,7 @@ describe("plan and apply", () => {
     expect(applied.receipt?.after_digest).toBe(second.artifacts[0]!.digest_sha256)
     // Hand edit after apply -> CONFLICT, never blind UPDATE.
     writeFileSync(resolve(root, second.artifacts[0]!.relative_output_path), `{"tampered":true}`)
-    const conflicted = await planProjection(second.artifacts[0]!, io, JSON.parse(readFileSync(resolve(root, ".ghostping/projections.lock.json"), "utf8")) as ProjectionLock)
+    const conflicted = await planProjection(second.artifacts[0]!, io, JSON.parse(readFileSync(resolve(root, ".openrecord/projections.lock.json"), "utf8")) as ProjectionLock)
     expect(conflicted.action).toBe("CONFLICT")
     const notApplied = await applyArtifact(second.artifacts[0]!, { businessKey: "acme", manifestDigest: second.manifest.digest, actor: { kind: "AGENT", id: null }, now: "2026-10-04T01:00:00.000Z", newId: () => "r3" }, io)
     expect(notApplied.receipt).toBeNull()

@@ -9,13 +9,13 @@ import {
   type DiscoveryMatchRow,
   type DiscoveryObservationRow,
   type DiscoveryRunRow,
-} from "@ghostping/db"
+} from "@openrecord/db"
 import {
   buildAuthoritySnapshot,
   DiscoveryScopeInvalid,
   validateScope,
   type FactRowInput,
-} from "@ghostping/discovery"
+} from "@openrecord/discovery"
 import { scopedBusiness } from "./reads.js"
 
 // ---------------------------------------------------------------------------

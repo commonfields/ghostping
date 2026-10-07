@@ -28,12 +28,12 @@ export const parseRobotsTxt = (text: string): RobotsRules => {
       // A new group starts at each user-agent line following rules.
       if (seenUserAgent && (disallows.length > 0 || allows.length > 0 || crawlDelayMs !== null)) {
         // Heuristic group boundary: reset relevance for the new group.
-        inRelevantGroup = token === "*" || token === "ghostping" || token.startsWith("ghostping")
+        inRelevantGroup = token === "*" || token === "openrecord" || token.startsWith("openrecord")
         seenUserAgent = true
         continue
       }
       seenUserAgent = true
-      if (token === "*" || token === "ghostping" || "ghostping".startsWith(token) || token.startsWith("ghostping")) {
+      if (token === "*" || token === "openrecord" || "openrecord".startsWith(token) || token.startsWith("openrecord")) {
         inRelevantGroup = true
       } else if (!inRelevantGroup) {
         // stay out until a relevant group appears

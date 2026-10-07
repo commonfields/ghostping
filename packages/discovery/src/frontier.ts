@@ -2,7 +2,7 @@
 // dedupe by normalizeUrl (fragment dropped, query kept), depth tracking,
 // query-by-provenance gating, scope enforcement, page-budget exhaustion.
 
-import { normalizeUrl } from "@ghostping/representation"
+import { normalizeUrl } from "@openrecord/representation"
 import { DISCOVERY_BUDGETS_V1, type DiscoveredVia, type SkipReason } from "./types.js"
 import { isInScope, isQueryAllowed } from "./policy.js"
 

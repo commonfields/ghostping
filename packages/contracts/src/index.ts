@@ -345,7 +345,7 @@ export const ApplyFixRequest = Schema.Struct({
 export type ApplyFixRequest = typeof ApplyFixRequest.Type
 
 // Externally observed mutation identity (branch/commit/PR created with
-// normal git tooling, merge performed by a human). Ghostping records what
+// normal git tooling, merge performed by a human). OpenRecord records what
 // it observes; it never merges. Guarded transitions only.
 export const RecordMutationIdentityRequest = Schema.Struct({
   branch: Schema.optional(Schema.String),

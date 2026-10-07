@@ -81,7 +81,7 @@ impl ChatApp {
             scroll: 0,
             result_rx: None,
         };
-        app.push_bot("Welcome to Ghostping chat! I'll guide you through GEO tasks.");
+        app.push_bot("Welcome to OpenRecord chat! I'll guide you through GEO tasks.");
         app.push_bot("What domain do you want to work on? (e.g. myproject.com)");
         app
     }
@@ -242,7 +242,7 @@ impl ChatApp {
                 };
 
                 let base_dir = match dirs::home_dir() {
-                    Some(h) => h.join(".ghostping"),
+                    Some(h) => h.join(".openrecord"),
                     None => {
                         let _ = tx.send(Err("Cannot find home directory".to_string())).await;
                         return;
@@ -319,7 +319,7 @@ impl ChatApp {
                 };
 
                 let base_dir = match dirs::home_dir() {
-                    Some(h) => h.join(".ghostping"),
+                    Some(h) => h.join(".openrecord"),
                     None => {
                         let _ = tx.send(Err("Cannot find home directory".to_string())).await;
                         return;
@@ -483,7 +483,7 @@ fn render(f: &mut Frame, app: &ChatApp) {
 fn render_header(f: &mut Frame, area: Rect) {
     let title = Paragraph::new(Line::from(vec![
         Span::styled(
-            "Ghostping ",
+            "OpenRecord ",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),

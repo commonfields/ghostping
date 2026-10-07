@@ -11,7 +11,7 @@ const sources = (dir: string): string[] => readdirSync(dir, { withFileTypes: tru
 describe("hosted Effect architecture guards", () => {
   it("has no Rust execution, subprocess, or IPC dependency in hosted sources", () => {
     for (const path of [...sources(join(root, "apps")), ...sources(join(root, "packages"))]) {
-      expect(readFileSync(path, "utf8"), path).not.toMatch(/child_process|\bspawn\s*\(|RustObservationWorker|GHOSTPING_WORKER_PATH|ghostping-worker-(job|result)-v1|target\/(debug|release)\/ghostping-worker/)
+      expect(readFileSync(path, "utf8"), path).not.toMatch(/child_process|\bspawn\s*\(|RustObservationWorker|GHOSTPING_WORKER_PATH|openrecord-worker-(job|result)-v1|target\/(debug|release)\/openrecord-worker/)
     }
   })
   it("providers use injectable HTTP and Config capabilities without direct globals", () => {

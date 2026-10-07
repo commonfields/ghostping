@@ -1,6 +1,6 @@
 // Typed API client shared with the backend contract (packages/contracts).
 // Most server state comes from these calls; ordinary React state covers UI-local interaction.
-import { Routes } from "@ghostping/contracts"
+import { Routes } from "@openrecord/contracts"
 export class ApiError extends Error {
   readonly status: number
   readonly tag: string

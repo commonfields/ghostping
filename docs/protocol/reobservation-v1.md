@@ -11,7 +11,7 @@ PostgreSQL stores only the link `reobservations(business_id, original_observatio
 - the later observation was collected after the original
 - a cited intervention is linked to the issue
 
-Signatures, match classification, observed change, verdicts, and outcomes are **derived at export** by `@ghostping/protocol`, with the same rules mirrored in Rust. No `corrected`, `outcome`, or `match_classification` column exists.
+Signatures, match classification, observed change, verdicts, and outcomes are **derived at export** by `@openrecord/protocol`, with the same rules mirrored in Rust. No `corrected`, `outcome`, or `match_classification` column exists.
 
 ## `MeasurementSignatureV1`
 

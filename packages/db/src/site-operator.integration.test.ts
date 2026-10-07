@@ -230,16 +230,16 @@ suite("site operator persistence", () => {
         state: "CREATED",
         detail: "wrote index.html",
       })
-      const marked = yield* mutations.markState(business, mutation.id, "BRANCH_CREATED", null, { branch: "ghostping/fix-1", commitSha: "abc123" })
+      const marked = yield* mutations.markState(business, mutation.id, "BRANCH_CREATED", null, { branch: "openrecord/fix-1", commitSha: "abc123" })
       const verifications = yield* SiteVerificationRepository
-      const verification = yield* verifications.create({ businessId: business, findingId: f.row.id, mutationId: mutation.id, result: "VERIFIED_FIXED", detail: "Ghostping verified the fix on the live site." })
+      const verification = yield* verifications.create({ businessId: business, findingId: f.row.id, mutationId: mutation.id, result: "VERIFIED_FIXED", detail: "OpenRecord verified the fix on the live site." })
       const events = yield* SiteOperatorEventRepository
       yield* events.append({ businessId: business, findingId: f.row.id, kind: "FIX_PROPOSED", payload: { fixKind: "REMOVE_NOINDEX_META" } })
       return { proposal: approved, mutation: marked, verification }
     }))
     expect(ctx.proposal?.status).toBe("APPROVED")
     expect(ctx.mutation?.state).toBe("BRANCH_CREATED")
-    expect(ctx.mutation?.branch).toBe("ghostping/fix-1")
+    expect(ctx.mutation?.branch).toBe("openrecord/fix-1")
     expect(ctx.verification.result).toBe("VERIFIED_FIXED")
     // GSC boundary records blocked status honestly (never fake live data).
     await run(Effect.gen(function*() {

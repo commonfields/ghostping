@@ -20,32 +20,32 @@ import {
 } from 'lucide-react';
 
 // ── Canonical project URLs ───────────────────────────────
-const GITHUB_REPO   = 'https://github.com/commonfields/ghostping';
-const RELEASES_URL  = 'https://github.com/commonfields/ghostping/releases';
-const DOCS_URL      = 'https://github.com/commonfields/ghostping#readme';
-const INSTALL_SH    = 'https://raw.githubusercontent.com/commonfields/ghostping/main/scripts/install.sh';
-const INSTALL_PS1   = 'https://raw.githubusercontent.com/commonfields/ghostping/main/scripts/install.ps1';
+const GITHUB_REPO   = 'https://github.com/commonfields/openrecord';
+const RELEASES_URL  = 'https://github.com/commonfields/openrecord/releases';
+const DOCS_URL      = 'https://github.com/commonfields/openrecord#readme';
+const INSTALL_SH    = 'https://raw.githubusercontent.com/commonfields/openrecord/main/scripts/install.sh';
+const INSTALL_PS1   = 'https://raw.githubusercontent.com/commonfields/openrecord/main/scripts/install.ps1';
 // ─────────────────────────────────────────────────────────
 
 const TERMINAL_LINES = [
   {
-    cmd: 'ghostping init --name "MyProject" --website "https://example.com" --category "developer tool" --yes',
-    out: '✓ Created ./ghostping.toml\n  Next steps:\n    1. Edit ghostping.toml to customize your project',
+    cmd: 'openrecord init --name "MyProject" --website "https://example.com" --category "developer tool" --yes',
+    out: '✓ Created ./openrecord.toml\n  Next steps:\n    1. Edit openrecord.toml to customize your project',
   },
   {
-    cmd: 'ghostping prompts discover',
+    cmd: 'openrecord prompts discover',
     out: '✓ Discovered 12 high-intent prompts for "developer tool"',
   },
   {
-    cmd: 'ghostping audit run --models mock --samples 3',
+    cmd: 'openrecord audit run --models mock --samples 3',
     out: '✓ Audit Run 0193ef…\n  Mention rate:          66.7%\n  Recommendation rate:   33.3%\n  Citation rate:         33.3% (1 of 3 responses with a project citation)\n  Total queries:         3\n  Coverage:              3/3 planned queries succeeded',
   },
   {
-    cmd: 'ghostping report --output ./reports/',
+    cmd: 'openrecord report --output ./reports/',
     out: '✓ Evidence report: ./reports/audit-2024-01-15.md',
   },
   {
-    cmd: 'ghostping generate --output ./generated/',
+    cmd: 'openrecord generate --output ./generated/',
     out: '✓ Generated 5 content assets from visibility gaps',
   },
 ];
@@ -149,7 +149,7 @@ function PhosphorTerminal() {
           className="ml-3 text-xs font-mono tracking-widest uppercase select-none"
           style={{ color: 'rgba(245,167,42,0.35)' }}
         >
-          ghostping — zsh
+          openrecord — zsh
         </span>
       </div>
 
@@ -261,7 +261,7 @@ export default function Page() {
             className="font-display font-bold text-sm tracking-[0.18em] uppercase"
             style={{ color: 'var(--text)' }}
           >
-            Ghostping
+            OpenRecord
           </span>
         </div>
 
@@ -363,7 +363,7 @@ export default function Page() {
             className="fade-up d2 text-lg leading-relaxed mb-3 max-w-xl mx-auto"
             style={{ color: 'var(--text-2)' }}
           >
-            Ghostping audits whether AI models mention, cite, or recommend your project —
+            OpenRecord audits whether AI models mention, cite, or recommend your project —
             then generates markdown content to help close the gaps.
           </p>
           <p
@@ -584,7 +584,7 @@ export default function Page() {
                   </span>
                 </div>
                 <div style={{ color: 'var(--amber)', textShadow: '0 0 8px rgba(245,167,42,0.3)' }}>
-                  ~/.ghostping/
+                  ~/.openrecord/
                 </div>
                 <div className="pl-4 mt-2 space-y-1.5" style={{ color: 'rgba(245,167,42,0.45)' }}>
                   <div>├── config.toml</div>
@@ -678,11 +678,11 @@ export default function Page() {
             </p>
             <ol className="space-y-5">
               {[
-                { n: '1', cmd: 'ghostping init',                        desc: 'Initialize your project with name, website, and category' },
-                { n: '2', cmd: 'ghostping prompts discover',            desc: 'Find high-intent prompts your audience uses' },
-                { n: '3', cmd: 'ghostping audit run --models mock',     desc: 'Run a mock audit to test the workflow — no API keys needed' },
-                { n: '4', cmd: 'ghostping report',                      desc: 'Generate a markdown evidence report' },
-                { n: '5', cmd: 'ghostping generate',                    desc: 'Generate content assets from visibility gaps' },
+                { n: '1', cmd: 'openrecord init',                        desc: 'Initialize your project with name, website, and category' },
+                { n: '2', cmd: 'openrecord prompts discover',            desc: 'Find high-intent prompts your audience uses' },
+                { n: '3', cmd: 'openrecord audit run --models mock',     desc: 'Run a mock audit to test the workflow — no API keys needed' },
+                { n: '4', cmd: 'openrecord report',                      desc: 'Generate a markdown evidence report' },
+                { n: '5', cmd: 'openrecord generate',                    desc: 'Generate content assets from visibility gaps' },
               ].map(({ n, cmd, desc }) => (
                 <li key={n} className="flex items-start gap-4">
                   <span
@@ -717,7 +717,7 @@ export default function Page() {
             style={{ border: '1px solid var(--border)', color: 'var(--text-3)', background: 'var(--surface)' }}
           >
             <span style={{ color: 'var(--text-2)' }}>NOTICE: </span>
-            Ghostping does not guarantee AI visibility. Results are probabilistic and depend on model
+            OpenRecord does not guarantee AI visibility. Results are probabilistic and depend on model
             training data, prompt variations, and timing. The mock provider is for workflow testing only
             and does not reflect real model behavior. Real provider audits require user-configured API keys.
             Always verify results independently before making strategic decisions.
@@ -735,7 +735,7 @@ export default function Page() {
             <div className="flex items-center gap-2">
               <Terminal className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--amber)' }} />
               <span className="font-display font-bold text-sm tracking-[0.18em] uppercase">
-                Ghostping
+                OpenRecord
               </span>
             </div>
 
@@ -765,7 +765,7 @@ export default function Page() {
             className="mt-8 text-xs font-mono"
             style={{ color: 'var(--text-3)' }}
           >
-            © {new Date().getFullYear()} Ghostping — MIT License
+            © {new Date().getFullYear()} OpenRecord — MIT License
           </div>
         </div>
       </footer>

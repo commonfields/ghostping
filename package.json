@@ -1,5 +1,5 @@
 {
-  "name": "ghostping-hosted",
+  "name": "openrecord-hosted",
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@10.12.1",
@@ -8,10 +8,10 @@
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "build": "pnpm -r build",
-    "db:migrate": "pnpm --filter @ghostping/db migrate",
-    "db:seed": "pnpm --filter @ghostping/db seed",
-    "db:seed:demo": "pnpm --filter @ghostping/worker exec tsx ../../scripts/demo-seed.ts",
-    "dev": "echo 'run: pnpm --filter @ghostping/api dev | pnpm --filter @ghostping/worker dev | pnpm --filter @ghostping/web dev (see docs)'",
+    "db:migrate": "pnpm --filter @openrecord/db migrate",
+    "db:seed": "pnpm --filter @openrecord/db seed",
+    "db:seed:demo": "pnpm --filter @openrecord/worker exec tsx ../../scripts/demo-seed.ts",
+    "dev": "echo 'run: pnpm --filter @openrecord/api dev | pnpm --filter @openrecord/worker dev | pnpm --filter @openrecord/web dev (see docs)'",
     "provider:live:9router": "bash scripts/live-9router-check.sh"
   },
   "devDependencies": {

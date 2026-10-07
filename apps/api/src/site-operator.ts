@@ -11,9 +11,9 @@ import {
   SiteRunRepository,
   SiteTargetRepository,
   SiteVerificationRepository,
-} from "@ghostping/db"
-import { validateScope } from "@ghostping/discovery"
-import { canTransitionFinding } from "@ghostping/site-operator"
+} from "@openrecord/db"
+import { validateScope } from "@openrecord/discovery"
+import { canTransitionFinding } from "@openrecord/site-operator"
 import { scopedBusiness } from "./reads.js"
 
 export const validateSiteRoot = (

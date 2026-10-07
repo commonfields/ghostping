@@ -20,7 +20,7 @@ const fetcherForFinalUrl = (status: number, body: string, finalUrl: string): Saf
 describe("parseRobots", () => {
   it("applies matching group disallows and ignores others", () => {
     const rules = parseRobots(
-      "User-agent: GhostpingDiscovery\nDisallow: /private\n\nUser-agent: OtherBot\nDisallow: /public\n",
+      "User-agent: OpenRecordDiscovery\nDisallow: /private\n\nUser-agent: OtherBot\nDisallow: /public\n",
     )
     expect(rules.disallows).toEqual(["/private"])
     expect(isAllowed("/private/x", rules)).toBe(false)
@@ -51,7 +51,7 @@ describe("parseRobots", () => {
 
   it("specific-group-overrides-wildcard (no union with *)", () => {
     const rules = parseRobots(
-      "User-agent: *\nDisallow: /star\n\nUser-agent: GhostpingDiscovery\nDisallow: /specific\n",
+      "User-agent: *\nDisallow: /star\n\nUser-agent: OpenRecordDiscovery\nDisallow: /specific\n",
     )
     expect(rules.disallows).toEqual(["/specific"])
     expect(isAllowed("/specific/x", rules)).toBe(false)
@@ -60,7 +60,7 @@ describe("parseRobots", () => {
 
   it("most-specific applicable group wins among specifics", () => {
     const rules = parseRobots(
-      "User-agent: ghostping\nDisallow: /general\n\nUser-agent: ghostpingdiscovery\nDisallow: /exact\n",
+      "User-agent: openrecord\nDisallow: /general\n\nUser-agent: openrecorddiscovery\nDisallow: /exact\n",
     )
     expect(rules.disallows).toEqual(["/exact"])
     expect(isAllowed("/exact/x", rules)).toBe(false)
@@ -132,7 +132,7 @@ describe("parseRobots", () => {
 
   it("crawl-delay-from-selected-group only (ignores wildcard when specific exists)", () => {
     const both = parseRobots(
-      "User-agent: *\nCrawl-delay: 5\n\nUser-agent: GhostpingDiscovery\nCrawl-delay: 1\n",
+      "User-agent: *\nCrawl-delay: 5\n\nUser-agent: OpenRecordDiscovery\nCrawl-delay: 1\n",
     )
     expect(both.crawlDelayMs).toBe(1000)
 
@@ -140,7 +140,7 @@ describe("parseRobots", () => {
     expect(fallback.crawlDelayMs).toBe(5000)
 
     const specificWithoutDelay = parseRobots(
-      "User-agent: *\nCrawl-delay: 5\n\nUser-agent: GhostpingDiscovery\nDisallow: /x\n",
+      "User-agent: *\nCrawl-delay: 5\n\nUser-agent: OpenRecordDiscovery\nDisallow: /x\n",
     )
     expect(specificWithoutDelay.crawlDelayMs).toBeNull()
     expect(effectiveCrawlDelayMs(specificWithoutDelay)).toBe(DISCOVERY_BUDGETS_V1.crawlDelayMs)
@@ -190,7 +190,7 @@ describe("fetchAndParseRobots", () => {
       "User-agent: *\nDisallow: /\n",
       "https://evil.example/robots.txt",
     )
-    const out = await fetchAndParseRobots("https://a.example", evil, ["GhostpingDiscovery", "*"], {
+    const out = await fetchAndParseRobots("https://a.example", evil, ["OpenRecordDiscovery", "*"], {
       scopeOrigin: "https://a.example",
       allowCrossOrigin: false,
     })
@@ -205,7 +205,7 @@ describe("fetchAndParseRobots", () => {
       "User-agent: *\nDisallow: /p\n",
       "https://a.example/robots.txt?via=redirect",
     )
-    const out = await fetchAndParseRobots("https://a.example", same, ["GhostpingDiscovery", "*"], {
+    const out = await fetchAndParseRobots("https://a.example", same, ["OpenRecordDiscovery", "*"], {
       scopeOrigin: "https://a.example",
       allowCrossOrigin: false,
     })

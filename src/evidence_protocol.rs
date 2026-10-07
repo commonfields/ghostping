@@ -1,4 +1,4 @@
-//! Portable Ghostping Evidence Protocol V1 (Rust reader).
+//! Portable OpenRecord Evidence Protocol V1 (Rust reader).
 //!
 //! `packages/protocol` (TypeScript, Effect Schema) is the canonical schema
 //! source and generates the golden fixtures in `fixtures/evidence-protocol-v1`.
@@ -314,7 +314,7 @@ impl SurfaceIdentityV1 {
                     metadata_visibility: MetadataVisibility::Full,
                     ..base(
                         SurfaceKind::Mock,
-                        "Ghostping deterministic fixture",
+                        "OpenRecord deterministic fixture",
                         "ghostping-mock",
                     )
                 })

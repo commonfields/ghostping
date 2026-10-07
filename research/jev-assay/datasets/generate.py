@@ -16,7 +16,7 @@ from pathlib import Path
 OUT = Path(__file__).parent
 RNG = random.Random(20260929)
 
-NAMES = ["Ghostping", "Acme Analytics", "Northwind", "Blue Canoe", "Hexagonal", "Quartz Labs"]
+NAMES = ["OpenRecord", "Acme Analytics", "Northwind", "Blue Canoe", "Hexagonal", "Quartz Labs"]
 CITIES = ["Austin", "Berlin", "Osaka", "Lagos", "Toronto", "Lisbon"]
 PRODUCTS = ["visibility tracker", "invoice tool", "edge runtime", "notebook app", "dns monitor"]
 
