@@ -12,7 +12,7 @@ import { pgSyncStore } from "./truth.js"
 const url = process.env["DATABASE_URL"] ?? process.env["TEST_DATABASE_URL"] ?? ""
 const describePg = url === "" ? describe.skip : describe
 
-const manifestText = (amount: string, extra = "") => `schema: ghostping/truth-manifest-v1
+const manifestText = (amount: string, extra = "") => `schema: openrecord/truth-manifest-v1
 business:
   key: acme
 authority:
@@ -200,7 +200,7 @@ describePg("postgres truth closeout v1", () => {
           const client = await pool.connect()
           try {
             await client.query("BEGIN")
-            await client.query("SET LOCAL ghostping.authority_sync = '1'")
+            await client.query("SET LOCAL openrecord.authority_sync = '1'")
             const row = (await client.query(
               `INSERT INTO authoritative_facts (business_id, subject, predicate, value_text, value_type, status, version, valid_from, source_kind) VALUES ($1,'plan:starter','price','99.00 USD','CURRENCY','ACTIVE',99,'2026-10-03T00:00:00Z','MANUAL') RETURNING id`,
               [biz],
@@ -259,7 +259,7 @@ describePg("postgres truth closeout v1", () => {
       const provUrl = await pool.query(`SELECT source_url FROM repository_fact_provenance p JOIN authoritative_facts f ON f.id = p.fact_id WHERE p.business_id = $1 AND f.status = 'ACTIVE'`, [biz])
       expect((provUrl.rows[0] as Record<string, unknown>)["source_url"]).toBe("https://acme.example/pricing-v2")
       // Remove the only fact -> retires; re-add -> v2 linked to retired v1... here v5.
-      const noFacts = `schema: ghostping/truth-manifest-v1
+      const noFacts = `schema: openrecord/truth-manifest-v1
 business:
   key: acme
 authority:

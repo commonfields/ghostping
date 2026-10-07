@@ -153,7 +153,7 @@ run("postgres product surface v1", () => {
     const syncClient = await pool.connect()
     try {
       await syncClient.query("BEGIN")
-      await syncClient.query("SET LOCAL ghostping.authority_sync = '1'")
+      await syncClient.query("SET LOCAL openrecord.authority_sync = '1'")
       let prev: string | null = null
       for (const version of [1, 2, 3]) {
         const row = (await syncClient.query(

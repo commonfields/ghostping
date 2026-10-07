@@ -50,7 +50,7 @@ impl Sandbox {
             .args(args)
             .current_dir(self.proj.path())
             .env("HOME", self.home.path())
-            .env_remove("GHOSTPING_BIN")
+            .env_remove("OPENRECORD_BIN")
             .output()
             .expect("failed to spawn openrecord");
         let code = out.status.code().unwrap_or(-1);

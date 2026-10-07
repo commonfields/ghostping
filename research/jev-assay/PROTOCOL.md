@@ -126,7 +126,7 @@ status, failure class.
 
 ```text
 TYPESAFE_API_KEY
-GHOSTPING_LIVE_JEV=1
+OPENRECORD_LIVE_JEV=1
 --split holdout              (explicit; live+implicit-all is refused;
                               live+all needs --allow-all-split)
 --max-requests N             (enforced before every outbound request)

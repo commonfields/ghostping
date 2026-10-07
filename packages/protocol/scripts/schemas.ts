@@ -21,7 +21,7 @@ export const buildSchemas = (): Record<string, string> =>
     (Object.keys(protocolSchemas) as Array<keyof typeof protocolSchemas>).map((name) => {
       const json = {
         ...JSONSchema.make(protocolSchemas[name] as Schema.Schema.Any, { target: "jsonSchema2020-12" }),
-        $id: `https://ghostping.dev/schemas/${schemaId[name]}.schema.json`,
+        $id: `https://openrecord.dev/schemas/${schemaId[name]}.schema.json`,
       }
       return [`${fileName[name]}-v1.schema.json`, `${canonicalJson(json)}\n`]
     }),

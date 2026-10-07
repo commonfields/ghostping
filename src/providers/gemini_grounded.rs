@@ -502,12 +502,12 @@ impl GeminiGroundedAdapter {
     }
 
     /// Live grounded query. Requires `GEMINI_API_KEY` (config or env) and
-    /// explicit opt-in `GHOSTPING_LIVE_GEMINI=1` — live calls spend budget.
+    /// explicit opt-in `OPENRECORD_LIVE_GEMINI=1` — live calls spend budget.
     /// CI and default paths use fixtures via [`parse_grounded_response`].
     pub async fn query_live(&self, prompt: &str) -> Result<GroundedContent> {
-        if std::env::var("GHOSTPING_LIVE_GEMINI").unwrap_or_default() != "1" {
+        if std::env::var("OPENRECORD_LIVE_GEMINI").unwrap_or_default() != "1" {
             bail!(
-                "Live Gemini grounded search requires GHOSTPING_LIVE_GEMINI=1 (spends API budget)"
+                "Live Gemini grounded search requires OPENRECORD_LIVE_GEMINI=1 (spends API budget)"
             );
         }
         let key = self.api_key()?;

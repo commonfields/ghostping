@@ -2,12 +2,12 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ghostping
-      POSTGRES_PASSWORD: ghostping
-      POSTGRES_DB: ghostping
+      POSTGRES_USER: openrecord
+      POSTGRES_PASSWORD: openrecord
+      POSTGRES_DB: openrecord
     ports:
       - "5432:5432"
     volumes:
-      - ghostping-pg:/var/lib/postgresql/data
+      - openrecord-pg:/var/lib/postgresql/data
 volumes:
-  ghostping-pg:
+  openrecord-pg:

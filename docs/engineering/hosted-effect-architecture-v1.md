@@ -16,7 +16,7 @@ retries, and append-only evidence. Effect gives us:
   `packages/contracts` → API + web), instead of duplicated
   interface/Zod/OpenAPI/decoders.
 - `Config` for environment (`DATABASE_URL`, `SESSION_SECRET`,
-  `GHOSTPING_WORKER_PATH`, `APP_BASE_URL`).
+  `OPENRECORD_WORKER_PATH`, `APP_BASE_URL`).
 - `Schedule` for bounded retries (rate-limit/5xx/transient only).
 - `Cause`/tagged errors for a deterministic error taxonomy mapped to HTTP
   statuses (`NotAuthenticated`, `FactAuthorityConflict`,

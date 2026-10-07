@@ -4,8 +4,8 @@ import { NodeHttpClient, NodeRuntime } from "@effect/platform-node"
 import { NineRouterSettingsLive } from "@openrecord/config"
 import { NineRouterProvider, NineRouterProviderLive, sha256 } from "../src/index.js"
 const main = Effect.gen(function*() {
-  const enabled = yield* Config.boolean("GHOSTPING_LIVE_PROVIDER").pipe(Config.withDefault(false))
-  if (!enabled) return yield* Effect.fail("set GHOSTPING_LIVE_PROVIDER=true to authorize one provider request")
+  const enabled = yield* Config.boolean("OPENRECORD_LIVE_PROVIDER").pipe(Config.withDefault(false))
+  if (!enabled) return yield* Effect.fail("set OPENRECORD_LIVE_PROVIDER=true to authorize one provider request")
   const requestedModel = yield* Config.string("PROVIDER_LIVE_MODEL")
   const prompt = yield* Config.string("PROVIDER_LIVE_PROMPT").pipe(Config.withDefault("Reply with the word ready."))
   const provider = yield* NineRouterProvider

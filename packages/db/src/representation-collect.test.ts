@@ -564,7 +564,7 @@ describe("real NativeHttpCollector with stub transport (no network)", () => {
 // Scratch-Postgres integration (real SQL, stub transport, no network).
 // ---------------------------------------------------------------------------
 
-const SCRATCH = process.env["GHOSTPING_SCRATCH_URL"] ?? "postgres://wira@localhost:5432/openrecord_scratch"
+const SCRATCH = process.env["OPENRECORD_SCRATCH_URL"] ?? "postgres://wira@localhost:5432/openrecord_scratch"
 
 let scratchUp = false
 try {

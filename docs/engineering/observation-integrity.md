@@ -89,7 +89,7 @@ invalid references flagged unknown.
 ## 6. Remaining unverified integration behavior
 
 - AI CSV layout vs a genuine authorized export (no sample available).
-- Live Gemini grounded calls (key + budget required; `GHOSTPING_LIVE_GEMINI`
+- Live Gemini grounded calls (key + budget required; `OPENRECORD_LIVE_GEMINI`
   gate in place, fixtures only in CI).
 - Hosted CI on this branch (pushed; URL recorded in the PR).
 - Windows/macOS packaging, Tauri, pwsh installer execution (unchanged).

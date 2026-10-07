@@ -16,7 +16,7 @@ describe("manifest", () => {
   })
 
   it("rejects unknown schema", () => {
-    expect(() => parseManifest(VALID.replace("ghostping/truth-manifest-v1", "ghostping/truth-manifest-v2"))).toThrowError(
+    expect(() => parseManifest(VALID.replace("openrecord/truth-manifest-v1", "openrecord/truth-manifest-v2"))).toThrowError(
       /UnknownSchema/,
     )
   })

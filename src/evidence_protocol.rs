@@ -20,16 +20,16 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 pub const PROTOCOL_VERSION: u64 = 1;
-pub const PACKET_SCHEMA_V1: &str = "ghostping/evidence-packet-v1";
-pub const SURFACE_SCHEMA_V1: &str = "ghostping/surface-v1";
-pub const MEASUREMENT_SCHEMA_V1: &str = "ghostping/measurement-context-v1";
-pub const FACT_SCHEMA_V1: &str = "ghostping/fact-v1";
-pub const OBSERVATION_SCHEMA_V1: &str = "ghostping/observation-v1";
-pub const CLAIM_SCHEMA_V1: &str = "ghostping/claim-v1";
-pub const JUDGMENT_SCHEMA_V1: &str = "ghostping/judgment-v1";
-pub const ISSUE_SCHEMA_V1: &str = "ghostping/issue-v1";
-pub const INTERVENTION_SCHEMA_V1: &str = "ghostping/intervention-v1";
-pub const REOBSERVATION_SCHEMA_V1: &str = "ghostping/reobservation-v1";
+pub const PACKET_SCHEMA_V1: &str = "openrecord/evidence-packet-v1";
+pub const SURFACE_SCHEMA_V1: &str = "openrecord/surface-v1";
+pub const MEASUREMENT_SCHEMA_V1: &str = "openrecord/measurement-context-v1";
+pub const FACT_SCHEMA_V1: &str = "openrecord/fact-v1";
+pub const OBSERVATION_SCHEMA_V1: &str = "openrecord/observation-v1";
+pub const CLAIM_SCHEMA_V1: &str = "openrecord/claim-v1";
+pub const JUDGMENT_SCHEMA_V1: &str = "openrecord/judgment-v1";
+pub const ISSUE_SCHEMA_V1: &str = "openrecord/issue-v1";
+pub const INTERVENTION_SCHEMA_V1: &str = "openrecord/intervention-v1";
+pub const REOBSERVATION_SCHEMA_V1: &str = "openrecord/reobservation-v1";
 
 /// Fail-closed validation error. `reason` codes match the TypeScript
 /// `EvidencePacketInvalid.reason` values exactly.
@@ -295,7 +295,7 @@ impl SurfaceIdentityV1 {
                 gateway: KnowledgeString::Known("9router".into()),
                 requested_model: known_or(requested_model, KnowledgeString::Unknown),
                 observed_model: known_or(observed_model, KnowledgeString::Unknown),
-                ..base(SurfaceKind::RouterApi, "9Router", "ghostping-9router")
+                ..base(SurfaceKind::RouterApi, "9Router", "openrecord-9router")
             }),
             "mock" => {
                 let na = KnowledgeString::NotApplicable;
@@ -315,7 +315,7 @@ impl SurfaceIdentityV1 {
                     ..base(
                         SurfaceKind::Mock,
                         "OpenRecord deterministic fixture",
-                        "ghostping-mock",
+                        "openrecord-mock",
                     )
                 })
             }

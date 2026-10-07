@@ -14,11 +14,11 @@ A hidden or ambiguous dimension uses exactly one of these forms:
 
 `UNKNOWN` never means false, disabled, anonymous, default, or unchanged. A value is `KNOWN` only when the surface returned it or OpenRecord set it directly. OpenRecord never derives a value from answer content. For example, it does not conclude "probably used search."
 
-## `ghostping/surface-v1`
+## `openrecord/surface-v1`
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `schema`, `schema_version` | `"ghostping/surface-v1"`, `1` | Version identity |
+| `schema`, `schema_version` | `"openrecord/surface-v1"`, `1` | Version identity |
 | `kind` | closed enum | `CONSUMER_UI`, `DIRECT_API`, `ROUTER_API`, `SEARCH_GROUNDED_API`, `LOCAL_MODEL`, `MOCK` |
 | `product` | string | Product measured, e.g. `9Router` |
 | `adapter`, `adapter_version` | string | The OpenRecord code that collected the observation |
@@ -33,21 +33,21 @@ A hidden or ambiguous dimension uses exactly one of these forms:
 
 An adapter sets `kind` from what it actually calls. An API adapter cannot emit `CONSUMER_UI`.
 
-## `ghostping/measurement-context-v1`
+## `openrecord/measurement-context-v1`
 
 | Field | Meaning |
 | --- | --- |
 | `question` | Exact prompt as sent. OpenRecord does not trim it or normalize its whitespace before storing or hashing it. |
 | `question_id`, `question_version` | Question identity. Hosted V1 questions are immutable, so the version is `sha256:<digest of the exact prompt>`. |
 | `business_id` | Business identity |
-| `surface` | `ghostping/surface-v1` |
+| `surface` | `openrecord/surface-v1` |
 | `observed_at` | UTC timestamp |
 | `measurement_configuration` | What OpenRecord **requested** (Knowledge JSON). This is not the provider's effective state. |
 | `sample_number`, `repeat_id` | Repeat identity (hosted: the check-run id) |
 
 ## Observation evidence
 
-`ghostping/observation-v1` references immutable raw evidence by `id`, `digest_sha256`, `content_type`, `received_at`, and `reference` (`ghostping://raw-evidence/<digest>`). The exact response bytes are canonical evidence. The worker sends them as `raw_bytes_hex`, and PostgreSQL stores them only when they hash to the reported digest. `normalized_answer_text` is derived from those bytes. `citations` contains only citations the provider returned. `provider_metadata` holds only metadata the provider returned, or `UNKNOWN`.
+`openrecord/observation-v1` references immutable raw evidence by `id`, `digest_sha256`, `content_type`, `received_at`, and `reference` (`openrecord://raw-evidence/<digest>`). The exact response bytes are canonical evidence. The worker sends them as `raw_bytes_hex`, and PostgreSQL stores them only when they hash to the reported digest. `normalized_answer_text` is derived from those bytes. `citations` contains only citations the provider returned. `provider_metadata` holds only metadata the provider returned, or `UNKNOWN`.
 
 Raw evidence is deduplicated by digest. `received_at` is therefore the first receipt of those bytes. Rows stored before this migration have no exact bytes. OpenRecord never rebuilds those bytes from normalized fields.
 
@@ -56,7 +56,7 @@ Raw evidence is deduplicated by digest. `received_at` is therefore the first rec
 | Field | Value |
 | --- | --- |
 | `kind` | `ROUTER_API` (never a consumer UI, never "ChatGPT") |
-| `product` / `adapter` | `9Router` / `ghostping-9router` (stable evidence identifier) |
+| `product` / `adapter` | `9Router` / `openrecord-9router` |
 | `gateway` | `KNOWN("9router")` |
 | `requested_model` | `KNOWN(<configured exact pin>)` |
 | `observed_model` | `KNOWN(response.model)` only when returned, else `UNKNOWN` |
@@ -70,4 +70,4 @@ Raw evidence is deduplicated by digest. `received_at` is therefore the first rec
 
 ## Mock mapping
 
-`kind=MOCK`, `product="Ghostping deterministic fixture"`, `adapter=ghostping-mock` (stable evidence identifiers). Every external dimension is `NOT_APPLICABLE`, because a fixture has no account, locale, search, or personalization. Mock observations are always `synthetic=true`. PostgreSQL rejects a row whose surface kind is `MOCK` and whose `synthetic` value is false. Export treats every `provider='mock'` row as synthetic, including rows stored before the `synthetic` column existed. A rendered packet that contains synthetic evidence starts with `SYNTHETIC DATA.`.
+`kind=MOCK`, `product="OpenRecord deterministic fixture"`, `adapter=openrecord-mock`. Every external dimension is `NOT_APPLICABLE`, because a fixture has no account, locale, search, or personalization. Mock observations are always `synthetic=true`. PostgreSQL rejects a row whose surface kind is `MOCK` and whose `synthetic` value is false. Export treats every `provider='mock'` row as synthetic, including rows stored before the `synthetic` column existed. A rendered packet that contains synthetic evidence starts with `SYNTHETIC DATA.`.

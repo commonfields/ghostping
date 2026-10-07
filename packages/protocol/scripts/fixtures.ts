@@ -88,7 +88,7 @@ const observation = (
       digest_sha256: digest,
       content_type: "application/json",
       received_at: at,
-      reference: `ghostping://raw-evidence/${digest}`,
+      reference: `openrecord://raw-evidence/${digest}`,
     },
     normalized_answer_text: answer,
     citations: [{ uri: "https://example.com/acme-review", title: "Acme review", position: 1, attributed: false }],

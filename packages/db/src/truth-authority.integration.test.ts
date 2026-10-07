@@ -12,7 +12,7 @@ import { pgSyncStore } from "./truth.js"
 const url = process.env["DATABASE_URL"] ?? process.env["TEST_DATABASE_URL"] ?? ""
 const describePg = url === "" ? describe.skip : describe
 
-const manifestText = (amount: string) => `schema: ghostping/truth-manifest-v1
+const manifestText = (amount: string) => `schema: openrecord/truth-manifest-v1
 business:
   key: acme
 authority:

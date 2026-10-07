@@ -86,7 +86,7 @@ Prepare the database (credentials must match `compose.yaml`):
 
 ```bash
 docker compose up -d postgres
-export DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping"
+export DATABASE_URL="postgres://openrecord:openrecord@localhost:5432/openrecord"
 pnpm db:migrate
 # Minimal seed (one business, no login): pnpm db:seed
 # Full five-company demo (login demo@northstar.test / password123): pnpm db:seed:demo
@@ -97,13 +97,13 @@ Every terminal needs `DATABASE_URL` (prefix each command or re-export it):
 
 ```bash
 # Terminal 1: HTTP API on port 3001
-DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @openrecord/api dev
+DATABASE_URL="postgres://openrecord:openrecord@localhost:5432/openrecord" pnpm --filter @openrecord/api dev
 
 # Terminal 2: AI-check and discovery workers
-DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @openrecord/worker dev
+DATABASE_URL="postgres://openrecord:openrecord@localhost:5432/openrecord" pnpm --filter @openrecord/worker dev
 
 # Terminal 3: web app on port 3000
-DATABASE_URL="postgres://ghostping:ghostping@localhost:5432/ghostping" pnpm --filter @openrecord/web dev
+DATABASE_URL="postgres://openrecord:openrecord@localhost:5432/openrecord" pnpm --filter @openrecord/web dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000), create an account and business, add approved facts, and run a check. The default mock provider is deterministic, offline, and needs no credentials. Live providers are optional and off by default.
