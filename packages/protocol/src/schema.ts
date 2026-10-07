@@ -1,7 +1,7 @@
 // OpenRecord Evidence Protocol V1 — canonical domain schemas.
 //
 // These Effect Schemas are the single source of truth. JSON Schemas in
-// `schemas/ghostping` are generated from them (`pnpm --filter
+// `schemas/openrecord` are generated from them (`pnpm --filter
 // @openrecord/protocol schemas`) and a test fails when they drift.
 //
 // Design rule: every field is exactly one of evidence, authority,
@@ -13,16 +13,16 @@ import { Schema } from "effect"
 export const PROTOCOL_VERSION = 1 as const
 
 export const schemaId = {
-  fact: "ghostping/fact-v1",
-  surface: "ghostping/surface-v1",
-  measurement: "ghostping/measurement-context-v1",
-  observation: "ghostping/observation-v1",
-  claim: "ghostping/claim-v1",
-  judgment: "ghostping/judgment-v1",
-  issue: "ghostping/issue-v1",
-  intervention: "ghostping/intervention-v1",
-  reobservation: "ghostping/reobservation-v1",
-  packet: "ghostping/evidence-packet-v1",
+  fact: "openrecord/fact-v1",
+  surface: "openrecord/surface-v1",
+  measurement: "openrecord/measurement-context-v1",
+  observation: "openrecord/observation-v1",
+  claim: "openrecord/claim-v1",
+  judgment: "openrecord/judgment-v1",
+  issue: "openrecord/issue-v1",
+  intervention: "openrecord/intervention-v1",
+  reobservation: "openrecord/reobservation-v1",
+  packet: "openrecord/evidence-packet-v1",
 } as const
 
 const header = <S extends string>(id: S) => ({

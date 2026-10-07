@@ -7,7 +7,7 @@ Date: 2026-10-03. Branch base: `origin/main` @ `1907c5d`.
 
 - Canonical TS source: `packages/protocol/src/schema.ts` (FactV1, SurfaceIdentityV1 with `account_state`/`subscription_tier`, MeasurementContextV1, ObservationV1, ClaimV1, JudgmentV1, IssueV1, InterventionV1, ReobservationV1, EvidencePacketV1, MeasurementSignatureV1).
 - Derivation: `packages/protocol/src/measurement.ts` (`measurementSignature`, `compareMeasurements`, `latestJudgment`, `soleClaim`, `factsAt`), `packages/protocol/src/packet.ts` (`assembleEvidencePacket`, `validatePacket`, `checkReferences`), `packages/protocol/src/canonical.ts`, `packages/protocol/src/surface.ts` (9router/mock only), `packages/protocol/src/render.ts`.
-- Fixtures: `fixtures/evidence-protocol-v1/*.json`, generator `packages/protocol/scripts/fixtures.ts`, schemas `schemas/ghostping/*.schema.json`.
+- Fixtures: `fixtures/evidence-protocol-v1/*.json`, generator `packages/protocol/scripts/fixtures.ts`, schemas `schemas/openrecord/*.schema.json`.
 - Rust mirror: `src/evidence_protocol.rs` (canonical JSON, comparison, assembly, fail-closed validation), tests `tests/evidence_protocol_fixtures.rs`.
 - Phase-0 gaps fixed on this branch: `account_state`/`subscription_tier` added to `MeasurementSignatureV1` (TS+Rust, CRITICAL), linear judgment/intervention chain validation (`InvalidJudgmentSupersession` / `InvalidInterventionSupersession`) with resealed malicious fixtures.
 

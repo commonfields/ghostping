@@ -32,7 +32,7 @@ Code paths:
 
 Ownership / transactions / failure / crash:
 
-- Ownership: API (`FactRepository`) for HOSTED; manifest sync (with `SET LOCAL ghostping.authority_sync`) for REPOSITORY_MANIFEST; direct hosted mutation on managed businesses fails closed as typed `AuthorityError` defect → HTTP 409 (`packages/db/src/repositories.ts`, `apps/api/src/router.ts`).
+- Ownership: API (`FactRepository`) for HOSTED; manifest sync (with `SET LOCAL openrecord.authority_sync`) for REPOSITORY_MANIFEST; direct hosted mutation on managed businesses fails closed as typed `AuthorityError` defect → HTTP 409 (`packages/db/src/repositories.ts`, `apps/api/src/router.ts`).
 - Transactions: single-row INSERT/UPDATE per op; mode transition immutable once facts exist (trigger `check_authority_mode_transition`); single-ACTIVE-per-manifest-key backstop trigger.
 - Failure semantics: overlapping ACTIVE validity → 422 `FactAuthorityConflict` on create; supersede/retire on managed business → 409; lineage fork → `FactLineageForked` → 500 (fail closed, never flattened).
 - UNKNOWN handling: absent mode row = HOSTED; absent provenance = null (unknown, not fabricated).

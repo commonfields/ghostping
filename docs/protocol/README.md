@@ -20,7 +20,7 @@ Every field in the protocol is exactly one of: **evidence** (raw response bytes,
 | What | Where |
 | --- | --- |
 | Canonical schemas and rules (Effect Schema, TypeScript) | [`packages/protocol/src`](../../packages/protocol/src) |
-| Generated JSON Schemas (do not edit) | [`schemas/ghostping`](../../schemas/ghostping) |
+| Generated JSON Schemas (do not edit) | [`schemas/openrecord`](../../schemas/openrecord) |
 | Golden cross-language fixtures (do not edit) | [`fixtures/evidence-protocol-v1`](../../fixtures/evidence-protocol-v1) |
 | Rust reader (independent re-derivation) | [`src/evidence_protocol.rs`](../../src/evidence_protocol.rs) |
 | Hosted persistence + packet export | [`packages/db/src/evidence.ts`](../../packages/db/src/evidence.ts), migration `0003_evidence_protocol_v1.sql` |

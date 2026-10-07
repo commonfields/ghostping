@@ -8,7 +8,7 @@
 //! (preregistered, frozen question-set-v1 + threshold-policy-v1).
 //!
 //! No production path may call this module. Live transport requires
-//! `TYPESAFE_API_KEY` + `GHOSTPING_LIVE_JEV=1` + an explicit request budget.
+//! `TYPESAFE_API_KEY` + `OPENRECORD_LIVE_JEV=1` + an explicit request budget.
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -345,8 +345,8 @@ impl LiveTransport {
     }
 
     pub fn gated_with_model(max_requests: usize, model: &str) -> Result<Self> {
-        if std::env::var("GHOSTPING_LIVE_JEV").unwrap_or_default() != "1" {
-            bail!("Live Jev requires GHOSTPING_LIVE_JEV=1 (explicit opt-in; spends budget)");
+        if std::env::var("OPENRECORD_LIVE_JEV").unwrap_or_default() != "1" {
+            bail!("Live Jev requires OPENRECORD_LIVE_JEV=1 (explicit opt-in; spends budget)");
         }
         let key = std::env::var("TYPESAFE_API_KEY")
             .map_err(|_| anyhow::anyhow!("Live Jev requires TYPESAFE_API_KEY"))?;

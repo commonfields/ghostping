@@ -23,7 +23,7 @@ fn run(args: &[&str]) -> (i32, String) {
     let out = Command::new(assay_bin())
         .args(args)
         .env_remove("TYPESAFE_API_KEY")
-        .env_remove("GHOSTPING_LIVE_JEV")
+        .env_remove("OPENRECORD_LIVE_JEV")
         .output()
         .expect("spawn jev-assay");
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();

@@ -1,7 +1,7 @@
 //! jev-assay: research runner for the Jev judgment assay.
 //!
 //! Offline transports (mock-*, deterministic) need no keys or network.
-//! Live transport requires TYPESAFE_API_KEY + GHOSTPING_LIVE_JEV=1 +
+//! Live transport requires TYPESAFE_API_KEY + OPENRECORD_LIVE_JEV=1 +
 //! --max-requests N, all enforced before any request.
 
 use anyhow::{bail, Result};

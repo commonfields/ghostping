@@ -189,4 +189,4 @@ Schema parsing, fixture parity, CheckRunner cutover, PG16/concurrency gates,
 then deletion and CI/documentation cleanup. Preserve shared portable protocol
 fixtures and current product behavior; do not port CLI or research features.
 
-Historical initial stop: GHOSTPING_EFFECT_RUNTIME_V1 = NOT_READY
+Historical initial stop: OPENRECORD_EFFECT_RUNTIME_V1 = NOT_READY

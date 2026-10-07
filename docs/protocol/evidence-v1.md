@@ -4,20 +4,20 @@
 
 | Schema id | Role | Notes |
 | --- | --- | --- |
-| `ghostping/fact-v1` | authority | Versioned. `supersedes_id`. Temporal applicability is `[valid_from, valid_until)`. `status` is the lifecycle status at export time. |
-| `ghostping/surface-v1` | evidence context | See [surface-v1.md](surface-v1.md) |
-| `ghostping/measurement-context-v1` | evidence context | Exact prompt plus measurement conditions |
-| `ghostping/observation-v1` | evidence | Raw-evidence reference and digest, derived answer text, provider citations and metadata, `synthetic` |
-| `ghostping/claim-v1` | interpretation | Manually selected span or transcription from one observation |
-| `ghostping/judgment-v1` | interpretation | Verdict plus the exact fact versions used. Append-only `supersedes_id` chain. |
-| `ghostping/issue-v1` | derived view | Identity is the candidate claim id. State derives from the head of the judgment chain. `type` is Knowledge (hosted V1 has no issue taxonomy, so `UNKNOWN`). |
-| `ghostping/intervention-v1` | action | See [intervention-v1.md](intervention-v1.md) |
-| `ghostping/reobservation-v1` | derived view over a stored link | See [reobservation-v1.md](reobservation-v1.md) |
-| `ghostping/evidence-packet-v1` | portable lineage | One issue and everything relevant to it |
+| `openrecord/fact-v1` | authority | Versioned. `supersedes_id`. Temporal applicability is `[valid_from, valid_until)`. `status` is the lifecycle status at export time. |
+| `openrecord/surface-v1` | evidence context | See [surface-v1.md](surface-v1.md) |
+| `openrecord/measurement-context-v1` | evidence context | Exact prompt plus measurement conditions |
+| `openrecord/observation-v1` | evidence | Raw-evidence reference and digest, derived answer text, provider citations and metadata, `synthetic` |
+| `openrecord/claim-v1` | interpretation | Manually selected span or transcription from one observation |
+| `openrecord/judgment-v1` | interpretation | Verdict plus the exact fact versions used. Append-only `supersedes_id` chain. |
+| `openrecord/issue-v1` | derived view | Identity is the candidate claim id. State derives from the head of the judgment chain. `type` is Knowledge (hosted V1 has no issue taxonomy, so `UNKNOWN`). |
+| `openrecord/intervention-v1` | action | See [intervention-v1.md](intervention-v1.md) |
+| `openrecord/reobservation-v1` | derived view over a stored link | See [reobservation-v1.md](reobservation-v1.md) |
+| `openrecord/evidence-packet-v1` | portable lineage | One issue and everything relevant to it |
 
 Every portable object carries `schema` and `schema_version`. Objects reference each other only by stable ids. Ids encode no mutable business properties. Hosted ids are UUIDs, and the packet id is `evidence-packet:<issue id>`.
 
-## `ghostping/evidence-packet-v1`
+## `openrecord/evidence-packet-v1`
 
 | Field | Content |
 | --- | --- |

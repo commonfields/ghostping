@@ -26,7 +26,7 @@ export type ProjectionSourceRefV1 =
   | { readonly kind: "AUTHORITATIVE_FACT"; readonly key: string; readonly fact_id: string; readonly version: number; readonly manifest_digest: string }
 
 export interface ProjectionArtifactV1 {
-  readonly schema: "ghostping/projection-artifact-v1"
+  readonly schema: "openrecord/projection-artifact-v1"
   readonly schema_version: 1
   readonly projection_id: string
   readonly kind: "JSON_LD"
@@ -83,7 +83,7 @@ export const compileProjection = (
     .filter((r): r is ProjectionSourceRefV1 => r !== undefined)
     .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
   return {
-    schema: "ghostping/projection-artifact-v1",
+    schema: "openrecord/projection-artifact-v1",
     schema_version: 1,
     projection_id: projectionId,
     kind: "JSON_LD",

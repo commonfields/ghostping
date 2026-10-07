@@ -1,4 +1,4 @@
-# Truth Manifest V1 (`ghostping/truth-manifest-v1`)
+# Truth Manifest V1 (`openrecord/truth-manifest-v1`)
 
 `openrecord.yaml` is versioned, fail-closed desired state. Fact types:
 text (raw Unicode string), boolean (`true|false`), money

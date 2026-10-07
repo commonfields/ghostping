@@ -26,7 +26,7 @@ export const surfaceForWorker = (
       // A router-controlled API. Never a consumer UI and never "ChatGPT".
       kind: "ROUTER_API",
       product: "9Router",
-      adapter: "ghostping-9router",
+      adapter: "openrecord-9router",
       adapter_version: "1",
       gateway: knownValue("9router"),
       // 9Router does not prove which upstream provider served the request.
@@ -48,8 +48,8 @@ export const surfaceForWorker = (
       schema: schemaId.surface,
       schema_version: 1,
       kind: "MOCK",
-      product: "Ghostping deterministic fixture",
-      adapter: "ghostping-mock",
+      product: "OpenRecord deterministic fixture",
+      adapter: "openrecord-mock",
       adapter_version: "1",
       gateway: NOT_APPLICABLE,
       requested_provider: knownValue("mock"),

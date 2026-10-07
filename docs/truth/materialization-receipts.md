@@ -1,4 +1,4 @@
-# Materialization Receipts (`ghostping/materialization-receipt-v1`)
+# Materialization Receipts (`openrecord/materialization-receipt-v1`)
 
 Immutable local-write evidence: projection, output, CREATED/UPDATED/
 UNCHANGED action, before digest (KNOWN/NOT_APPLICABLE/UNKNOWN),

@@ -198,7 +198,7 @@ observation, and verifies cross-account denial. It requires explicit
 removed by discarding that database. Child processes stop in a `finally` block.
 
 Live validation is optional and never part of normal tests/CI:
-`GHOSTPING_LIVE_PROVIDER=1 pnpm provider:live:9router` performs one bounded
+`OPENRECORD_LIVE_PROVIDER=1 pnpm provider:live:9router` performs one bounded
 request with enabled/configured NineRouter and prints only safe contract metadata.
 No public-provider live call is claimed by local fixture validation.
 

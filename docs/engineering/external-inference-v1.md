@@ -67,7 +67,7 @@ frontend payloads, or logs. HTTPS is enforced except loopback.
 ## Live runs (opt-in only)
 
 Live 9Router traffic happens ONLY through `scripts/live-9router-check.sh`,
-which refuses to run unless `GHOSTPING_LIVE_PROVIDER=1` plus
+which refuses to run unless `OPENRECORD_LIVE_PROVIDER=1` plus
 `NINE_ROUTER_API_KEY` and `NINE_ROUTER_MODEL` are set. `pnpm test`,
 `cargo test`, and CI never touch the network: Rust tests use a localhost
 stub server, and no live key exists in CI.

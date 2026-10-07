@@ -13,7 +13,7 @@ REAL_WORLD_VALIDATION = NOT_EXECUTED (0 human-adjudicated cases)
 VERDICT = INSUFFICIENT_EVIDENCE (see reports/ when a live run completes)
 ```
 
-Live execution requires ALL of: `TYPESAFE_API_KEY`, `GHOSTPING_LIVE_JEV=1`,
+Live execution requires ALL of: `TYPESAFE_API_KEY`, `OPENRECORD_LIVE_JEV=1`,
 `--max-requests N`. CI never makes live requests.
 
 ## Layout
@@ -56,7 +56,7 @@ Mock transports prove harness correctness only and can never produce KEEP.
 
 ```bash
 export TYPESAFE_API_KEY=...            # never commit, never log
-export GHOSTPING_LIVE_JEV=1
+export OPENRECORD_LIVE_JEV=1
 cargo run --release --bin jev-assay -- eval --task a \
   --dataset research/jev-assay/datasets/task_a_synthetic.jsonl \
   --transport live --split holdout --max-requests 220 --out research/jev-assay/reports/holdout-a
