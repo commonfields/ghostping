@@ -51,7 +51,7 @@ export function SiteFindingPage() {
     if (!activeProposal || working) return
     setWorking("approve")
     setError(null)
-    Search.approveFix(id, activeProposal.id, approved)
+    Search.approveFix(id, activeProposal.id, approved, activeProposal.patchSha256)
       .then(() => detail.reload())
       .catch((err: unknown) => setError(errorMessage(err)))
       .finally(() => setWorking(null))

@@ -13,17 +13,25 @@
 // Nothing is written unless the first three hold, and the containment
 // primitive re-checks the before hash immediately before its rename.
 import {
+  ConcurrentModification,
   ContainmentError,
   PreconditionFailed,
+  hasReservedSegment,
   readContainedFile,
   sha256Hex,
   writeContainedFile,
   type ContainmentCode,
+  type RootRef,
 } from "@openrecord/fs-containment"
 import { buildPatch, removeNoindexFromHtml } from "./fixes.js"
 import type { FixKind } from "./types.js"
 
 export const MUTATION_PLAN_VERSION = "site-mutation-plan/1"
+
+/** Repository metadata a site fix may never target (compared case/NFC-folded). */
+export const RESERVED_SITE_SEGMENTS: ReadonlyArray<string> = [".git", ".openrecord"]
+
+const reserved = (targetPath: string) => hasReservedSegment(targetPath, RESERVED_SITE_SEGMENTS)
 
 /** Deterministic source transforms; only these fix kinds can be applied. */
 export const SOURCE_TRANSFORMS: Partial<Record<FixKind, (source: string) => string | null>> = {
@@ -68,12 +76,13 @@ const decode = (bytes: Uint8Array): string | null => {
 }
 
 export const prepareFileMutation = async (args: {
-  rootDir: string
+  rootDir: RootRef
   targetPath: string
   fixKind: string
 }): Promise<{ ok: true; plan: MutationPlan } | { ok: false; failure: PrepareFailure }> => {
   const transform = transformFor(args.fixKind)
   if (!transform) return { ok: false, failure: { _tag: "UnsupportedFixKind" } }
+  if (reserved(args.targetPath)) return { ok: false, failure: { _tag: "PathRejected", code: "RESERVED_PATH" } }
   let read: Awaited<ReturnType<typeof readContainedFile>>
   try {
     read = await readContainedFile(args.rootDir, args.targetPath)
@@ -94,7 +103,7 @@ export const prepareFileMutation = async (args: {
 }
 
 export const applyApprovedMutation = async (args: {
-  rootDir: string
+  rootDir: RootRef
   fixKind: string
   /** The plan as currently stored on the proposal. */
   plan: MutationBinding & { readonly patchSha256: string }
@@ -112,6 +121,7 @@ export const applyApprovedMutation = async (args: {
   }
   const transform = transformFor(args.fixKind)
   if (!transform) return { ok: false, failure: { _tag: "APPROVAL_INVALIDATED", detail: `no deterministic transform for ${args.fixKind}` } }
+  if (reserved(plan.targetPath)) return { ok: false, failure: { _tag: "PathRejected", code: "RESERVED_PATH" } }
   try {
     const read = await readContainedFile(args.rootDir, plan.targetPath)
     const currentSha = read === null ? null : sha256Hex(read.bytes)
@@ -130,6 +140,9 @@ export const applyApprovedMutation = async (args: {
     return { ok: true, beforeSha256: plan.beforeSha256, afterSha256: written.afterSha256 }
   } catch (e) {
     if (e instanceof ContainmentError) return { ok: false, failure: { _tag: "PathRejected", code: e.code } }
+    if (e instanceof ConcurrentModification) {
+      return { ok: false, failure: { _tag: "MUTATION_FAILED", detail: "the file was modified concurrently while it was being replaced; review it by hand", actualSha256: null } }
+    }
     if (e instanceof PreconditionFailed) {
       return { ok: false, failure: { _tag: "PRECONDITION_FAILED", detail: "source changed immediately before the write", actualSha256: e.actualSha256 } }
     }

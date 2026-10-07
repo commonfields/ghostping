@@ -16,16 +16,33 @@
 //   4. Prove containment independently: realpath(deepest existing ancestor)
 //      must equal the root or sit strictly inside it, and the joined target
 //      must sit strictly inside the root.
-// Writes (writeContainedFile) repeat the whole resolution and the before-
-// hash precondition immediately before an atomic rename of a sibling temp
-// file created with O_EXCL|O_NOFOLLOW; reads open with O_NOFOLLOW.
 //
-// Residual race (documented, not hidden): Node has no openat()/renameat(),
-// so an actor that can write inside the checkout concurrently could swap a
-// parent directory for a symlink in the instant between the final re-check
-// and rename(). That requires local write access to the checkout itself;
-// the write then reports CHANGED_DURING_WRITE (post-rename inode/parent
-// check) rather than success, but the escaped rename is not undone.
+// Roots: a caller that validated a root once (resolveAllowedRoot) holds a
+// PinnedRoot {path, dev, ino}; every later operation re-checks that the
+// path is still that same real directory (ROOT_CHANGED otherwise), so a
+// checkout swapped for a symlink after validation is refused.
+//
+// Every open is verified after the fact: the opened inode must be the one
+// now reachable at the contained path, under a parent whose realpath is
+// inside the root, with a single link. Data is read or written only through
+// a verified descriptor, so a parent swapped between check and open cannot
+// make OpenRecord read outside bytes or stage data outside the root.
+//
+// Writes: stage a sibling temp file (O_EXCL|O_NOFOLLOW, verified before any
+// byte is written), re-walk the path, hash the current target through a
+// held descriptor, rename immediately, then prove the staged inode landed
+// at the contained path and that the replaced file was not modified between
+// the hash and the rename (lost update -> ConcurrentModification).
+//
+// Threat model and residuals (documented, not hidden). Protected: untrusted
+// path inputs and repository contents (traversal, encodings, symlinks,
+// hardlinks, special files, roots outside the tenant's directory). Not
+// fully preventable without openat()/renameat(), which Node lacks: a local
+// process writing inside the checkout concurrently can (a) make an empty
+// temp file or empty directory appear outside the root, or (b) swap a parent
+// in the instant between the final walk and rename(). (b) is detected and
+// reported as CHANGED_DURING_WRITE, never success, but not undone. Checkouts
+// under SITE_OPERATOR_ROOTS must not be written concurrently by others.
 import { createHash, randomUUID } from "node:crypto"
 import { constants, promises as fs, type Stats } from "node:fs"
 import { dirname, isAbsolute, join, relative, sep } from "node:path"
@@ -52,6 +69,8 @@ export type ContainmentCode =
   | "PARENT_MISSING"
   | "ESCAPES_ROOT"
   | "CHANGED_DURING_WRITE"
+  | "ROOT_CHANGED"
+  | "RESERVED_PATH"
 
 export class ContainmentError extends Error {
   readonly _tag = "ContainmentError"
@@ -101,6 +120,21 @@ export const validateCandidate = (candidate: unknown): ReadonlyArray<string> => 
   return segments
 }
 
+/** The file changed between the final hash and the rename (lost update). */
+export class ConcurrentModification extends Error {
+  readonly _tag = "ConcurrentModification"
+  constructor(readonly candidate: string) {
+    super(`ConcurrentModification: ${JSON.stringify(candidate).slice(0, 200)} changed while it was being replaced`)
+  }
+}
+
+/**
+ * True when any segment, compared case- and Unicode-insensitively (APFS and
+ * NTFS treat these spellings as one name), is in `names` (lower-case NFC).
+ */
+export const hasReservedSegment = (relativePath: string, names: ReadonlyArray<string>): boolean =>
+  relativePath.normalize("NFC").toLowerCase().split("/").some((s) => names.includes(s))
+
 /** True when `abs` is strictly beneath `root` (both already absolute). */
 export const isStrictlyInside = (root: string, abs: string): boolean => {
   const rel = relative(root, abs)
@@ -120,9 +154,35 @@ const lstatOrNull = async (p: string): Promise<Stats | null> => {
   }
 }
 
-/** realpath() an absolute directory root. */
-export const resolveRoot = async (root: string): Promise<string> => {
-  if (typeof root !== "string" || root.length === 0 || root.includes("\0") || !isAbsolute(root)) {
+export interface PinnedRoot {
+  /** realpath of the root at pin time. */
+  readonly path: string
+  readonly dev: number
+  readonly ino: number
+}
+
+export type RootRef = string | PinnedRoot
+
+/**
+ * realpath() an absolute directory root. A PinnedRoot must still be the same
+ * real directory (same path, not a symlink, same dev/ino): ROOT_CHANGED.
+ */
+export const resolveRoot = async (root: RootRef): Promise<string> => {
+  if (typeof root !== "string") {
+    let st: Stats | null
+    let real: string
+    try {
+      st = await fs.lstat(root.path)
+      real = await fs.realpath(root.path)
+    } catch {
+      throw new ContainmentError("ROOT_CHANGED", root.path)
+    }
+    if (st.isSymbolicLink() || !st.isDirectory() || real !== root.path || st.dev !== root.dev || st.ino !== root.ino) {
+      throw new ContainmentError("ROOT_CHANGED", root.path)
+    }
+    return root.path
+  }
+  if (root.length === 0 || root.includes("\0") || !isAbsolute(root)) {
     throw new ContainmentError("ROOT_INVALID", String(root))
   }
   let real: string
@@ -136,17 +196,25 @@ export const resolveRoot = async (root: string): Promise<string> => {
   return real
 }
 
+/** Resolve a root once and pin its identity for later operations. */
+export const pinRoot = async (root: string): Promise<PinnedRoot> => {
+  const real = await resolveRoot(root)
+  const st = await fs.lstat(real)
+  return { path: real, dev: st.dev, ino: st.ino }
+}
+
 /**
  * Resolve a configured root against an allowlist of roots: the root's
  * realpath must equal or sit inside `<allowed root>/<scope>` for one allowed
  * root, where `scope` is a single path segment owned by the caller (the
  * business id) and `<allowed root>/<scope>` is a real directory, not a
- * symlink. Allowed roots that do not exist are ignored. Returns the real root.
+ * symlink. Allowed roots that do not exist are ignored. Returns the pinned
+ * real root; later operations refuse it if it has been swapped.
  */
-export const resolveAllowedRoot = async (candidateRoot: string, allowedRoots: ReadonlyArray<string>, scope: string): Promise<string> => {
+export const resolveAllowedRoot = async (candidateRoot: string, allowedRoots: ReadonlyArray<string>, scope: string): Promise<PinnedRoot> => {
   const scopeSegments = validateCandidate(scope)
   if (scopeSegments.length !== 1) throw new ContainmentError("ROOT_NOT_ALLOWED", candidateRoot)
-  const real = await resolveRoot(candidateRoot)
+  const pinned = await pinRoot(candidateRoot)
   for (const allowed of allowedRoots) {
     let allowedReal: string
     try {
@@ -157,7 +225,7 @@ export const resolveAllowedRoot = async (candidateRoot: string, allowedRoots: Re
     const scoped = join(allowedReal, scope)
     const st = await lstatOrNull(scoped).catch(() => null)
     if (st === null || st.isSymbolicLink() || !st.isDirectory()) continue
-    if (isInsideOrEqual(scoped, real)) return real
+    if (isInsideOrEqual(scoped, pinned.path)) return pinned
   }
   throw new ContainmentError("ROOT_NOT_ALLOWED", candidateRoot)
 }
@@ -175,7 +243,14 @@ export interface ContainedPath {
   readonly missingFrom: number
 }
 
-export const resolveContainedPath = async (root: string, candidate: string): Promise<ContainedPath> => {
+const walkError = (e: unknown, candidate: string): unknown => {
+  const code = codeOf(e)
+  if (code === "ENOTDIR") return new ContainmentError("NOT_A_DIRECTORY", candidate)
+  if (code === "ENAMETOOLONG") return new ContainmentError("PATH_TOO_LONG", candidate)
+  return e
+}
+
+export const resolveContainedPath = async (root: RootRef, candidate: string): Promise<ContainedPath> => {
   const segments = validateCandidate(candidate)
   const realRoot = await resolveRoot(root)
   let cursor = realRoot
@@ -186,8 +261,7 @@ export const resolveContainedPath = async (root: string, candidate: string): Pro
     try {
       st = await lstatOrNull(next)
     } catch (e) {
-      if (codeOf(e) === "ENOTDIR") throw new ContainmentError("NOT_A_DIRECTORY", candidate)
-      throw e
+      throw walkError(e, candidate)
     }
     if (st === null) {
       missingFrom = i
@@ -213,19 +287,50 @@ export const resolveContainedPath = async (root: string, candidate: string): Pro
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0
 const O_NONBLOCK = constants.O_NONBLOCK ?? 0
 
-const readNoFollow = async (abs: string, candidate: string): Promise<Uint8Array> => {
+/**
+ * Prove an open descriptor refers to the inode now reachable at `abs`,
+ * under a parent whose realpath is inside `realRoot`, with a single link.
+ */
+const verifyLanded = async (realRoot: string, abs: string, fdStat: Stats, candidate: string): Promise<void> => {
+  let atPath: Stats
+  let realParent: string
+  try {
+    atPath = await fs.lstat(abs)
+    realParent = await fs.realpath(dirname(abs))
+  } catch {
+    throw new ContainmentError("CHANGED_DURING_WRITE", candidate)
+  }
+  if (atPath.isSymbolicLink() || atPath.ino !== fdStat.ino || atPath.dev !== fdStat.dev || !isInsideOrEqual(realRoot, realParent)) {
+    throw new ContainmentError("CHANGED_DURING_WRITE", candidate)
+  }
+  if (fdStat.nlink > 1) throw new ContainmentError("HARDLINKED_FILE", candidate)
+}
+
+/** Open a contained regular file read-only and verify the descriptor. */
+const openVerified = async (path: ContainedPath, candidate: string): Promise<fs.FileHandle> => {
   let handle: fs.FileHandle
   try {
-    // O_NONBLOCK: a FIFO swapped in after the walk cannot hang the read.
-    handle = await fs.open(abs, constants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+    // O_NONBLOCK: a FIFO swapped in after the walk cannot hang the open.
+    handle = await fs.open(path.absolute, constants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
   } catch (e) {
     if (codeOf(e) === "ELOOP") throw new ContainmentError("SYMLINK", candidate)
+    if (codeOf(e) === "ENOENT") throw new ContainmentError("CHANGED_DURING_WRITE", candidate)
     throw e
   }
   try {
     const st = await handle.stat()
     if (!st.isFile()) throw new ContainmentError("NOT_A_REGULAR_FILE", candidate)
-    if (st.nlink > 1) throw new ContainmentError("HARDLINKED_FILE", candidate)
+    await verifyLanded(path.root, path.absolute, st, candidate)
+    return handle
+  } catch (e) {
+    await handle.close()
+    throw e
+  }
+}
+
+const readVerified = async (path: ContainedPath, candidate: string): Promise<Uint8Array> => {
+  const handle = await openVerified(path, candidate)
+  try {
     return new Uint8Array(await handle.readFile())
   } finally {
     await handle.close()
@@ -233,7 +338,7 @@ const readNoFollow = async (abs: string, candidate: string): Promise<Uint8Array>
 }
 
 /** Kind of an entry inside the root, without following symlinks. */
-export const containedEntryKind = async (root: string, candidate: string): Promise<"FILE" | "DIRECTORY" | "MISSING" | "OTHER"> => {
+export const containedEntryKind = async (root: RootRef, candidate: string): Promise<"FILE" | "DIRECTORY" | "MISSING" | "OTHER"> => {
   const segments = validateCandidate(candidate)
   const realRoot = await resolveRoot(root)
   let cursor = realRoot
@@ -241,7 +346,7 @@ export const containedEntryKind = async (root: string, candidate: string): Promi
     cursor = join(cursor, segments[i]!)
     const st = await lstatOrNull(cursor).catch((e) => {
       if (codeOf(e) === "ENOTDIR") return null
-      throw e
+      throw walkError(e, candidate)
     })
     if (st === null) return "MISSING"
     if (st.isSymbolicLink()) throw new ContainmentError("SYMLINK", candidate)
@@ -252,12 +357,24 @@ export const containedEntryKind = async (root: string, candidate: string): Promi
   return "MISSING"
 }
 
+export interface ContainedReadOptions {
+  /** Test seam: awaited after resolution, before the descriptor is opened. */
+  readonly onResolved?: () => Promise<void>
+}
+
 /** Read a contained regular file; null when it does not exist. */
-export const readContainedFile = async (root: string, candidate: string): Promise<{ path: ContainedPath; bytes: Uint8Array } | null> => {
+export const readContainedFile = async (
+  root: RootRef,
+  candidate: string,
+  options: ContainedReadOptions = {},
+): Promise<{ path: ContainedPath; bytes: Uint8Array } | null> => {
   const path = await resolveContainedPath(root, candidate)
   if (!path.exists) return null
-  return { path, bytes: await readNoFollow(path.absolute, candidate) }
+  if (options.onResolved) await options.onResolved()
+  return { path, bytes: await readVerified(path, candidate) }
 }
+
+export type WriteStage = "prepared" | "opened" | "staged" | "checked" | "renamed"
 
 export interface ContainedWriteOptions {
   /**
@@ -268,10 +385,11 @@ export interface ContainedWriteOptions {
   /** Create missing parent directories (one real directory at a time). */
   readonly createParents?: boolean
   /**
-   * Test seam: awaited after the temp file is staged and before the final
-   * re-checks, so tests can mutate the tree at the last observable point.
+   * Test seam, awaited at each stage: "prepared" (before the temp file is
+   * created), "opened" (temp created and verified, nothing written), "staged" (temp written), "checked" (final hash taken, rename
+   * next), "renamed" (before read-back).
    */
-  readonly onStaged?: () => Promise<void>
+  readonly onStage?: (stage: WriteStage) => Promise<void>
 }
 
 export interface ContainedWriteResult {
@@ -281,27 +399,41 @@ export interface ContainedWriteResult {
   readonly afterSha256: string
 }
 
-const currentSha = async (p: ContainedPath, candidate: string): Promise<string | null> =>
-  p.exists ? sha256Hex(await readNoFollow(p.absolute, candidate)) : null
-
 const checkPrecondition = (options: ContainedWriteOptions, actual: string | null): void => {
   if (options.expectedBeforeSha256 === undefined) return
   if (options.expectedBeforeSha256 !== actual) throw new PreconditionFailed(options.expectedBeforeSha256, actual)
 }
 
+/** Unlink our temp file only if the path still names our inode inside the root. */
+const unlinkOwnTemp = async (realRoot: string, tmp: string, staged: Stats | null): Promise<void> => {
+  if (staged === null) return
+  try {
+    const st = await fs.lstat(tmp)
+    const parent = await fs.realpath(dirname(tmp))
+    if (st.isSymbolicLink() || st.ino !== staged.ino || st.dev !== staged.dev || !isInsideOrEqual(realRoot, parent)) return
+    await fs.unlink(tmp)
+  } catch {
+    // Leave it: never unlink something we cannot prove is ours.
+  }
+}
+
 /**
- * Atomically replace (or create) a contained file. Nothing is written when
- * containment or the precondition fails, before or after staging.
+ * Atomically replace (or create) a contained file. Nothing is written to
+ * the target unless containment and the precondition hold at the last
+ * check before the rename.
  */
 export const writeContainedFile = async (
-  root: string,
+  root: RootRef,
   candidate: string,
   bytes: Uint8Array | string,
   options: ContainedWriteOptions = {},
 ): Promise<ContainedWriteResult> => {
+  const stage = async (s: WriteStage) => {
+    if (options.onStage) await options.onStage(s)
+  }
   const data = typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes
   const first = await resolveContainedPath(root, candidate)
-  const before = await currentSha(first, candidate)
+  const before = first.exists ? sha256Hex(await readVerified(first, candidate)) : null
   checkPrecondition(options, before)
   const parentIndex = first.segments.length - 1
   if (first.missingFrom < parentIndex) {
@@ -316,42 +448,62 @@ export const writeContainedFile = async (
       const st = await fs.lstat(dir)
       if (st.isSymbolicLink()) throw new ContainmentError("SYMLINK", candidate)
       if (!st.isDirectory()) throw new ContainmentError("NOT_A_DIRECTORY", candidate)
+      if (!isStrictlyInside(first.root, await fs.realpath(dir))) throw new ContainmentError("CHANGED_DURING_WRITE", candidate)
     }
   }
   const mode = first.exists ? (await fs.lstat(first.absolute)).mode & 0o777 : 0o644
   const tmp = join(dirname(first.absolute), `.openrecord-tmp-${randomUUID()}`)
-  const handle = await fs.open(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | O_NOFOLLOW, mode)
+  let staged: Stats | null = null
   let renamed = false
-  let staged: Stats
   try {
+    await stage("prepared")
+    const handle = await fs.open(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | O_NOFOLLOW, mode)
     try {
+      staged = await handle.stat()
+      // Prove the new inode is inside the root before writing any byte.
+      await verifyLanded(first.root, tmp, staged, candidate)
+      await stage("opened")
       await handle.writeFile(data)
       await handle.sync()
-      staged = await handle.stat()
     } finally {
       await handle.close()
     }
-    if (options.onStaged) await options.onStaged()
-    // Immediately before mutation: the precondition, then containment, then
-    // rename with no other awaited work in between.
-    const preCheck = await resolveContainedPath(root, candidate)
-    checkPrecondition(options, await currentSha(preCheck, candidate))
+    await stage("staged")
+    // Final checks: walk, then hash through a held descriptor, then rename
+    // with no other awaited work in between.
     const second = await resolveContainedPath(root, candidate)
     if (second.root !== first.root || second.absolute !== first.absolute) {
       throw new ContainmentError("CHANGED_DURING_WRITE", candidate)
     }
-    await fs.rename(tmp, second.absolute)
-    renamed = true
-    // Detect (cannot prevent, see header) a parent swapped between the final
-    // check and rename: the staged inode must now live at the contained path.
-    const landed = await fs.lstat(second.absolute)
-    const realParent = await fs.realpath(dirname(second.absolute))
-    if (landed.ino !== staged.ino || landed.dev !== staged.dev || !isInsideOrEqual(second.root, realParent)) {
-      throw new ContainmentError("CHANGED_DURING_WRITE", candidate)
+    const held = second.exists ? await openVerified(second, candidate) : null
+    try {
+      const heldBefore = held === null ? null : await held.stat({ bigint: true })
+      const current = held === null ? null : sha256Hex(new Uint8Array(await held.readFile()))
+      checkPrecondition(options, current)
+      await stage("checked")
+      await fs.rename(tmp, second.absolute)
+      renamed = true
+      // Lost update: the replaced inode was modified after we hashed it.
+      if (held !== null && heldBefore !== null) {
+        const heldAfter = await held.stat({ bigint: true })
+        if (heldAfter.mtimeNs !== heldBefore.mtimeNs || heldAfter.size !== heldBefore.size) throw new ConcurrentModification(candidate)
+      }
+    } finally {
+      await held?.close()
     }
-    const after = sha256Hex(await readNoFollow(second.absolute, candidate))
+    await stage("renamed")
+    // The staged inode must now be the file at the contained path.
+    const landed = await openVerified(second, candidate)
+    let after: string
+    try {
+      const st = await landed.stat()
+      if (st.ino !== staged.ino || st.dev !== staged.dev) throw new ContainmentError("CHANGED_DURING_WRITE", candidate)
+      after = sha256Hex(new Uint8Array(await landed.readFile()))
+    } finally {
+      await landed.close()
+    }
     return { path: { ...second, exists: true, missingFrom: second.segments.length }, beforeSha256: before, afterSha256: after }
   } finally {
-    if (!renamed) await fs.unlink(tmp).catch(() => undefined)
+    if (!renamed) await unlinkOwnTemp(first.root, tmp, staged)
   }
 }

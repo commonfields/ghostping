@@ -14,7 +14,8 @@ const sources = (dir: string): string[] =>
     if (["node_modules", "dist", ".git"].includes(entry.name)) return []
     const path = join(dir, entry.name)
     if (entry.isDirectory()) return sources(path)
-    return /\.[cm]?tsx?$/.test(path) && !/\.test\.[cm]?tsx?$/.test(path) ? [path] : []
+    // JavaScript shims count too: a .js/.mjs/.cjs file could re-export fs.
+    return /\.[cm]?[jt]sx?$/.test(path) && !/\.test\.[cm]?[jt]sx?$/.test(path) ? [path] : []
   })
 
 const FS_MODULE = String.raw`["'](?:node:)?fs(?:/promises)?["']`
@@ -58,6 +59,25 @@ describe("filesystem mutation architecture", () => {
     }
   })
 
+  // Module loading that a static scan cannot follow is forbidden outright in
+  // runtime sources (dynamic import() is allowed only with a string literal).
+  const LOADER_ESCAPES = [
+    /\bcreateRequire\b/,
+    /\bgetBuiltinModule\b/,
+    /process\.binding\b/,
+    /(^|[^.\w])require\s*\(/m,
+    /\bimport\s*\(\s*(?!["'][^"']*["']\s*\))/,
+  ]
+
+  // Comment-only lines and block comments are prose, not code.
+  const code = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n")
+
+  it("runtime sources never load modules in ways the scan cannot see", () => {
+    for (const f of hosted()) {
+      for (const re of LOADER_ESCAPES) expect(code(f.text), `${f.rel} matches ${re}`).not.toMatch(re)
+    }
+  })
+
   it("site adapters, API and worker never import fs", () => {
     for (const f of hosted()) {
       if (!NO_FS_AT_ALL.some((p) => f.rel.startsWith(p))) continue
@@ -71,6 +91,21 @@ describe("filesystem mutation architecture", () => {
     expect(adapter).toMatch(/applyApprovedMutation/)
     const mutation = readFileSync(join(repo, "packages/site-operator/src/mutation.ts"), "utf8")
     expect(mutation).toMatch(/expectedBeforeSha256: plan\.beforeSha256/)
+  })
+
+  it("the loader guard catches computed and indirect loading", () => {
+    const bad = [
+      `const r = createRequire(import.meta.url); r("f" + "s")`,
+      "process.getBuiltinModule(`f${'s'}`)",
+      `const m = await import(name)`,
+      "const m = await import(`node:${x}`)",
+      `const fs = require("fs")`,
+      `process.binding("fs")`,
+    ]
+    for (const text of bad) expect(LOADER_ESCAPES.some((re) => re.test(text)), text).toBe(true)
+    for (const ok of [`const { x } = await import("@openrecord/db")`, `obj.require(1)`]) {
+      expect(LOADER_ESCAPES.some((re) => re.test(ok)), ok).toBe(false)
+    }
   })
 
   it("the guard itself detects bypasses", () => {

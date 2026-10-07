@@ -337,8 +337,11 @@ export const CreateSiteRequest = Schema.Struct({
 })
 export type CreateSiteRequest = typeof CreateSiteRequest.Type
 
+// patchSha256: the prepared change the reviewer saw. Required to approve an
+// automated fix; approval fails if the prepared change has since changed.
 export const ApproveFixRequest = Schema.Struct({
   approved: Schema.Boolean,
+  patchSha256: Schema.optional(Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/))),
 })
 export type ApproveFixRequest = typeof ApproveFixRequest.Type
 

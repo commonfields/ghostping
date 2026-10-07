@@ -23,7 +23,7 @@ import {
   type SiteMutationRow,
   type SiteTargetRow,
 } from "@openrecord/db"
-import { resolveAllowedRoot } from "@openrecord/fs-containment"
+import { resolveAllowedRoot, type PinnedRoot } from "@openrecord/fs-containment"
 import { GitSiteAdapter, LocalFileSiteAdapter, transformFor, type SiteAdapter } from "@openrecord/site-operator"
 
 export interface ServiceResponse {
@@ -65,7 +65,7 @@ export const defaultFileForUrl = (url: string): string | null => {
 }
 
 type SiteContext =
-  | { readonly ok: true; readonly site: SiteTargetRow; readonly rootDir: string; readonly fileMap: Record<string, string> }
+  | { readonly ok: true; readonly site: SiteTargetRow; readonly rootDir: PinnedRoot; readonly fileMap: Record<string, string> }
   | { readonly ok: false; readonly response: ServiceResponse }
 
 const resolveSite = (businessId: string, siteTargetId: string, roots: ReadonlyArray<string>) =>
@@ -140,7 +140,7 @@ export const prepareFix = (businessId: string, proposalId: string, actor: string
     return { status: 200, body: { proposal: recorded.proposal, patch: plan.patch, approvalInvalidated: recorded.approvalInvalidated } } satisfies ServiceResponse
   })
 
-export const approveFix = (businessId: string, proposalId: string, actor: string, approved: boolean) =>
+export const approveFix = (businessId: string, proposalId: string, actor: string, approved: boolean, reviewedPatchSha256: string | null) =>
   Effect.gen(function*() {
     const proposals = yield* SiteFixProposalRepository
     const proposal = yield* proposals.getScoped(businessId, proposalId)
@@ -157,10 +157,18 @@ export const approveFix = (businessId: string, proposalId: string, actor: string
     // Automated fixes are approved only against an exact prepared change.
     const automated = proposal.classification !== "MANUAL_ONLY" && transformFor(proposal.fixKind) !== null
     if (automated && proposal.patchSha256 === null) return conflict("prepare the exact change before approving it")
+    if (automated && reviewedPatchSha256 === null) {
+      return { status: 422, body: { _tag: "InvalidFactValue", reason: "patchSha256 of the reviewed change is required to approve an automated fix" } } satisfies ServiceResponse
+    }
+    // The UPDATE re-checks patch_sha256 = reviewed hash atomically.
     const updated = automated
-      ? yield* proposals.approveBound(businessId, proposalId, actor)
+      ? yield* proposals.approveBound(businessId, proposalId, actor, reviewedPatchSha256!)
       : yield* proposals.setStatus(businessId, proposalId, "APPROVED", actor)
-    if (!updated) return conflict("proposal changed concurrently; reload")
+    if (!updated) {
+      return automated && proposal.patchSha256 !== reviewedPatchSha256
+        ? { status: 409, body: { _tag: "ApprovalInvalidated", reason: "the prepared change differs from the one you reviewed; review the current diff" } } satisfies ServiceResponse
+        : conflict("proposal changed concurrently; reload")
+    }
     // OPEN -> AWAITING_APPROVAL -> APPROVED preserves history.
     if (finding.status === "OPEN") yield* findings.setStatus(businessId, finding.id, "AWAITING_APPROVAL", actor, "fix proposed", null)
     const current = yield* findings.getScoped(businessId, finding.id)
@@ -180,14 +188,20 @@ const FAILURE_STATUS: Record<string, { status: number; tag: string }> = {
   ADAPTER_FAILURE: { status: 500, tag: "AdapterFailure" },
 }
 
-/** The response for a stored mutation row; replays return exactly this. */
-export const mutationResponse = (row: SiteMutationRow, patch: string | null, replayed: boolean): ServiceResponse => {
+/**
+ * The response for a stored mutation row; replays return exactly this,
+ * including the patch stored on the row at claim time.
+ */
+export const mutationResponse = (row: SiteMutationRow, replayed: boolean): ServiceResponse => {
   if (row.state === "APPLYING") return { status: 409, body: { _tag: "Conflict", message: "this mutation is still being applied", mutation: row, replayed } }
   if (row.failureCode !== null) {
     const f = FAILURE_STATUS[row.failureCode] ?? { status: 500, tag: "MutationFailed" }
     return { status: f.status, body: { _tag: f.tag, reason: row.detail, mutation: row, replayed } }
   }
-  return { status: 200, body: { mutation: row, patch, replayed } }
+  if (row.state === "FAILED") {
+    return { status: 409, body: { _tag: "MutationFailed", reason: row.detail ?? "the mutation was later recorded as FAILED", mutation: row, replayed } }
+  }
+  return { status: 200, body: { mutation: row, patch: row.patch, replayed } }
 }
 
 const defaultKey = (proposal: SiteFixProposalRow): string | null =>
@@ -210,7 +224,7 @@ export const applyFix = (
       const existing = yield* mutations.findByIdempotencyKey(businessId, key)
       if (existing) {
         if (existing.fixProposalId !== proposalId) return conflict("idempotency key already used for a different change")
-        return mutationResponse(existing, proposal.patch, true)
+        return mutationResponse(existing, true)
       }
     }
     if (proposal.status !== "APPROVED") return conflict("proposal must be APPROVED before applying")
@@ -219,7 +233,8 @@ export const applyFix = (
     }
     if (
       key === null || proposal.approvedPatchSha256 === null || proposal.patchSha256 === null || proposal.filePath === null ||
-      proposal.beforeSha256 === null || proposal.afterSha256 === null || proposal.approvedBy === null || proposal.approvedAt === null
+      proposal.beforeSha256 === null || proposal.afterSha256 === null || proposal.approvedBy === null || proposal.approvedAt === null ||
+      proposal.patch === null
     ) {
       return { status: 409, body: { _tag: "ApprovalInvalidated", reason: "approval is not bound to a prepared change; prepare and approve again" } } satisfies ServiceResponse
     }
@@ -246,8 +261,16 @@ export const applyFix = (
       approvedBy: proposal.approvedBy,
       approvedAt: proposal.approvedAt,
       idempotencyKey: key,
+      patch: proposal.patch,
     })
-    if (!claim.claimed) return mutationResponse(claim.row, proposal.patch, true)
+    if (!claim.claimed) {
+      // Lost a race: classify the blocking row instead of returning it blindly.
+      if (claim.row.fixProposalId !== proposalId) return conflict("idempotency key already used for a different change")
+      if (claim.row.idempotencyKey !== key) {
+        return { status: 409, body: { _tag: "Conflict", message: "this approved change already has a mutation in flight or applied", mutation: claim.row } } satisfies ServiceResponse
+      }
+      return mutationResponse(claim.row, true)
+    }
     const events = yield* SiteOperatorEventRepository
     yield* events.append({ businessId, findingId: finding.id, kind: "MUTATION_STARTED", payload: { proposalId, mutationId: claim.row.id, filePath: proposal.filePath } }).pipe(Effect.ignore)
     const branch = request.branch ?? `openrecord/remove-noindex-${finding.id.slice(0, 8)}`
@@ -267,7 +290,8 @@ export const applyFix = (
       const detail = f._tag === "PathRejected" ? `path rejected: ${f.code}` : f.detail
       const actual = f._tag === "PRECONDITION_FAILED" || f._tag === "MUTATION_FAILED" ? f.actualSha256 : null
       const row = yield* mutations.complete(businessId, claim.row.id, { state: "FAILED", failureCode, branch: null, appliedAfterSha256: actual, detail })
-      return mutationResponse(row ?? claim.row, proposal.patch, false)
+      if (!row) return conflict("mutation state changed concurrently; reload")
+      return mutationResponse(row, false)
     }
     const m = applied.result
     const row = yield* mutations.complete(businessId, claim.row.id, {
@@ -277,8 +301,10 @@ export const applyFix = (
       appliedAfterSha256: m.afterSha256,
       detail: m.detail.slice(0, 4000),
     })
+    // Completion lost (row no longer APPLYING): record nothing further.
+    if (!row) return conflict("mutation state changed concurrently; reload")
     if (finding.status === "APPROVED") yield* findings.setStatus(businessId, finding.id, "FIX_IN_PROGRESS", actor, "mutation started", null)
     yield* findings.setStatus(businessId, finding.id, "FIX_APPLIED", actor, `mutation ${claim.row.id}`, null)
     yield* events.append({ businessId, findingId: finding.id, kind: "MUTATION_COMPLETED", payload: { mutationId: claim.row.id, branch: m.branch, afterSha256: m.afterSha256 } }).pipe(Effect.ignore)
-    return mutationResponse(row ?? claim.row, proposal.patch, false)
+    return mutationResponse(row, false)
   })

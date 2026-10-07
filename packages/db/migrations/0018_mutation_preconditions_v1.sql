@@ -5,7 +5,11 @@
 -- plan (target path, before/after sha256, patch sha256) and approval copies
 -- patch_sha256 into approved_patch_sha256. A mutation row is claimed with an
 -- idempotency key before any write; reapplying the same key returns the
--- original row. Bound columns are immutable once a mutation is claimed.
+-- original row (including its patch text). At most one in-flight or
+-- successful execution exists per approved patch. Bound columns are
+-- immutable once claimed and a FAILED keyed mutation is final.
+-- CHECKs are NULL-safe (COALESCE(..., false)): a CHECK that evaluates to
+-- NULL would otherwise pass.
 
 ALTER TABLE site_fix_proposals
   ADD COLUMN IF NOT EXISTS base_ref TEXT,
@@ -18,9 +22,10 @@ ALTER TABLE site_fix_proposals
 ALTER TABLE site_fix_proposals DROP CONSTRAINT IF EXISTS site_fix_proposals_plan_ck;
 ALTER TABLE site_fix_proposals ADD CONSTRAINT site_fix_proposals_plan_ck CHECK (
   (patch_sha256 IS NULL AND before_sha256 IS NULL AND after_sha256 IS NULL)
-  OR (
+  OR COALESCE(
     patch_sha256 ~ '^[0-9a-f]{64}$' AND before_sha256 ~ '^[0-9a-f]{64}$'
-    AND after_sha256 ~ '^[0-9a-f]{64}$' AND file_path IS NOT NULL AND prepared_at IS NOT NULL
+    AND after_sha256 ~ '^[0-9a-f]{64}$' AND file_path IS NOT NULL AND prepared_at IS NOT NULL,
+    false
   )
 );
 ALTER TABLE site_fix_proposals DROP CONSTRAINT IF EXISTS site_fix_proposals_approved_hash_ck;
@@ -38,7 +43,8 @@ ALTER TABLE site_mutations
   ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS idempotency_key TEXT,
   ADD COLUMN IF NOT EXISTS failure_code TEXT,
-  ADD COLUMN IF NOT EXISTS applied_after_sha256 TEXT;
+  ADD COLUMN IF NOT EXISTS applied_after_sha256 TEXT,
+  ADD COLUMN IF NOT EXISTS patch TEXT;
 
 ALTER TABLE site_mutations DROP CONSTRAINT IF EXISTS site_mutations_state_check;
 ALTER TABLE site_mutations ADD CONSTRAINT site_mutations_state_check
@@ -53,19 +59,33 @@ ALTER TABLE site_mutations ADD CONSTRAINT site_mutations_failure_code_ck CHECK (
 -- Keyed (Phase 1+) mutations must carry the full binding.
 ALTER TABLE site_mutations DROP CONSTRAINT IF EXISTS site_mutations_binding_ck;
 ALTER TABLE site_mutations ADD CONSTRAINT site_mutations_binding_ck CHECK (
-  idempotency_key IS NULL OR (
+  idempotency_key IS NULL OR COALESCE(
     target_path IS NOT NULL
+    AND patch IS NOT NULL
     AND before_sha256 ~ '^[0-9a-f]{64}$'
     AND after_sha256 ~ '^[0-9a-f]{64}$'
     AND approved_patch_sha256 ~ '^[0-9a-f]{64}$'
     AND approved_by IS NOT NULL
-    AND approved_at IS NOT NULL
+    AND approved_at IS NOT NULL,
+    false
   )
+);
+
+-- A failure code only ever accompanies a FAILED keyed mutation.
+ALTER TABLE site_mutations DROP CONSTRAINT IF EXISTS site_mutations_failure_state_ck;
+ALTER TABLE site_mutations ADD CONSTRAINT site_mutations_failure_state_ck CHECK (
+  failure_code IS NULL OR state = 'FAILED'
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_site_mutations_idempotency
   ON site_mutations(business_id, idempotency_key)
   WHERE idempotency_key IS NOT NULL;
+
+-- One approval executes at most once: a second key for the same approved
+-- patch cannot claim while one is in flight or has succeeded.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_site_mutations_one_execution
+  ON site_mutations(fix_proposal_id, approved_patch_sha256)
+  WHERE idempotency_key IS NOT NULL AND state <> 'FAILED';
 
 -- What was approved and claimed never changes afterwards (including the
 -- business/proposal/finding it belongs to). Only lifecycle columns move.
@@ -84,13 +104,15 @@ BEGIN
     OR NEW.approved_by IS DISTINCT FROM OLD.approved_by
     OR NEW.approved_at IS DISTINCT FROM OLD.approved_at
     OR NEW.idempotency_key IS DISTINCT FROM OLD.idempotency_key
+    OR NEW.patch IS DISTINCT FROM OLD.patch
   ) THEN
     RAISE EXCEPTION 'site mutation % binding is immutable', OLD.id;
   END IF;
   IF OLD.idempotency_key IS NULL AND NEW.idempotency_key IS NOT NULL THEN
     RAISE EXCEPTION 'site mutation % cannot acquire a binding after creation', OLD.id;
   END IF;
-  IF OLD.failure_code IS NOT NULL AND (NEW.state IS DISTINCT FROM OLD.state OR NEW.failure_code IS DISTINCT FROM OLD.failure_code) THEN
+  IF OLD.idempotency_key IS NOT NULL AND OLD.state = 'FAILED'
+     AND (NEW.state IS DISTINCT FROM OLD.state OR NEW.failure_code IS DISTINCT FROM OLD.failure_code) THEN
     RAISE EXCEPTION 'site mutation % failed and is final', OLD.id;
   END IF;
   RETURN NEW;

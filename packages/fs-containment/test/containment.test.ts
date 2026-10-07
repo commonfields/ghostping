@@ -19,9 +19,12 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  ConcurrentModification,
   ContainmentError,
   PreconditionFailed,
   containedEntryKind,
+  hasReservedSegment,
+  pinRoot,
   readContainedFile,
   resolveAllowedRoot,
   resolveContainedPath,
@@ -169,9 +172,9 @@ describe("allowed roots (tenant-scoped)", () => {
   it("accepts a tenant's own checkout, through tmpdir aliases", async () => {
     const allowed = tenants()
     const site = join(allowed, "tenant-a", "site")
-    expect(await resolveAllowedRoot(site, [allowed], "tenant-a")).toBe(realpathSync(site))
-    expect(await resolveAllowedRoot(realpathSync(site), [allowed], "tenant-a")).toBe(realpathSync(site))
-    expect(await resolveAllowedRoot(join(allowed, "tenant-a"), [allowed], "tenant-a")).toBe(realpathSync(join(allowed, "tenant-a")))
+    expect((await resolveAllowedRoot(site, [allowed], "tenant-a")).path).toBe(realpathSync(site))
+    expect((await resolveAllowedRoot(realpathSync(site), [allowed], "tenant-a")).path).toBe(realpathSync(site))
+    expect((await resolveAllowedRoot(join(allowed, "tenant-a"), [allowed], "tenant-a")).path).toBe(realpathSync(join(allowed, "tenant-a")))
   })
 
   it("rejects another tenant's checkout even though it is globally allowed", async () => {
@@ -195,63 +198,182 @@ describe("allowed roots (tenant-scoped)", () => {
   })
 })
 
-describe("races at the last observable point (onStaged barrier)", () => {
-  it("target swapped for an outside symlink after staging -> SYMLINK, nothing escapes, temp removed", async () => {
+// Each barrier test injects a concurrent change at one stage of the write
+// and asserts that nothing outside the root changes and no success is
+// reported for bytes that were not checked.
+describe("concurrent changes during a write (onStage barriers)", () => {
+  const swapParent = (root: string, outside: string) => {
+    renameSync(join(root, "pages"), join(root, "pages-moved"))
+    symlinkSync(outside, join(root, "pages"))
+  }
+  const tmpFiles = (dir: string) => readdirSync(dir).filter((f) => f.startsWith(".openrecord-tmp-"))
+
+  it("parent swapped before the temp file is created: no byte is written outside", async () => {
+    const { root, outside } = layout()
+    const e = await writeContainedFile(root, "pages/a.html", "pwned", {
+      onStage: async (s) => {
+        if (s === "prepared") swapParent(root, outside)
+      },
+    }).then(() => null, (err: unknown) => err)
+    expect(e).toBeInstanceOf(ContainmentError)
+    // Documented residual: an empty temp file may be created outside; it is
+    // refused before any byte is written and never reported as success.
+    for (const f of readdirSync(outside)) expect(readFileSync(join(outside, f), "utf8"), f).not.toContain("pwned")
+    expect(readFileSync(join(outside, "secret.txt"), "utf8")).toBe("secret")
+    expect(readFileSync(join(root, "pages-moved", "a.html"), "utf8")).toBe("<p>a</p>")
+  })
+
+  it("parent swapped after the temp file is verified: bytes still land only in the verified inode", async () => {
+    const { root, outside } = layout()
+    const snapshot = outsideSnapshot(outside)
+    const e = await writeContainedFile(root, "pages/a.html", "pwned", {
+      onStage: async (s) => {
+        if (s === "opened") swapParent(root, outside)
+      },
+    }).then(() => null, (err: unknown) => err)
+    expect(e).toBeInstanceOf(ContainmentError)
+    expect(outsideSnapshot(outside)).toBe(snapshot)
+  })
+
+  it("parent swapped after staging -> rejected; cleanup never unlinks a same-named outside file", async () => {
+    const { root, outside } = layout()
+    let tmpName = ""
+    const e = await writeContainedFile(root, "pages/a.html", "pwned", {
+      onStage: async (s) => {
+        if (s !== "staged") return
+        tmpName = tmpFiles(join(root, "pages"))[0]!
+        swapParent(root, outside)
+        writeFileSync(join(outside, tmpName), "outside file with the staged name")
+      },
+    }).then(() => null, (err: unknown) => err)
+    expect(e).toBeInstanceOf(ContainmentError)
+    expect(readFileSync(join(outside, tmpName), "utf8")).toBe("outside file with the staged name")
+    expect(readFileSync(join(outside, "secret.txt"), "utf8")).toBe("secret")
+  })
+
+  it("target swapped for an outside symlink after staging -> SYMLINK, temp removed", async () => {
     const { root, outside } = layout()
     const snapshot = outsideSnapshot(outside)
     await rejects(writeContainedFile(root, "pages/a.html", "pwned", {
-      onStaged: async () => {
+      onStage: async (s) => {
+        if (s !== "staged") return
         rmSync(join(root, "pages", "a.html"))
         symlinkSync(join(outside, "secret.txt"), join(root, "pages", "a.html"))
       },
     }), "SYMLINK")
     expect(outsideSnapshot(outside)).toBe(snapshot)
-    expect(readdirSync(join(root, "pages")).filter((f) => f.startsWith(".openrecord-tmp-"))).toEqual([])
+    expect(tmpFiles(join(root, "pages"))).toEqual([])
   })
 
-  it("parent directory swapped for an outside symlink after staging -> rejected, nothing escapes", async () => {
+  it("hardlink to an outside file swapped in after staging -> rejected, outside untouched", async () => {
     const { root, outside } = layout()
-    const snapshot = outsideSnapshot(outside)
-    const e = await writeContainedFile(root, "pages/a.html", "pwned", {
-      onStaged: async () => {
-        renameSync(join(root, "pages"), join(root, "pages-moved"))
-        symlinkSync(outside, join(root, "pages"))
+    await rejects(writeContainedFile(root, "pages/a.html", "pwned", {
+      onStage: async (s) => {
+        if (s !== "staged") return
+        rmSync(join(root, "pages", "a.html"))
+        linkSync(join(outside, "secret.txt"), join(root, "pages", "a.html"))
       },
-    }).then(() => null, (err: unknown) => err)
-    expect(e).toBeInstanceOf(ContainmentError)
-    expect(outsideSnapshot(outside)).toBe(snapshot)
+    }), "HARDLINKED_FILE")
+    expect(readFileSync(join(outside, "secret.txt"), "utf8")).toBe("secret")
   })
 
   it("content edited after staging -> PreconditionFailed, edit preserved", async () => {
     const { root } = layout()
     const e = await writeContainedFile(root, "index.html", "<p>ours</p>", {
       expectedBeforeSha256: sha256Hex("<p>in</p>"),
-      onStaged: async () => writeFileSync(join(root, "index.html"), "<p>theirs</p>"),
+      onStage: async (s) => {
+        if (s === "staged") writeFileSync(join(root, "index.html"), "<p>theirs</p>")
+      },
     }).then(() => null, (err: unknown) => err)
     expect(e).toBeInstanceOf(PreconditionFailed)
     expect(readFileSync(join(root, "index.html"), "utf8")).toBe("<p>theirs</p>")
-    expect(readdirSync(root).filter((f) => f.startsWith(".openrecord-tmp-"))).toEqual([])
+    expect(tmpFiles(root)).toEqual([])
   })
 
-  it("hardlink to an outside file created after staging is replaced, not written through", async () => {
-    const { root, outside } = layout()
-    const e = await writeContainedFile(root, "pages/a.html", "pwned", {
-      onStaged: async () => {
-        rmSync(join(root, "pages", "a.html"))
-        linkSync(join(outside, "secret.txt"), join(root, "pages", "a.html"))
+  it("content edited between the final hash and the rename -> ConcurrentModification, never success", async () => {
+    const { root } = layout()
+    const e = await writeContainedFile(root, "index.html", "<p>ours</p>", {
+      expectedBeforeSha256: sha256Hex("<p>in</p>"),
+      onStage: async (s) => {
+        if (s === "checked") writeFileSync(join(root, "index.html"), "<p>theirs, edited in place</p>")
       },
     }).then(() => null, (err: unknown) => err)
-    expect(e).toBeInstanceOf(ContainmentError)
+    expect(e).toBeInstanceOf(ConcurrentModification)
+  })
+
+  it("bytes changed after the rename are caught by the real read-back", async () => {
+    const { root } = layout()
+    const r = await writeContainedFile(root, "index.html", "<p>ours</p>", {
+      onStage: async (s) => {
+        if (s === "renamed") writeFileSync(join(root, "index.html"), "<p>someone else</p>")
+      },
+    })
+    expect(r.afterSha256).toBe(sha256Hex("<p>someone else</p>"))
+    expect(r.afterSha256).not.toBe(sha256Hex("<p>ours</p>"))
+  })
+
+  it("a pinned root swapped for a symlink is refused (ROOT_CHANGED), outside untouched", async () => {
+    const { base, root, outside } = layout()
+    const pinned = await pinRoot(root)
+    renameSync(root, join(base, "root-moved"))
+    symlinkSync(outside, root)
+    await rejects(writeContainedFile(pinned, "secret.txt", "pwned"), "ROOT_CHANGED")
+    await rejects(readContainedFile(pinned, "secret.txt"), "ROOT_CHANGED")
     expect(readFileSync(join(outside, "secret.txt"), "utf8")).toBe("secret")
+  })
+
+  it("a pinned root replaced by another real directory is refused (ROOT_CHANGED)", async () => {
+    const { base, root } = layout()
+    const pinned = await pinRoot(root)
+    renameSync(root, join(base, "root-moved"))
+    mkdirSync(root)
+    writeFileSync(join(root, "index.html"), "impostor")
+    await rejects(writeContainedFile(pinned, "index.html", "x"), "ROOT_CHANGED")
   })
 })
 
-describe("special files", () => {
-  it("rejects a FIFO target without hanging", async () => {
+describe("concurrent changes during a read", () => {
+  it("parent swapped between resolution and open -> rejected, outside bytes never returned", async () => {
+    const { root, outside } = layout()
+    writeFileSync(join(outside, "a.html"), "synthetic-outside")
+    const e = await readContainedFile(root, "pages/a.html", {
+      onResolved: async () => {
+        renameSync(join(root, "pages"), join(root, "pages-moved"))
+        symlinkSync(outside, join(root, "pages"))
+      },
+    }).then((r) => r, (err: unknown) => err)
+    expect(e).toBeInstanceOf(ContainmentError)
+  })
+
+  it("a FIFO swapped in before open is rejected without hanging", async () => {
+    const { root } = layout()
+    await rejects(readContainedFile(root, "pages/a.html", {
+      onResolved: async () => {
+        rmSync(join(root, "pages", "a.html"))
+        execFileSync("mkfifo", [join(root, "pages", "a.html")])
+      },
+    }), "NOT_A_REGULAR_FILE")
+  })
+})
+
+describe("special files and limits", () => {
+  it("rejects a FIFO target found by the walk", async () => {
     const { root } = layout()
     execFileSync("mkfifo", [join(root, "pipe.html")])
     await rejects(readContainedFile(root, "pipe.html"), "NOT_A_REGULAR_FILE")
     await rejects(writeContainedFile(root, "pipe.html", "x"), "NOT_A_REGULAR_FILE")
+  })
+
+  it("an over-long path component is a typed rejection, not a raw ENAMETOOLONG", async () => {
+    const { root } = layout()
+    await rejects(resolveContainedPath(root, `pages/${"a".repeat(300)}`), "PATH_TOO_LONG")
+  })
+
+  it("reserved segments are detected case- and Unicode-insensitively", () => {
+    for (const p of [".git/config", "a/.GIT/hooks/x", ".Git/HEAD", ".openrecord/x", ".OPENRECORD/x"]) {
+      expect(hasReservedSegment(p, [".git", ".openrecord"]), p).toBe(true)
+    }
+    for (const p of [".gitignore", "a/git/x", "docs/.github/x"]) expect(hasReservedSegment(p, [".git", ".openrecord"]), p).toBe(false)
   })
 })
 

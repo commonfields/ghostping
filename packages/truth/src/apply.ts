@@ -5,12 +5,15 @@
 
 import { createHash } from "node:crypto"
 import {
+  ConcurrentModification,
   ContainmentError,
   PreconditionFailed,
+  hasReservedSegment,
   resolveContainedPath,
   validateCandidate,
   writeContainedFile,
   type ContainmentCode,
+  type WriteStage,
 } from "@openrecord/fs-containment"
 import { MATERIALIZATION_RECEIPT_SCHEMA, TRUTH_COMPILER_VERSION } from "./manifest.js"
 import type { ProjectionArtifactV1, ProjectionSourceRefV1 } from "./compiler.js"
@@ -54,6 +57,8 @@ export interface ApplyIo {
   readonly readLock: () => Promise<ProjectionLock>
   readonly writeLock: (lock: ProjectionLock) => Promise<void>
   readonly appendReceipt: (receipt: MaterializationReceiptV1) => Promise<void>
+  /** Test seam passed to the containment primitive's write stages. */
+  readonly onWriteStage?: (stage: WriteStage) => Promise<void>
 }
 
 const CONTAINMENT_TO_APPLY: Partial<Record<ContainmentCode, string>> = {
@@ -65,7 +70,7 @@ const CONTAINMENT_TO_APPLY: Partial<Record<ContainmentCode, string>> = {
 
 const toApplyError = (e: unknown, rel: string): unknown => {
   if (e instanceof ContainmentError) return new ApplyError(CONTAINMENT_TO_APPLY[e.code] ?? "UnsafeOutputPath", `${e.code}: ${rel}`)
-  if (e instanceof PreconditionFailed) return new ApplyError("ConcurrentModification", rel)
+  if (e instanceof PreconditionFailed || e instanceof ConcurrentModification) return new ApplyError("ConcurrentModification", rel)
   return e
 }
 
@@ -80,10 +85,7 @@ export const resolveInsideRoot = (_root: string, rel: string): string => {
   }
   // Case- and normalization-insensitive: on APFS/NTFS `.OPENRECORD/x` and
   // NFD spellings name the same directory as `.openrecord/x`.
-  const folded = rel.normalize("NFC").toLowerCase().split("/")
-  if (folded[0] === ".openrecord" || folded.includes(".git")) {
-    throw new ApplyError("ReservedOutputPath", rel)
-  }
+  if (hasReservedSegment(rel, [".openrecord", ".git"])) throw new ApplyError("ReservedOutputPath", rel)
   return rel
 }
 
@@ -141,9 +143,15 @@ export const applyArtifact = async (
   // CREATE or UPDATE through the shared primitive: atomic sibling write +
   // rename, containment re-proved and the planned digest re-checked
   // immediately before the rename (a concurrent edit fails, never merges).
-  await writeContainedFile(io.root, rel, bytes, { expectedBeforeSha256: entry.existing_digest, createParents: true }).catch((e: unknown) => {
+  const written = await writeContainedFile(io.root, rel, bytes, {
+    expectedBeforeSha256: entry.existing_digest,
+    createParents: true,
+    ...(io.onWriteStage ? { onStage: io.onWriteStage } : {}),
+  }).catch((e: unknown) => {
     throw toApplyError(e, rel)
   })
+  // The lock and receipt record only bytes actually read back from disk.
+  if (written.afterSha256 !== afterDigest) throw new ApplyError("ReadbackMismatch", rel)
   const nextLock: ProjectionLock = {
     projections: { ...lock.projections, [artifact.projection_id]: { digest: afterDigest, compiler: TRUTH_COMPILER_VERSION } },
   }

@@ -648,9 +648,11 @@ export const Search = {
     const route = Routes.prepareFix(businessId, proposalId)
     return api<{ proposal: FixProposal; patch: string; approvalInvalidated: boolean }>(route.path, { method: route.method, body: JSON.stringify({}) })
   },
-  approveFix: (businessId: string, proposalId: string, approved: boolean) => {
+  approveFix: (businessId: string, proposalId: string, approved: boolean, patchSha256: string | null) => {
     const route = Routes.approveFix(businessId, proposalId)
-    return api<{ proposal: FixProposal }>(route.path, { method: route.method, body: JSON.stringify({ approved }) })
+    // The hash of the diff on screen: approval fails if the prepared change has since changed.
+    const body = patchSha256 === null ? { approved } : { approved, patchSha256 }
+    return api<{ proposal: FixProposal }>(route.path, { method: route.method, body: JSON.stringify(body) })
   },
   applyFix: (businessId: string, proposalId: string) => {
     const route = Routes.applyFix(businessId, proposalId)

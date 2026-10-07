@@ -668,8 +668,11 @@ export class SiteFixProposalRepository extends Context.Tag("SiteFixProposalRepos
      * PROPOSED/APPROVED proposals can be prepared.
      */
     readonly recordPlan: (businessId: string, proposalId: string, plan: PreparedPlanInput) => DbEffect<{ proposal: SiteFixProposalRow; approvalInvalidated: boolean } | null>
-    /** PROPOSED -> APPROVED, binding approved_patch_sha256 to the prepared patch. */
-    readonly approveBound: (businessId: string, proposalId: string, approvedBy: string) => DbEffect<SiteFixProposalRow | null>
+    /**
+     * PROPOSED -> APPROVED only if the prepared patch is still the one the
+     * reviewer saw (reviewedPatchSha256); binds approved_patch_sha256 to it.
+     */
+    readonly approveBound: (businessId: string, proposalId: string, approvedBy: string, reviewedPatchSha256: string) => DbEffect<SiteFixProposalRow | null>
   }
 >() {}
 
@@ -723,9 +726,9 @@ export const SiteFixProposalRepositoryLive = Layer.effect(
         const proposal = yield* decodeFixProposal(r)
         return { proposal, approvalInvalidated: r["prev_status"] === "APPROVED" && proposal.status === "PROPOSED" }
       }),
-    approveBound: (businessId, proposalId, approvedBy) =>
+    approveBound: (businessId, proposalId, approvedBy, reviewedPatchSha256) =>
       Effect.gen(function*() {
-        const rows = (yield* sql`UPDATE site_fix_proposals SET status = 'APPROVED', approved_by = ${approvedBy}, approved_at = now(), approved_patch_sha256 = patch_sha256 WHERE id = ${proposalId} AND business_id = ${businessId} AND status = 'PROPOSED' RETURNING *`) as Array<unknown>
+        const rows = (yield* sql`UPDATE site_fix_proposals SET status = 'APPROVED', approved_by = ${approvedBy}, approved_at = now(), approved_patch_sha256 = patch_sha256 WHERE id = ${proposalId} AND business_id = ${businessId} AND status = 'PROPOSED' AND patch_sha256 = ${reviewedPatchSha256} RETURNING *`) as Array<unknown>
         const r = rows[0]
         if (!r) return null
         return yield* decodeFixProposal(r)
@@ -762,6 +765,8 @@ export interface SiteMutationRow {
   readonly failureCode: string | null
   /** Hash actually read back after the write (differs only on MUTATION_FAILED). */
   readonly appliedAfterSha256: string | null
+  /** The exact patch that was approved and claimed (replays return it). */
+  readonly patch: string | null
 }
 
 const SiteMutationSchema = Schema.Struct({
@@ -787,6 +792,7 @@ const SiteMutationSchema = Schema.Struct({
   idempotency_key: NullableTextField,
   failure_code: NullableTextField,
   applied_after_sha256: NullableTextField,
+  patch: NullableTextField,
 })
 
 const decodeMutation = (r: unknown): Effect.Effect<SiteMutationRow, RowDecodeError> =>
@@ -814,6 +820,7 @@ const decodeMutation = (r: unknown): Effect.Effect<SiteMutationRow, RowDecodeErr
       idempotencyKey: d.idempotency_key,
       failureCode: d.failure_code,
       appliedAfterSha256: d.applied_after_sha256,
+      patch: d.patch,
     })),
   )
 
@@ -830,6 +837,7 @@ export interface MutationClaimInput {
   readonly approvedBy: string
   readonly approvedAt: string
   readonly idempotencyKey: string
+  readonly patch: string
 }
 
 export class SiteMutationRepository extends Context.Tag("SiteMutationRepository")<
@@ -849,11 +857,13 @@ export class SiteMutationRepository extends Context.Tag("SiteMutationRepository"
     }) => DbEffect<SiteMutationRow>
     readonly listByFinding: (businessId: string, findingId: string) => DbEffect<ReadonlyArray<SiteMutationRow>>
     readonly getScoped: (businessId: string, mutationId: string) => DbEffect<SiteMutationRow | null>
-    readonly markState: (businessId: string, mutationId: string, state: string, detail?: string | null, extra?: { prNumber?: number | null; prUrl?: string | null; commitSha?: string | null; branch?: string | null }) => DbEffect<SiteMutationRow | null>
+    /** Guarded transition: applies only while the row is still in expectedState. */
+    readonly markState: (businessId: string, mutationId: string, state: string, detail?: string | null, extra?: { prNumber?: number | null; prUrl?: string | null; commitSha?: string | null; branch?: string | null }, expectedState?: string) => DbEffect<SiteMutationRow | null>
     /**
-     * Claim a mutation (state APPLYING) before any write. A second claim
-     * with the same (business, idempotency key) writes nothing and returns
-     * the original row with claimed = false.
+     * Claim a mutation (state APPLYING) before any write. Writes nothing and
+     * returns claimed = false with the blocking row when the same (business,
+     * idempotency key) exists, or when the same approved patch already has
+     * an in-flight or successful execution.
      */
     readonly claim: (input: MutationClaimInput) => DbEffect<{ claimed: boolean; row: SiteMutationRow }>
     readonly findByIdempotencyKey: (businessId: string, idempotencyKey: string) => DbEffect<SiteMutationRow | null>
@@ -888,9 +898,9 @@ export const SiteMutationRepositoryLive = Layer.effect(
           return decodeMutation(r)
         }),
       ),
-    markState: (businessId, mutationId, state, detail, extra) =>
+    markState: (businessId, mutationId, state, detail, extra, expectedState) =>
       Effect.gen(function*() {
-        const rows = (yield* sql`UPDATE site_mutations SET state = ${state}, detail = COALESCE(${detail ?? null}, detail), pr_number = COALESCE(${extra?.prNumber ?? null}, pr_number), pr_url = COALESCE(${extra?.prUrl ?? null}, pr_url), commit_sha = COALESCE(${extra?.commitSha ?? null}, commit_sha), branch = COALESCE(${extra?.branch ?? null}, branch), updated_at = now() WHERE id = ${mutationId} AND business_id = ${businessId} RETURNING *`) as Array<unknown>
+        const rows = (yield* sql`UPDATE site_mutations SET state = ${state}, detail = COALESCE(${detail ?? null}, detail), pr_number = COALESCE(${extra?.prNumber ?? null}, pr_number), pr_url = COALESCE(${extra?.prUrl ?? null}, pr_url), commit_sha = COALESCE(${extra?.commitSha ?? null}, commit_sha), branch = COALESCE(${extra?.branch ?? null}, branch), updated_at = now() WHERE id = ${mutationId} AND business_id = ${businessId} AND (${expectedState ?? null}::text IS NULL OR state = ${expectedState ?? null}) RETURNING *`) as Array<unknown>
         const r = rows[0]
         if (!r) return null
         return yield* decodeMutation(r)
@@ -898,12 +908,20 @@ export const SiteMutationRepositoryLive = Layer.effect(
     claim: (input) =>
       Effect.gen(function*() {
         const inserted = (yield* sql`
-          INSERT INTO site_mutations (business_id, fix_proposal_id, finding_id, adapter_kind, state, target_path, base_ref, before_sha256, after_sha256, approved_patch_sha256, approved_by, approved_at, idempotency_key)
-          VALUES (${input.businessId}, ${input.fixProposalId}, ${input.findingId}, ${input.adapterKind}, 'APPLYING', ${input.targetPath}, ${input.baseRef}, ${input.beforeSha256}, ${input.afterSha256}, ${input.approvedPatchSha256}, ${input.approvedBy}, ${input.approvedAt}, ${input.idempotencyKey})
-          ON CONFLICT (business_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+          INSERT INTO site_mutations (business_id, fix_proposal_id, finding_id, adapter_kind, state, target_path, base_ref, before_sha256, after_sha256, approved_patch_sha256, approved_by, approved_at, idempotency_key, patch)
+          VALUES (${input.businessId}, ${input.fixProposalId}, ${input.findingId}, ${input.adapterKind}, 'APPLYING', ${input.targetPath}, ${input.baseRef}, ${input.beforeSha256}, ${input.afterSha256}, ${input.approvedPatchSha256}, ${input.approvedBy}, ${input.approvedAt}, ${input.idempotencyKey}, ${input.patch})
+          ON CONFLICT DO NOTHING
           RETURNING *`) as Array<unknown>
         if (inserted[0]) return { claimed: true, row: yield* decodeMutation(inserted[0]) }
-        const existing = (yield* sql`SELECT * FROM site_mutations WHERE business_id = ${input.businessId} AND idempotency_key = ${input.idempotencyKey}`) as Array<unknown>
+        // Blocked by either unique index: same key, or this approval already executing/executed.
+        const existing = (yield* sql`
+          SELECT * FROM site_mutations
+          WHERE business_id = ${input.businessId}
+            AND (idempotency_key = ${input.idempotencyKey}
+              OR (fix_proposal_id = ${input.fixProposalId} AND approved_patch_sha256 = ${input.approvedPatchSha256} AND idempotency_key IS NOT NULL AND state <> 'FAILED'))
+          ORDER BY (idempotency_key = ${input.idempotencyKey}) DESC
+          LIMIT 1`) as Array<unknown>
+        if (!existing[0]) return yield* Effect.die(new Error("mutation claim conflicted but no blocking row is visible"))
         return { claimed: false, row: yield* decodeMutation(existing[0]) }
       }),
     findByIdempotencyKey: (businessId, idempotencyKey) =>

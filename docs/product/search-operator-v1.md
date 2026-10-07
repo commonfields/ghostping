@@ -113,9 +113,11 @@ API + worker running, a business created.
 5. Prepare the exact change (`POST .../fixes/:proposalId/prepare`): reads
    the mapped source file and stores its path, before/after sha256 and the
    patch hash; the UI shows the exact file diff.
-6. Approve (`POST .../fixes/:proposalId/approve { approved: true }`): the
-   approval binds to that patch hash. Re-preparing a different change
-   returns the proposal to PROPOSED (approval invalidated).
+6. Approve (`POST .../fixes/:proposalId/approve { approved: true,
+   patchSha256 }`), naming the hash of the diff that was reviewed: the
+   approval binds to it and fails if the prepared change has since changed.
+   Re-preparing a different change returns the proposal to PROPOSED
+   (approval invalidated). One approval executes at most once.
 7. Apply (`POST .../fixes/:proposalId/apply`, optional `idempotencyKey`):
    refuses with `PreconditionFailed` if the file changed since preparation,
    `ApprovalInvalidated` if the change differs from the approved one, and

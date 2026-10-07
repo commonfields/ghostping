@@ -235,7 +235,7 @@ export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
           if (!(yield* biz.getScoped(session.accountId, businessId))) return yield* json(404, { _tag: "BusinessNotFound" })
           const body = decodeRequest(ApproveFixRequest, (yield* readJson) as unknown)
           if (!body) return yield* json(422, malformed)
-          const r = yield* approveFix(businessId, proposalId, session.userId, body.approved)
+          const r = yield* approveFix(businessId, proposalId, session.userId, body.approved, body.patchSha256 ?? null)
           return yield* json(r.status, r.body)
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
@@ -338,7 +338,8 @@ export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
             ...(body.commitSha !== undefined ? { commitSha: body.commitSha } : {}),
             ...(body.prNumber !== undefined ? { prNumber: body.prNumber } : {}),
             ...(body.prUrl !== undefined ? { prUrl: body.prUrl } : {}),
-          })
+          }, current.state)
+          if (!updated) return yield* json(409, { _tag: "Conflict", message: "mutation changed concurrently; reload" })
           return yield* json(200, { mutation: updated })
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),

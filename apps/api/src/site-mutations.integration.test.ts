@@ -66,6 +66,13 @@ suite("site mutation binding (prepare/approve/apply)", () => {
     return { base, root, business, site, finding, proposal }
   }
 
+  /** Prepare, then approve exactly the prepared (reviewed) hash. */
+  const prepareAndApprove = async (f: { business: string; proposal: string }, actor = "op-1") => {
+    const prepared = await svc(prepareFix(f.business, f.proposal, actor, null))
+    const hash = String((prepared.body as { proposal: { patchSha256: string } }).proposal.patchSha256)
+    const approved = await svc(approveFix(f.business, f.proposal, actor, true, hash))
+    return { prepared, approved, hash }
+  }
   const findingStatus = async (id: string) => (await pool.query("SELECT status FROM site_findings WHERE id=$1", [id])).rows[0].status as string
   const body = (r: { body: unknown }) => r.body as Record<string, unknown> & { mutation?: Record<string, unknown>; proposal?: Record<string, unknown> }
 
@@ -78,14 +85,16 @@ suite("site mutation binding (prepare/approve/apply)", () => {
   it("prepare -> approve -> apply writes exactly the approved bytes, once", async () => {
     const f = await fixture()
     // Approval without a prepared change is refused.
-    expect((await svc(approveFix(f.business, f.proposal, "op-1", true))).status).toBe(409)
+    expect((await svc(approveFix(f.business, f.proposal, "op-1", true, null))).status).toBe(409)
     const prepared = await svc(prepareFix(f.business, f.proposal, "op-1", null))
     expect(prepared.status).toBe(200)
     const plan = body(prepared).proposal!
     expect(plan["filePath"]).toBe("services/plumbing.html")
     expect(plan["beforeSha256"]).toBe(sha256Hex(BROKEN))
     expect(String(body(prepared)["patch"])).toContain('-<meta name="robots" content="noindex">')
-    const approved = await svc(approveFix(f.business, f.proposal, "op-1", true))
+    // Approving an automated fix without naming the reviewed hash is refused.
+    expect((await svc(approveFix(f.business, f.proposal, "op-1", true, null))).status).toBe(422)
+    const approved = await svc(approveFix(f.business, f.proposal, "op-1", true, String(plan["patchSha256"])))
     expect(approved.status).toBe(200)
     expect(body(approved).proposal!["approvedPatchSha256"]).toBe(plan["patchSha256"])
     expect(await findingStatus(f.finding)).toBe("APPROVED")
@@ -109,8 +118,7 @@ suite("site mutation binding (prepare/approve/apply)", () => {
 
   it("stale file -> PRECONDITION_FAILED, recorded, nothing written; replay returns the same failure", async () => {
     const f = await fixture()
-    await svc(prepareFix(f.business, f.proposal, "op-1", null))
-    await svc(approveFix(f.business, f.proposal, "op-1", true))
+    await prepareAndApprove(f)
     const edited = BROKEN.replace("<h1>Plumbing</h1>", "<h1>Edited by a human</h1>")
     writeFileSync(join(f.root, "services", "plumbing.html"), edited)
     const r = await svc(applyFix(f.business, f.proposal, "op-1", {}))
@@ -126,8 +134,7 @@ suite("site mutation binding (prepare/approve/apply)", () => {
 
   it("a changed patch requires new approval", async () => {
     const f = await fixture()
-    await svc(prepareFix(f.business, f.proposal, "op-1", null))
-    await svc(approveFix(f.business, f.proposal, "op-1", true))
+    await prepareAndApprove(f)
     // The source changes and the operator re-prepares: the approval no longer covers it.
     writeFileSync(join(f.root, "services", "plumbing.html"), BROKEN.replace("<h1>", "<h1 class=x>"))
     const re = await svc(prepareFix(f.business, f.proposal, "op-1", null))
@@ -136,7 +143,7 @@ suite("site mutation binding (prepare/approve/apply)", () => {
     expect((await svc(applyFix(f.business, f.proposal, "op-1", {}))).status).toBe(409)
     expect(readFileSync(join(f.root, "services", "plumbing.html"), "utf8")).toContain("noindex")
     // Re-approval binds the new patch and apply succeeds.
-    await svc(approveFix(f.business, f.proposal, "op-2", true))
+    await svc(approveFix(f.business, f.proposal, "op-2", true, String((re.body as { proposal: { patchSha256: string } }).proposal.patchSha256)))
     const ok = await svc(applyFix(f.business, f.proposal, "op-2", {}))
     expect(ok.status).toBe(200)
     expect(readFileSync(join(f.root, "services", "plumbing.html"), "utf8")).not.toContain("noindex")
@@ -144,8 +151,7 @@ suite("site mutation binding (prepare/approve/apply)", () => {
 
   it("approval hash mismatch at apply time -> APPROVAL_INVALIDATED, recorded, nothing written", async () => {
     const f = await fixture()
-    await svc(prepareFix(f.business, f.proposal, "op-1", null))
-    await svc(approveFix(f.business, f.proposal, "op-1", true))
+    await prepareAndApprove(f)
     // Simulate a plan edited behind the approval (e.g. a buggy writer).
     await pool.query("UPDATE site_fix_proposals SET after_sha256 = $2, patch_sha256 = $3 WHERE id = $1", [f.proposal, sha256Hex("evil"), sha256Hex("evil-patch")])
     const r = await svc(applyFix(f.business, f.proposal, "op-1", { idempotencyKey: "explicit-key-1" }))
@@ -202,8 +208,7 @@ suite("site mutation binding (prepare/approve/apply)", () => {
 
   it("the database refuses to rewrite a claimed binding", async () => {
     const f = await fixture()
-    await svc(prepareFix(f.business, f.proposal, "op-1", null))
-    await svc(approveFix(f.business, f.proposal, "op-1", true))
+    await prepareAndApprove(f)
     const m = body(await svc(applyFix(f.business, f.proposal, "op-1", {}))).mutation!
     for (const [col, value] of [["target_path", "index.html"], ["approved_patch_sha256", sha256Hex("x")], ["approved_by", "someone-else"], ["idempotency_key", "other"]] as const) {
       await expect(pool.query(`UPDATE site_mutations SET ${col} = $2 WHERE id = $1`, [m["id"], value]), col).rejects.toThrow(/binding is immutable/)
@@ -215,5 +220,80 @@ suite("site mutation binding (prepare/approve/apply)", () => {
       "INSERT INTO site_mutations (business_id, fix_proposal_id, finding_id, idempotency_key) VALUES ($1,$2,$3,'unbound')",
       [f.business, f.proposal, f.finding],
     )).rejects.toThrow(/site_mutations_binding_ck/)
+  })
+
+  it("approval binds only to the change the reviewer saw (stale review is refused)", async () => {
+    const f = await fixture()
+    writeFileSync(join(f.root, "services", "other.html"), BROKEN)
+    const seen = await svc(prepareFix(f.business, f.proposal, "op-1", null))
+    const seenHash = String((seen.body as { proposal: { patchSha256: string } }).proposal.patchSha256)
+    // Someone re-prepares the proposal against another file before approval arrives.
+    await svc(prepareFix(f.business, f.proposal, "op-2", "services/other.html"))
+    const stale = await svc(approveFix(f.business, f.proposal, "op-1", true, seenHash))
+    expect(stale.status).toBe(409)
+    expect(body(stale)["_tag"]).toBe("ApprovalInvalidated")
+    expect((await pool.query("SELECT status FROM site_fix_proposals WHERE id=$1", [f.proposal])).rows[0].status).toBe("PROPOSED")
+    expect((await svc(applyFix(f.business, f.proposal, "op-1", {}))).status).toBe(409)
+    expect(readFileSync(join(f.root, "services", "other.html"), "utf8")).toBe(BROKEN)
+  })
+
+  it("one approval executes at most once, even under different idempotency keys", async () => {
+    const f = await fixture()
+    await prepareAndApprove(f)
+    const results = await Promise.all([
+      svc(applyFix(f.business, f.proposal, "op-1", { idempotencyKey: "key-a" })),
+      svc(applyFix(f.business, f.proposal, "op-1", { idempotencyKey: "key-b" })),
+    ])
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409])
+    const rows = (await pool.query("SELECT state, failure_code FROM site_mutations WHERE fix_proposal_id=$1", [f.proposal])).rows
+    expect(rows).toHaveLength(1)
+    // A third key after success is refused too, without touching the file.
+    const third = await svc(applyFix(f.business, f.proposal, "op-1", { idempotencyKey: "key-c" }))
+    expect(third.status).toBe(409)
+  })
+
+  it("a replay returns the original patch even after the proposal is re-prepared", async () => {
+    const f = await fixture()
+    const { prepared } = await prepareAndApprove(f)
+    const original = String(body(prepared)["patch"])
+    const first = await svc(applyFix(f.business, f.proposal, "op-1", { idempotencyKey: "replay-key" }))
+    expect(body(first)["patch"]).toBe(original)
+    writeFileSync(join(f.root, "services", "other.html"), BROKEN)
+    await svc(prepareFix(f.business, f.proposal, "op-1", "services/other.html"))
+    const replay = await svc(applyFix(f.business, f.proposal, "op-1", { idempotencyKey: "replay-key" }))
+    expect(body(replay)).toMatchObject({ replayed: true, patch: original })
+    expect(String(body(replay)["patch"])).not.toContain("other.html")
+  })
+
+  it("partially-NULL bindings are rejected by the database (NULL-safe CHECKs)", async () => {
+    const f = await fixture()
+    await prepareAndApprove(f)
+    const m = body(await svc(applyFix(f.business, f.proposal, "op-1", {}))).mutation!
+    const base = [f.business, f.proposal, f.finding, "services/plumbing.html", "patch", sha256Hex("b"), sha256Hex("a"), sha256Hex("p"), "op", new Date().toISOString()]
+    const insert = (overrides: Record<number, unknown>) => {
+      const v = base.map((x, i) => (i in overrides ? overrides[i] : x))
+      return pool.query(
+        `INSERT INTO site_mutations (business_id, fix_proposal_id, finding_id, target_path, patch, before_sha256, after_sha256, approved_patch_sha256, approved_by, approved_at, idempotency_key, state)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'partial-${Math.random()}','FAILED')`,
+        v,
+      )
+    }
+    for (const nulled of [5, 6, 7, 4]) await expect(insert({ [nulled]: null }), `column ${nulled}`).rejects.toThrow(/site_mutations_binding_ck/)
+    await expect(pool.query("UPDATE site_fix_proposals SET before_sha256 = NULL WHERE id = $1", [f.proposal])).rejects.toThrow(/site_fix_proposals_plan_ck/)
+    void m
+  })
+
+  it("a FAILED keyed mutation is final; a completion lost to another writer is not overwritten", async () => {
+    const f = await fixture()
+    await prepareAndApprove(f)
+    writeFileSync(join(f.root, "services", "plumbing.html"), BROKEN.replace("<h1>", "<h1 id=edited>"))
+    const failed = body(await svc(applyFix(f.business, f.proposal, "op-1", {}))).mutation!
+    expect(failed["state"]).toBe("FAILED")
+    await expect(pool.query("UPDATE site_mutations SET state = 'CREATED', failure_code = NULL WHERE id = $1", [failed["id"]])).rejects.toThrow(/failed and is final/)
+    await expect(pool.query("UPDATE site_mutations SET failure_code = 'MUTATION_FAILED' WHERE id = $1 AND state <> 'FAILED'", [failed["id"]])).resolves.toBeDefined()
+    // complete() only moves APPLYING rows: a second completion returns null.
+    const { SiteMutationRepository } = await import("@openrecord/db")
+    const again = await svc(Effect.flatMap(SiteMutationRepository, (r) => r.complete(f.business, String(failed["id"]), { state: "CREATED", failureCode: null, branch: null, appliedAfterSha256: null, detail: "late" })))
+    expect(again).toBeNull()
   })
 })

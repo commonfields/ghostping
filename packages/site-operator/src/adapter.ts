@@ -11,7 +11,7 @@
 // Every read and write goes through @openrecord/fs-containment; this module
 // may not import node:fs (architecture test). Writes happen only through
 // applyApprovedMutation, which enforces the approval/precondition binding.
-import { ContainmentError, containedEntryKind, readContainedFile } from "@openrecord/fs-containment"
+import { ContainmentError, containedEntryKind, readContainedFile, type RootRef } from "@openrecord/fs-containment"
 import { buildPatch, removeNoindexFromHtml } from "./fixes.js"
 import {
   applyApprovedMutation,
@@ -44,19 +44,19 @@ export interface PreparedMutation {
 
 export interface SiteAdapter {
   readonly kind: AdapterKind
-  inspect(args: { rootDir: string; filePath: string }): Promise<string | null>
-  prepareMutation(args: { rootDir: string; targetPath: string; fixKind: string }): Promise<{ ok: true; prepared: PreparedMutation } | { ok: false; failure: PrepareFailure }>
+  inspect(args: { rootDir: RootRef; filePath: string }): Promise<string | null>
+  prepareMutation(args: { rootDir: RootRef; targetPath: string; fixKind: string }): Promise<{ ok: true; prepared: PreparedMutation } | { ok: false; failure: PrepareFailure }>
   applyMutation(args: {
-    rootDir: string
+    rootDir: RootRef
     fixKind: string
     plan: MutationBinding & { readonly patchSha256: string }
     approvedPatchSha256: string
     branch?: string
   }): Promise<{ ok: true; result: MutationResult } | { ok: false; failure: AdapterApplyFailure }>
-  verifyMutation(args: { rootDir: string; filePath: string; absent: string }): Promise<boolean>
+  verifyMutation(args: { rootDir: RootRef; filePath: string; absent: string }): Promise<boolean>
 }
 
-const readText = async (rootDir: string, filePath: string): Promise<string | null> => {
+const readText = async (rootDir: RootRef, filePath: string): Promise<string | null> => {
   try {
     const r = await readContainedFile(rootDir, filePath)
     return r === null ? null : new TextDecoder().decode(r.bytes)
@@ -93,7 +93,7 @@ export const LocalFileSiteAdapter: SiteAdapter = {
   verifyMutation,
 }
 
-const isGitCheckout = async (rootDir: string): Promise<boolean> => {
+const isGitCheckout = async (rootDir: RootRef): Promise<boolean> => {
   try {
     const kind = await containedEntryKind(rootDir, ".git")
     return kind === "DIRECTORY" || kind === "FILE"
@@ -107,7 +107,7 @@ const SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/
 const REF = /^refs\/[A-Za-z0-9._/-]+$/
 
 /** Best-effort HEAD commit of a plain .git directory; null when unknown. */
-export const readGitHead = async (rootDir: string): Promise<string | null> => {
+export const readGitHead = async (rootDir: RootRef): Promise<string | null> => {
   const head = (await readText(rootDir, ".git/HEAD"))?.trim() ?? null
   if (head === null) return null
   if (SHA.test(head)) return head

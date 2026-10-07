@@ -1,7 +1,7 @@
 // Mutation preconditions: approval binds to exact bytes. Each failure mode
 // leaves the source untouched.
 import { describe, expect, it } from "vitest"
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { sha256Hex, writeContainedFile } from "@openrecord/fs-containment"
@@ -82,15 +82,40 @@ describe("applyApprovedMutation", () => {
     expect(readFileSync(join(dir, "index.html"), "utf8")).toBe(BROKEN)
   })
 
-  it("post-write hash mismatch -> MUTATION_FAILED", async () => {
+  it("post-write hash mismatch -> MUTATION_FAILED (real read-back of changed bytes)", async () => {
     const { dir, plan } = await setup()
     // A concurrent writer changes the file between our rename and read-back.
-    const racing: typeof writeContainedFile = async (root, candidate, bytes, options) => {
-      const r = await writeContainedFile(root, candidate, bytes, options)
-      return { ...r, afterSha256: sha256Hex("someone else's bytes") }
-    }
+    const racing: typeof writeContainedFile = (root, candidate, bytes, options) =>
+      writeContainedFile(root, candidate, bytes, {
+        ...options,
+        onStage: async (s) => {
+          if (s === "renamed") writeFileSync(join(dir, "index.html"), "someone else's bytes")
+        },
+      })
     const r = await applyApprovedMutation({ rootDir: dir, fixKind: "REMOVE_NOINDEX_META", plan, approvedPatchSha256: plan.patchSha256, write: racing })
     expect(r).toMatchObject({ ok: false, failure: { _tag: "MUTATION_FAILED" } })
+  })
+
+  it("an edit between the final hash and the rename -> MUTATION_FAILED, never success", async () => {
+    const { dir, plan } = await setup()
+    const racing: typeof writeContainedFile = (root, candidate, bytes, options) =>
+      writeContainedFile(root, candidate, bytes, {
+        ...options,
+        onStage: async (s) => {
+          if (s === "checked") writeFileSync(join(dir, "index.html"), BROKEN.replace("x", "edited in place"))
+        },
+      })
+    const r = await applyApprovedMutation({ rootDir: dir, fixKind: "REMOVE_NOINDEX_META", plan, approvedPatchSha256: plan.patchSha256, write: racing })
+    expect(r).toMatchObject({ ok: false, failure: { _tag: "MUTATION_FAILED" } })
+  })
+
+  it("repository metadata is never a mutation target", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "openrecord-mutation-"))
+    mkdirSync(join(dir, ".git"))
+    writeFileSync(join(dir, ".git", "description.html"), BROKEN)
+    for (const targetPath of [".git/description.html", ".GIT/description.html"]) {
+      expect(await prepareFileMutation({ rootDir: dir, targetPath, fixKind: "REMOVE_NOINDEX_META" })).toMatchObject({ ok: false, failure: { _tag: "PathRejected", code: "RESERVED_PATH" } })
+    }
   })
 
   it("plan paths are still contained at apply time", async () => {
