@@ -59,3 +59,36 @@ describe("natural plan-price answers", () => {
     expect(judge("Acme's Pro plan costs $49 per user per month.")).toBe("UNCLEAR")
   })
 })
+
+describe("orchestrator attack round: stated bases, negations, hedges and trials are never contradictions", () => {
+  const normalized = { amountMinor: 7900, currency: "USD", billingPeriod: "MONTH", unit: "UNSTATED", qualifier: "EXACT" } as const
+  const judge = (a: string) => extractAssayJudgment({ factType: "PRICE", subject: "Pro", normalized, businessAliases: ["Acme"] }, a).comparison
+  it.each([
+    "Acme's Pro plan costs $49 per month for 5 users.",
+    "Acme's Pro plan costs $49 per 1,000 contacts per month.",
+    "Acme's Pro plan costs $49 monthly for the whole team.",
+    "Acme's Pro plan costs $49/month for a team.",
+    "Acme's Pro plan costs $49/month after a free trial.",
+    "Acme's Pro plan is free, then $49/month.",
+    "Acme's Pro plan doesn't cost $49/month.",
+    "Acme's Pro plan isn't $49/month.",
+    "Acme's Pro plan costs roughly $49/month.",
+    "Acme's Pro plan typically costs $49/month.",
+    "Acme's Pro plan will cost $49/month.",
+  ])("UNCLEAR: %s", a => expect(judge(a)).toBe("UNCLEAR"))
+  it.each([
+    ["Acme's Pro plan costs $49 a month.", "CONTRADICTS"],
+    ["Acme's Pro plan costs $79 a month.", "MATCHES"],
+    ["Acme's Pro plan costs $49 each month.", "CONTRADICTS"],
+    ["Acme's Pro plan costs $49/month and includes unlimited projects.", "CONTRADICTS"],
+    ["Acme's Pro plan costs $49 a month per head.", "UNCLEAR"],
+  ] as const)("natural phrasing stays comparable: %s", (a, v) => expect(judge(a)).toBe(v))
+})
+
+describe("pricing cards keep their ordinary trial wording", () => {
+  it("a '14-day free trial' line does not make the card price uncertain", () => {
+    const html = `<div><div><h3>Pro</h3><p>$79/month</p><p>14-day free trial</p></div><div><h3>Team</h3><p>$149/month</p></div></div>`
+    const f = proposeAssayFacts(html, { subject: "Acme", planTerms: ["Pro", "Team"], capabilityTerms: [] }).facts.find(x => x.subject === "Pro")
+    expect(f && (f.normalized as { qualifier: string }).qualifier).toBe("EXACT")
+  })
+})

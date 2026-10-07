@@ -28,7 +28,10 @@ const sentences = (text: string): string[] => {
   return spans
 }
 // Deliberately narrow: these assertions cannot establish unconditional current truth.
-const DOUBTFUL = /\b(while|whereas|unlike|but|however|than|versus|vs|compared|except|other|competitors?|no longer|formerly|previously|used to|was|were|dropped|deprecated|discontinued|never|coming soon|in 20\d\d|may|might|perhaps|possibly|uncertain|if|sometimes|only|outside|for enterprise|in (?:the )?(?:Europe|US|USA|UK|EU|United States|Asia)|estimate|approximately|about)\b/i
+const DOUBTFUL_BASE = /\b(while|whereas|unlike|but|however|than|versus|vs|compared|except|other|competitors?|no longer|formerly|previously|used to|was|were|dropped|deprecated|discontinued|never|coming soon|in 20\d\d|may|might|perhaps|possibly|uncertain|if|sometimes|only|outside|for enterprise|in (?:the )?(?:Europe|US|USA|UK|EU|United States|Asia)|estimate|approximately|about)\b/i
+// Answers are model prose: add hedges, trials and future/conditional wording that a
+// pricing card legitimately contains ("14-day free trial") but an answer must not lean on.
+const DOUBTFUL = new RegExp(DOUBTFUL_BASE.source.replace(/\)\\b$/, "|roughly|around|nearly|almost|circa|typically|usually|generally|often|average|free|trial|freemium|then|after|until|unless|depends?|varies|vary|will|would|could|should|soon|beta|alpha|preview|planned|upcoming|roadmap|via|through|using)\\b"), "i")
 // Common sentence openers are not organisation names; anything else
 // capitalised beyond the business and the term is treated as one.
 const SAFE_CAPITALS = new Set(["The", "This", "It", "Its", "A", "An", "Yes", "No", "Currently", "Today", "Also", "Starting", "Starts", "From", "Flat", "Per", "Plan", "Monthly", "Annual", "USD", "EUR", "GBP", "JPY", "CAD", "AUD", "NZD", "CHF", "CNY", "INR", "SGD", "HKD"])
@@ -67,7 +70,7 @@ const compareBoolean = (fact: BooleanAssayFact, subject: string, answer: string,
 // requireBusiness: an answer about a plan ("Pro") must also name the business;
 // "Pro plans typically cost $99" says nothing about this prospect.
 const priceScope = (text: string, subject: string, aliases: readonly string[], planTerms: readonly string[], requireBusiness = false) => {
-  if (!guarded(text, subject, aliases, requireBusiness) || /\bnot\b/i.test(text)) return false
+  if (!guarded(text, subject, aliases, requireBusiness) || /\b(?:not|never|no|neither|nor|without)\b|n['’]t\b/i.test(text)) return false
   // An unscoped business price cannot be compared with a named tier price.
   const otherPlans = planTerms.filter(p => !mentions(subject, p))
   return !otherPlans.some(p => mentions(text, p)) && !/\b(?:[\w-]+\s+)(?:plan|tier)\b/i.test(text.replace(new RegExp(`\\b${escape(subject)}(?: (?:plan|tier))?\\b`, "gi"), ""))
@@ -108,7 +111,7 @@ const planCardPrice = (block: string): MoneyFact | null => {
   if (!whole) return null
   const line = sentences(block).find(s => priceMentionCount(s) === 1)
   const local = line ? parseMoneyFact(line) : null
-  const unsure = DOUBTFUL.test(block) || /\bnot\b/i.test(block) || whole.billingPeriod === "UNKNOWN" || !local
+  const unsure = DOUBTFUL_BASE.test(block) || /\bnot\b/i.test(block) || whole.billingPeriod === "UNKNOWN" || !local
     || local.billingPeriod !== whole.billingPeriod || local.unit !== whole.unit || local.qualifier !== whole.qualifier
   return unsure ? { ...whole, qualifier: "UNKNOWN" } : whole
 }
