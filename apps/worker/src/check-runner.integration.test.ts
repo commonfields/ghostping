@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { Effect, Layer, Redacted, Schedule } from "effect"
 import { PgClient } from "@effect/sql-pg"
 import pg from "pg"
-import { CheckRunRepository, CheckRunRepositoryLive, ObservationRepository, ObservationRepositoryLive, ProviderAttemptEvidenceRepository, ProviderAttemptEvidenceRepositoryLive, QuestionRepositoryLive } from "@openrecord/db"
+import { CheckRunRepositoryLive, ObservationRepository, ObservationRepositoryLive, ProviderAttemptEvidenceRepository, ProviderAttemptEvidenceRepositoryLive, QuestionRepositoryLive } from "@openrecord/db"
 import { MockProviderLive, NineRouterProvider, ProviderRegistryLive, ProviderUnsupported, rawEvidence } from "@openrecord/providers"
 import { CheckRunner, makeCheckRunnerLive } from "./check-runner.js"
 const url = process.env["TEST_DATABASE_URL"] ?? ""
@@ -16,16 +16,6 @@ suite("Effect provider cutover persistence", () => {
   beforeAll(async () => {
     pool = new pg.Pool({ connectionString: url })
     await pool.query("SELECT 1")
-    // Other integration suites leave queued fixtures; drain via legal state
-    // transitions so the worker's oldest-first claim tests are deterministic.
-    await Effect.runPromise(Effect.gen(function*() {
-      const runs = yield* CheckRunRepository
-      for (;;) {
-        const run = yield* runs.claimOne()
-        if (!run) break
-        yield* runs.markFinished(run.id, "FAILED", "UNKNOWN", "test fixture drain")
-      }
-    }).pipe(Effect.provide(Repos)))
   })
   afterAll(async () => { await pool.end() })
   const fixture = async (prompt: string) => {
@@ -35,10 +25,12 @@ suite("Effect provider cutover persistence", () => {
     const run = (await pool.query("INSERT INTO check_runs (business_id, question_id, provider) VALUES ($1,$2,'mock') RETURNING id", [business, question])).rows[0].id as string
     return { business, run }
   }
-  const runOnce = () => Effect.runPromise(Effect.gen(function*() { return yield* (yield* CheckRunner).runOnce() }).pipe(Effect.provide(Runner)))
+  // Claims are scoped to the fixture's business: parallel suites share one
+  // database, so the globally oldest QUEUED run may belong to another file.
+  const runOnce = (businessId: string) => Effect.runPromise(Effect.gen(function*() { return yield* (yield* CheckRunner).runOnce({ businessId }) }).pipe(Effect.provide(Runner)))
   it("claims and atomically persists synthetic success with exact evidence", async () => {
     const f = await fixture("__wrong__")
-    await runOnce()
+    await runOnce(f.business)
     const row = (await pool.query(`SELECT cr.status, cr.attempt_count, o.synthetic, o.answer_text, r.digest, r.raw_bytes_hex, r.response_max_bytes
       FROM check_runs cr JOIN observations o ON o.check_run_id=cr.id JOIN raw_evidence r ON r.id=o.raw_evidence_id WHERE cr.id=$1`, [f.run])).rows[0]
     expect(row.status).toBe("SUCCEEDED")
@@ -51,7 +43,7 @@ suite("Effect provider cutover persistence", () => {
   })
   it("persists all four failed attempts; failed runs produce no observations", async () => {
     const f = await fixture("__fail__")
-    await runOnce()
+    await runOnce(f.business)
     const run = (await pool.query("SELECT status, failure_class, failure_detail_safe, attempt_count FROM check_runs WHERE id=$1", [f.run])).rows[0]
     expect(run.status).toBe("FAILED")
     expect(run.attempt_count).toBe(4)

@@ -9,11 +9,11 @@ const ok: ProviderObservation = {
   collectedAt: "2026-10-04T00:00:00Z", answerText: "Northstar costs $29/month.", retrievalMode: "unknown", citations: [],
   rawResponse: { answer: "x" }, providerMetadata: { synthetic: true }, synthetic: true,
 }
-const runCase = async (script: Array<ProviderError | ProviderObservation>, opts: { missing?: boolean; attemptFailure?: boolean; evidenceFailure?: boolean } = {}) => {
+const runCase = async (script: Array<ProviderError | ProviderObservation>, opts: { grouped?: boolean; missing?: boolean; attemptFailure?: boolean; evidenceFailure?: boolean } = {}) => {
   const state = { calls: 0, attempts: 0, status: "RUNNING", failure: null as string | null, observation: null as unknown, evidence: [] as unknown[] }
   const runs = Layer.succeed(CheckRunRepository, {
     enqueue: () => Effect.dieMessage("unused"), listByBusiness: () => Effect.succeed([]), getScoped: () => Effect.succeed(null), markRunning: () => Effect.void,
-    claimOne: () => Effect.succeed({ id: "run-1", businessId: "b1", questionId: "q1", provider: "mock", requestedModel: "requested", status: "RUNNING", queuedAt: "2026-10-04T00:00:00Z", startedAt: null, completedAt: null, failureClass: null, failureDetailSafe: null, attemptCount: 0 }),
+    claimOne: () => Effect.succeed({ ...(opts.grouped ? { assaySampleGroupId: "group-1" } : {}), id: "run-1", businessId: "b1", questionId: "q1", provider: "mock", requestedModel: "requested", status: "RUNNING", queuedAt: "2026-10-04T00:00:00Z", startedAt: null, completedAt: null, failureClass: null, failureDetailSafe: null, attemptCount: 0 }),
     recordAttempt: () => opts.attemptFailure ? Effect.fail(new SqlError({ message: "test failure" })) : Effect.sync(() => ++state.attempts),
     markFinished: (_id, status, failureClass) => Effect.sync(() => { state.status = status; state.failure = failureClass }),
   })
@@ -75,6 +75,12 @@ describe("Effect CheckRunner", () => {
     expect(out.evidence).toHaveLength(1)
     expect(out.evidence[0]).toMatchObject({ bytes: raw.rawBytes, digest: raw.rawDigest, failureClass: "PROVIDER_AUTH", attempt: 1 })
     expect(out.observation).toBeNull()
+  })
+  it("assay execution without its repository fails before any provider call", async () => {
+    const out = await runCase([ok], { grouped: true })
+    expect(out.calls).toBe(0)
+    expect(out.status).toBe("FAILED")
+    expect(out.failure).toBe("PROVIDER_UNSUPPORTED")
   })
   it("missing question fails without invoking a provider", async () => {
     const out = await runCase([ok], { missing: true })

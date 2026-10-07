@@ -140,7 +140,7 @@ export const makeRobotsFetcher = (scopeOrigin: string, transport?: HttpTransport
   fetch: async (url, opts) => {
     const ev = await safeFetch(url, {
       ...(transport !== undefined ? { transport } : {}),
-      limits: { maxBytes: opts.byteCeiling, acceptedContentTypes: [...opts.acceptedContentTypes], timeoutMs: opts.timeoutMs },
+      limits: { maxBytes: opts.byteCeiling, acceptedContentTypes: [...opts.acceptedContentTypes], allowMissingContentType: true, timeoutMs: opts.timeoutMs },
       userAgent: opts.userAgent,
       redirectPolicy: { maxRedirects: 5, allowCrossOrigin: false, scopeOrigin },
     })

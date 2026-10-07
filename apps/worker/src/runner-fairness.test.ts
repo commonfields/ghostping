@@ -111,3 +111,36 @@ describe("worker fairness", () => {
     )
   })
 })
+
+describe("assay loop ownership", () => {
+  it("a blocked source fetch allows the check loop to progress", async () => {
+    await Effect.runPromise(Effect.gen(function*() {
+      const progressed = yield* Deferred.make<void>()
+      let checks = 0
+      let assays = 0
+      const parent = yield* Effect.forkScoped(startRunnerLoops({
+        check: { runOnce: () => Effect.gen(function*() { checks++; if (checks === 3) yield* Deferred.succeed(progressed, undefined); return false }) },
+        discovery: { runOnce: () => Effect.succeed(false) },
+        assay: { runOnce: () => Effect.gen(function*() { assays++; return yield* Effect.never }) },
+      }, testPollMs))
+      yield* Deferred.await(progressed)
+      expect(assays).toBe(1)
+      yield* Fiber.interrupt(parent)
+    }).pipe(Effect.scoped))
+  })
+  it("shutdown cleans up all four loops", async () => {
+    await Effect.runPromise(Effect.gen(function*() {
+      const started = yield* Deferred.make<void>()
+      let active = 0
+      let finalized = 0
+      const owned = { runOnce: () => Effect.gen(function*() {
+        active++; if (active === 4) yield* Deferred.succeed(started, undefined)
+        return yield* Effect.never
+      }).pipe(Effect.ensuring(Effect.sync(() => { finalized++ }))) }
+      const parent = yield* Effect.forkScoped(startRunnerLoops({ check: owned, discovery: owned, site: owned, assay: owned }, testPollMs))
+      yield* Deferred.await(started)
+      yield* Fiber.interrupt(parent)
+      expect(finalized).toBe(4)
+    }).pipe(Effect.scoped))
+  })
+})
