@@ -118,6 +118,10 @@ export const Routes = {
     path: `/api/businesses/${businessId}/search/sites/${siteId}/findings/${findingId}`,
   }),
   searchOverview: (businessId: string) => ({ method: "GET", path: `/api/businesses/${businessId}/search/overview` }),
+  prepareFix: (businessId: string, proposalId: string) => ({
+    method: "POST",
+    path: `/api/businesses/${businessId}/search/fixes/${proposalId}/prepare`,
+  }),
   approveFix: (businessId: string, proposalId: string) => ({
     method: "POST",
     path: `/api/businesses/${businessId}/search/fixes/${proposalId}/approve`,
@@ -333,14 +337,27 @@ export const CreateSiteRequest = Schema.Struct({
 })
 export type CreateSiteRequest = typeof CreateSiteRequest.Type
 
+// patchSha256: the prepared change the reviewer saw. Required to approve an
+// automated fix; approval fails if the prepared change has since changed.
 export const ApproveFixRequest = Schema.Struct({
   approved: Schema.Boolean,
+  patchSha256: Schema.optional(Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/))),
 })
 export type ApproveFixRequest = typeof ApproveFixRequest.Type
 
+// Prepare the exact change an approval will bind to (target file + hashes).
+export const PrepareFixRequest = Schema.Struct({
+  filePath: Schema.optional(Schema.String),
+})
+export type PrepareFixRequest = typeof PrepareFixRequest.Type
+
+// filePath, when sent, must equal the approved target (else 409).
+// idempotencyKey defaults to `${proposalId}:${approvedPatchSha256}`; the same
+// key always returns the original mutation result.
 export const ApplyFixRequest = Schema.Struct({
   filePath: Schema.optional(Schema.String),
   branch: Schema.optional(Schema.String),
+  idempotencyKey: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200))),
 })
 export type ApplyFixRequest = typeof ApplyFixRequest.Type
 

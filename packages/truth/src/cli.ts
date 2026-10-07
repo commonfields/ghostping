@@ -5,10 +5,11 @@
 
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
-import { applyArtifact, type ApplyIo } from "./apply.js"
+import { applyArtifact } from "./apply.js"
+import { fileIo, readLock } from "./io.js"
 import { compileVerificationBindings, syncVerificationBindings } from "./bridge.js"
 import { compileProjection } from "./compiler.js"
-import { EMPTY_LOCK, planProjection, planStale, type ProjectionLock } from "./plan.js"
+import { planProjection, planStale } from "./plan.js"
 import { parseManifest } from "./manifest.js"
 import { syncManifestFacts } from "./service.js"
 
@@ -119,46 +120,6 @@ const main = async (): Promise<void> => {
   console.error(usage)
   process.exit(2)
 }
-
-const readLock = async (root: string): Promise<ProjectionLock> => {
-  let raw: string
-  try {
-    raw = await readFile(resolve(root, ".openrecord/projections.lock.json"), "utf8")
-  } catch (e) {
-    // Missing lock means a fresh root: nothing is managed yet.
-    // Any other read failure leaves lock state unknown, so fail closed.
-    if ((e as { code?: string }).code === "ENOENT") return EMPTY_LOCK
-    throw e
-  }
-  const parsed: unknown = JSON.parse(raw)
-  if (parsed !== null && typeof parsed === "object" && "projections" in parsed) {
-    return parsed as ProjectionLock
-  }
-  throw new Error("projections.lock.json has invalid shape; refusing to apply with unknown lock state")
-}
-
-const fileIo = (root: string): ApplyIo => ({
-  root,
-  read: async (rel) => {
-    try {
-      return new Uint8Array(await readFile(resolve(root, rel)))
-    } catch (e) {
-      if ((e as { code?: string }).code === "ENOENT") return null
-      throw e
-    }
-  },
-  readLock: () => readLock(root),
-  writeLock: async (lock) => {
-    const { mkdir, writeFile } = await import("node:fs/promises")
-    await mkdir(resolve(root, ".openrecord"), { recursive: true })
-    await writeFile(resolve(root, ".openrecord/projections.lock.json"), `${JSON.stringify(lock, null, 2)}\n`)
-  },
-  appendReceipt: async (receipt) => {
-    const { mkdir, writeFile } = await import("node:fs/promises")
-    await mkdir(resolve(root, ".openrecord/receipts"), { recursive: true })
-    await writeFile(resolve(root, `.openrecord/receipts/${receipt.id}.json`), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" })
-  },
-})
 
 main().catch((e) => {
   console.error(e instanceof Error ? e.message : e)

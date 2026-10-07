@@ -576,6 +576,9 @@ export type FixProposal = {
   classification: string
   requiresApproval: boolean
   status: string
+  /** Exact prepared change an approval binds to (null until prepared). */
+  patchSha256: string | null
+  approvedPatchSha256: string | null
 }
 
 export type SiteMutation = {
@@ -589,6 +592,8 @@ export type SiteMutation = {
   state: string
   detail: string | null
   createdAt: string
+  targetPath: string | null
+  failureCode: string | null
 }
 
 export type SiteVerification = {
@@ -639,9 +644,15 @@ export const Search = {
       mutations: SiteMutation[]
       verifications: SiteVerification[]
     }>(Routes.getSiteFinding(businessId, siteId, findingId).path),
-  approveFix: (businessId: string, proposalId: string, approved: boolean) => {
+  prepareFix: (businessId: string, proposalId: string) => {
+    const route = Routes.prepareFix(businessId, proposalId)
+    return api<{ proposal: FixProposal; patch: string; approvalInvalidated: boolean }>(route.path, { method: route.method, body: JSON.stringify({}) })
+  },
+  approveFix: (businessId: string, proposalId: string, approved: boolean, patchSha256: string | null) => {
     const route = Routes.approveFix(businessId, proposalId)
-    return api<{ proposal: FixProposal }>(route.path, { method: route.method, body: JSON.stringify({ approved }) })
+    // The hash of the diff on screen: approval fails if the prepared change has since changed.
+    const body = patchSha256 === null ? { approved } : { approved, patchSha256 }
+    return api<{ proposal: FixProposal }>(route.path, { method: route.method, body: JSON.stringify(body) })
   },
   applyFix: (businessId: string, proposalId: string) => {
     const route = Routes.applyFix(businessId, proposalId)

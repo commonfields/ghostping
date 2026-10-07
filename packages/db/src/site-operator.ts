@@ -568,6 +568,14 @@ export interface SiteFixProposalRow {
   readonly generatedAt: string
   readonly approvedBy: string | null
   readonly approvedAt: string | null
+  /** Prepared plan (Phase 1 binding); null until prepared. */
+  readonly baseRef: string | null
+  readonly beforeSha256: string | null
+  readonly afterSha256: string | null
+  readonly patchSha256: string | null
+  readonly preparedAt: string | null
+  /** The patch hash the approver approved. */
+  readonly approvedPatchSha256: string | null
 }
 
 const SiteFixProposalSchema = Schema.Struct({
@@ -588,6 +596,12 @@ const SiteFixProposalSchema = Schema.Struct({
   generated_at: TimestampField,
   approved_by: NullableTextField,
   approved_at: NullableTimestampField,
+  base_ref: NullableTextField,
+  before_sha256: NullableTextField,
+  after_sha256: NullableTextField,
+  patch_sha256: NullableTextField,
+  prepared_at: NullableTimestampField,
+  approved_patch_sha256: NullableTextField,
 })
 
 const decodeFixProposal = (r: unknown): Effect.Effect<SiteFixProposalRow, RowDecodeError> =>
@@ -610,8 +624,23 @@ const decodeFixProposal = (r: unknown): Effect.Effect<SiteFixProposalRow, RowDec
       generatedAt: iso(d.generated_at),
       approvedBy: d.approved_by,
       approvedAt: d.approved_at == null ? null : iso(d.approved_at),
+      baseRef: d.base_ref,
+      beforeSha256: d.before_sha256,
+      afterSha256: d.after_sha256,
+      patchSha256: d.patch_sha256,
+      preparedAt: d.prepared_at == null ? null : iso(d.prepared_at),
+      approvedPatchSha256: d.approved_patch_sha256,
     })),
   )
+
+export interface PreparedPlanInput {
+  readonly filePath: string
+  readonly baseRef: string | null
+  readonly beforeSha256: string
+  readonly afterSha256: string
+  readonly patchSha256: string
+  readonly patch: string
+}
 
 export class SiteFixProposalRepository extends Context.Tag("SiteFixProposalRepository")<
   SiteFixProposalRepository,
@@ -633,6 +662,17 @@ export class SiteFixProposalRepository extends Context.Tag("SiteFixProposalRepos
     readonly listByFinding: (businessId: string, findingId: string) => DbEffect<ReadonlyArray<SiteFixProposalRow>>
     readonly getScoped: (businessId: string, proposalId: string) => DbEffect<SiteFixProposalRow | null>
     readonly setStatus: (businessId: string, proposalId: string, status: "APPROVED" | "REJECTED" | "SUPERSEDED", approvedBy?: string | null) => DbEffect<SiteFixProposalRow | null>
+    /**
+     * Store the exact prepared change. A different patch on an APPROVED
+     * proposal returns it to PROPOSED (approval invalidated). Only
+     * PROPOSED/APPROVED proposals can be prepared.
+     */
+    readonly recordPlan: (businessId: string, proposalId: string, plan: PreparedPlanInput) => DbEffect<{ proposal: SiteFixProposalRow; approvalInvalidated: boolean } | null>
+    /**
+     * PROPOSED -> APPROVED only if the prepared patch is still the one the
+     * reviewer saw (reviewedPatchSha256); binds approved_patch_sha256 to it.
+     */
+    readonly approveBound: (businessId: string, proposalId: string, approvedBy: string, reviewedPatchSha256: string) => DbEffect<SiteFixProposalRow | null>
   }
 >() {}
 
@@ -666,6 +706,33 @@ export const SiteFixProposalRepositoryLive = Layer.effect(
         if (!r) return null
         return yield* decodeFixProposal(r)
       }),
+    recordPlan: (businessId, proposalId, plan) =>
+      Effect.gen(function*() {
+        const rows = (yield* sql`
+          WITH prev AS (
+            SELECT id, status FROM site_fix_proposals
+            WHERE id = ${proposalId} AND business_id = ${businessId} AND status IN ('PROPOSED','APPROVED')
+            FOR UPDATE
+          )
+          UPDATE site_fix_proposals p SET
+            file_path = ${plan.filePath}, base_ref = ${plan.baseRef}, before_sha256 = ${plan.beforeSha256},
+            after_sha256 = ${plan.afterSha256}, patch_sha256 = ${plan.patchSha256}, patch = ${plan.patch},
+            prepared_at = now(),
+            status = CASE WHEN p.status = 'APPROVED' AND p.approved_patch_sha256 IS DISTINCT FROM ${plan.patchSha256} THEN 'PROPOSED' ELSE p.status END
+          FROM prev WHERE p.id = prev.id
+          RETURNING p.*, prev.status AS prev_status`) as Array<Record<string, unknown>>
+        const r = rows[0]
+        if (!r) return null
+        const proposal = yield* decodeFixProposal(r)
+        return { proposal, approvalInvalidated: r["prev_status"] === "APPROVED" && proposal.status === "PROPOSED" }
+      }),
+    approveBound: (businessId, proposalId, approvedBy, reviewedPatchSha256) =>
+      Effect.gen(function*() {
+        const rows = (yield* sql`UPDATE site_fix_proposals SET status = 'APPROVED', approved_by = ${approvedBy}, approved_at = now(), approved_patch_sha256 = patch_sha256 WHERE id = ${proposalId} AND business_id = ${businessId} AND status = 'PROPOSED' AND patch_sha256 = ${reviewedPatchSha256} RETURNING *`) as Array<unknown>
+        const r = rows[0]
+        if (!r) return null
+        return yield* decodeFixProposal(r)
+      }),
   })),
 )
 
@@ -686,6 +753,20 @@ export interface SiteMutationRow {
   readonly state: string
   readonly detail: string | null
   readonly createdAt: string
+  /** Phase 1 binding: what was approved and claimed (null on legacy rows). */
+  readonly targetPath: string | null
+  readonly baseRef: string | null
+  readonly beforeSha256: string | null
+  readonly afterSha256: string | null
+  readonly approvedPatchSha256: string | null
+  readonly approvedBy: string | null
+  readonly approvedAt: string | null
+  readonly idempotencyKey: string | null
+  readonly failureCode: string | null
+  /** Hash actually read back after the write (differs only on MUTATION_FAILED). */
+  readonly appliedAfterSha256: string | null
+  /** The exact patch that was approved and claimed (replays return it). */
+  readonly patch: string | null
 }
 
 const SiteMutationSchema = Schema.Struct({
@@ -701,6 +782,17 @@ const SiteMutationSchema = Schema.Struct({
   state: TextField,
   detail: NullableTextField,
   created_at: TimestampField,
+  target_path: NullableTextField,
+  base_ref: NullableTextField,
+  before_sha256: NullableTextField,
+  after_sha256: NullableTextField,
+  approved_patch_sha256: NullableTextField,
+  approved_by: NullableTextField,
+  approved_at: NullableTimestampField,
+  idempotency_key: NullableTextField,
+  failure_code: NullableTextField,
+  applied_after_sha256: NullableTextField,
+  patch: NullableTextField,
 })
 
 const decodeMutation = (r: unknown): Effect.Effect<SiteMutationRow, RowDecodeError> =>
@@ -718,8 +810,35 @@ const decodeMutation = (r: unknown): Effect.Effect<SiteMutationRow, RowDecodeErr
       state: d.state,
       detail: d.detail,
       createdAt: iso(d.created_at),
+      targetPath: d.target_path,
+      baseRef: d.base_ref,
+      beforeSha256: d.before_sha256,
+      afterSha256: d.after_sha256,
+      approvedPatchSha256: d.approved_patch_sha256,
+      approvedBy: d.approved_by,
+      approvedAt: d.approved_at == null ? null : iso(d.approved_at),
+      idempotencyKey: d.idempotency_key,
+      failureCode: d.failure_code,
+      appliedAfterSha256: d.applied_after_sha256,
+      patch: d.patch,
     })),
   )
+
+export interface MutationClaimInput {
+  readonly businessId: string
+  readonly fixProposalId: string
+  readonly findingId: string
+  readonly adapterKind: string
+  readonly targetPath: string
+  readonly baseRef: string | null
+  readonly beforeSha256: string
+  readonly afterSha256: string
+  readonly approvedPatchSha256: string
+  readonly approvedBy: string
+  readonly approvedAt: string
+  readonly idempotencyKey: string
+  readonly patch: string
+}
 
 export class SiteMutationRepository extends Context.Tag("SiteMutationRepository")<
   SiteMutationRepository,
@@ -738,7 +857,24 @@ export class SiteMutationRepository extends Context.Tag("SiteMutationRepository"
     }) => DbEffect<SiteMutationRow>
     readonly listByFinding: (businessId: string, findingId: string) => DbEffect<ReadonlyArray<SiteMutationRow>>
     readonly getScoped: (businessId: string, mutationId: string) => DbEffect<SiteMutationRow | null>
-    readonly markState: (businessId: string, mutationId: string, state: string, detail?: string | null, extra?: { prNumber?: number | null; prUrl?: string | null; commitSha?: string | null; branch?: string | null }) => DbEffect<SiteMutationRow | null>
+    /** Guarded transition: applies only while the row is still in expectedState. */
+    readonly markState: (businessId: string, mutationId: string, state: string, detail?: string | null, extra?: { prNumber?: number | null; prUrl?: string | null; commitSha?: string | null; branch?: string | null }, expectedState?: string) => DbEffect<SiteMutationRow | null>
+    /**
+     * Claim a mutation (state APPLYING) before any write. Writes nothing and
+     * returns claimed = false with the blocking row when the same (business,
+     * idempotency key) exists, or when the same approved patch already has
+     * an in-flight or successful execution.
+     */
+    readonly claim: (input: MutationClaimInput) => DbEffect<{ claimed: boolean; row: SiteMutationRow }>
+    readonly findByIdempotencyKey: (businessId: string, idempotencyKey: string) => DbEffect<SiteMutationRow | null>
+    /** APPLYING -> final state (success or a failure code). */
+    readonly complete: (businessId: string, mutationId: string, outcome: {
+      state: "CREATED" | "BRANCH_CREATED" | "FAILED"
+      failureCode: string | null
+      branch: string | null
+      appliedAfterSha256: string | null
+      detail: string
+    }) => DbEffect<SiteMutationRow | null>
   }
 >() {}
 
@@ -762,9 +898,42 @@ export const SiteMutationRepositoryLive = Layer.effect(
           return decodeMutation(r)
         }),
       ),
-    markState: (businessId, mutationId, state, detail, extra) =>
+    markState: (businessId, mutationId, state, detail, extra, expectedState) =>
       Effect.gen(function*() {
-        const rows = (yield* sql`UPDATE site_mutations SET state = ${state}, detail = COALESCE(${detail ?? null}, detail), pr_number = COALESCE(${extra?.prNumber ?? null}, pr_number), pr_url = COALESCE(${extra?.prUrl ?? null}, pr_url), commit_sha = COALESCE(${extra?.commitSha ?? null}, commit_sha), branch = COALESCE(${extra?.branch ?? null}, branch), updated_at = now() WHERE id = ${mutationId} AND business_id = ${businessId} RETURNING *`) as Array<unknown>
+        const rows = (yield* sql`UPDATE site_mutations SET state = ${state}, detail = COALESCE(${detail ?? null}, detail), pr_number = COALESCE(${extra?.prNumber ?? null}, pr_number), pr_url = COALESCE(${extra?.prUrl ?? null}, pr_url), commit_sha = COALESCE(${extra?.commitSha ?? null}, commit_sha), branch = COALESCE(${extra?.branch ?? null}, branch), updated_at = now() WHERE id = ${mutationId} AND business_id = ${businessId} AND (${expectedState ?? null}::text IS NULL OR state = ${expectedState ?? null}) RETURNING *`) as Array<unknown>
+        const r = rows[0]
+        if (!r) return null
+        return yield* decodeMutation(r)
+      }),
+    claim: (input) =>
+      Effect.gen(function*() {
+        const inserted = (yield* sql`
+          INSERT INTO site_mutations (business_id, fix_proposal_id, finding_id, adapter_kind, state, target_path, base_ref, before_sha256, after_sha256, approved_patch_sha256, approved_by, approved_at, idempotency_key, patch)
+          VALUES (${input.businessId}, ${input.fixProposalId}, ${input.findingId}, ${input.adapterKind}, 'APPLYING', ${input.targetPath}, ${input.baseRef}, ${input.beforeSha256}, ${input.afterSha256}, ${input.approvedPatchSha256}, ${input.approvedBy}, ${input.approvedAt}, ${input.idempotencyKey}, ${input.patch})
+          ON CONFLICT DO NOTHING
+          RETURNING *`) as Array<unknown>
+        if (inserted[0]) return { claimed: true, row: yield* decodeMutation(inserted[0]) }
+        // Blocked by either unique index: same key, or this approval already executing/executed.
+        const existing = (yield* sql`
+          SELECT * FROM site_mutations
+          WHERE business_id = ${input.businessId}
+            AND (idempotency_key = ${input.idempotencyKey}
+              OR (fix_proposal_id = ${input.fixProposalId} AND approved_patch_sha256 = ${input.approvedPatchSha256} AND idempotency_key IS NOT NULL AND state <> 'FAILED'))
+          ORDER BY (idempotency_key = ${input.idempotencyKey}) DESC
+          LIMIT 1`) as Array<unknown>
+        if (!existing[0]) return yield* Effect.die(new Error("mutation claim conflicted but no blocking row is visible"))
+        return { claimed: false, row: yield* decodeMutation(existing[0]) }
+      }),
+    findByIdempotencyKey: (businessId, idempotencyKey) =>
+      sql`SELECT * FROM site_mutations WHERE business_id = ${businessId} AND idempotency_key = ${idempotencyKey}`.pipe(
+        Effect.flatMap((rows) => {
+          const r = (rows as Array<unknown>)[0]
+          return r ? decodeMutation(r) : Effect.succeed(null as SiteMutationRow | null)
+        }),
+      ),
+    complete: (businessId, mutationId, outcome) =>
+      Effect.gen(function*() {
+        const rows = (yield* sql`UPDATE site_mutations SET state = ${outcome.state}, failure_code = ${outcome.failureCode}, branch = COALESCE(${outcome.branch}, branch), applied_after_sha256 = ${outcome.appliedAfterSha256}, detail = ${outcome.detail}, updated_at = now() WHERE id = ${mutationId} AND business_id = ${businessId} AND state = 'APPLYING' RETURNING *`) as Array<unknown>
         const r = rows[0]
         if (!r) return null
         return yield* decodeMutation(r)

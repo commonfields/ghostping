@@ -2,19 +2,18 @@
 // All routes are account-scoped (business must belong to the session).
 // Network fetching never happens in the request path; the worker owns it.
 // Mutations touch only the site's configured repoRef.rootDir, constrained to
-// an allowlisted workspace (or the OS temp dir in test/demo).
+// SITE_OPERATOR_ROOTS through @openrecord/fs-containment (see
+// site-mutations.ts for the prepare/approve/apply binding).
 import {
   HttpRouter,
   HttpServerRequest,
   HttpServerResponse,
 } from "@effect/platform"
 import { Effect, Schema } from "effect"
-import { tmpdir } from "node:os"
 import {
   BusinessRepository,
   SiteActiveRunConflict,
   SiteFindingRepository,
-  SiteFixProposalRepository,
   SiteGscRepository,
   SiteMutationRepository,
   SiteOperatorEventRepository,
@@ -28,15 +27,10 @@ import {
   ApplyFixRequest,
   ApproveFixRequest,
   CreateSiteRequest,
+  PrepareFixRequest,
   RecordMutationIdentityRequest,
   decodeRouteId,
 } from "@openrecord/contracts"
-import {
-  GitSiteAdapter,
-  LocalFileSiteAdapter,
-  buildPatch,
-  removeNoindexFromHtml,
-} from "@openrecord/site-operator"
 import {
   loadFindingDetail,
   loadSearchOverview,
@@ -46,6 +40,7 @@ import {
   canRecordMutationState,
   validateSiteRoot,
 } from "./site-operator.js"
+import { applyFix, approveFix, prepareFix } from "./site-mutations.js"
 
 const json = (status: number, body: unknown, headers?: Record<string, string>) =>
   HttpServerResponse.json(body, { status, headers })
@@ -62,19 +57,6 @@ const decodeRequest = <A, I>(schema: Schema.Schema<A, I>, raw: unknown): A | nul
 
 const malformed = { _tag: "InvalidFactValue", reason: "malformed request" } as const
 const isRouteId = (id: string): boolean => decodeRouteId(id)._tag === "Right"
-
-const allowedRoot = (rootDir: string): boolean => {
-  const roots = (process.env["SITE_OPERATOR_ROOTS"] ?? "")
-    .split(":")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-  if (rootDir.startsWith(tmpdir())) return true
-  if (rootDir.startsWith("/private/var/folders/")) return true
-  for (const r of roots) {
-    if (rootDir === r || rootDir.startsWith(r.endsWith("/") ? r : `${r}/`)) return true
-  }
-  return false
-}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
@@ -217,8 +199,29 @@ export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
-    // Approve (or reject) a proposed fix. Approval moves the finding to
-    // APPROVED via AWAITING_APPROVAL; rejection returns it to OPEN.
+    // Prepare the exact change (target file + before/after/patch hashes) an
+    // approval binds to. Re-preparing a different change invalidates approval.
+    HttpRouter.post(
+      "/api/businesses/:id/search/fixes/:proposalId/prepare",
+      withSession((session: Session) =>
+        Effect.gen(function*() {
+          const params = yield* HttpRouter.RouteContext
+          const p = params.params as Record<string, string>
+          const businessId = p["id"] as string
+          const proposalId = p["proposalId"] as string
+          if (!isRouteId(businessId) || !isRouteId(proposalId)) return yield* json(422, malformed)
+          const biz = yield* BusinessRepository
+          if (!(yield* biz.getScoped(session.accountId, businessId))) return yield* json(404, { _tag: "BusinessNotFound" })
+          const raw = yield* readJson.pipe(Effect.orElseSucceed(() => ({})))
+          const body = decodeRequest(PrepareFixRequest, raw)
+          if (!body) return yield* json(422, malformed)
+          const r = yield* prepareFix(businessId, proposalId, session.userId, body.filePath ?? null)
+          return yield* json(r.status, r.body)
+        }),
+      ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
+    ),
+    // Approve (or reject) a proposed fix. Automated fixes approve only an
+    // exact prepared change (approved_patch_sha256 = patch_sha256).
     HttpRouter.post(
       "/api/businesses/:id/search/fixes/:proposalId/approve",
       withSession((session: Session) =>
@@ -232,35 +235,14 @@ export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
           if (!(yield* biz.getScoped(session.accountId, businessId))) return yield* json(404, { _tag: "BusinessNotFound" })
           const body = decodeRequest(ApproveFixRequest, (yield* readJson) as unknown)
           if (!body) return yield* json(422, malformed)
-          const proposals = yield* SiteFixProposalRepository
-          const proposal = yield* proposals.getScoped(businessId, proposalId)
-          if (!proposal) return yield* json(404, { _tag: "FixNotFound" })
-          if (proposal.status !== "PROPOSED") return yield* json(409, { _tag: "Conflict", message: `proposal is ${proposal.status}` })
-          const findings = yield* SiteFindingRepository
-          const finding = yield* findings.getScoped(businessId, proposal.findingId)
-          if (!finding) return yield* json(404, { _tag: "FindingNotFound" })
-          if (body.approved) {
-            yield* proposals.setStatus(businessId, proposalId, "APPROVED", session.userId)
-            // OPEN -> AWAITING_APPROVAL -> APPROVED preserves history.
-            if (finding.status === "OPEN") yield* findings.setStatus(businessId, finding.id, "AWAITING_APPROVAL", session.userId, "fix proposed", null)
-            const updated = yield* findings.getScoped(businessId, finding.id)
-            if (updated && updated.status === "AWAITING_APPROVAL") {
-              yield* findings.setStatus(businessId, finding.id, "APPROVED", session.userId, `fix approved by operator`, null)
-            }
-            const events = yield* SiteOperatorEventRepository
-            yield* events.append({ businessId, findingId: finding.id, kind: "APPROVAL_GRANTED", payload: { proposalId, by: session.userId } }).pipe(Effect.ignore)
-            return yield* json(200, { proposal: yield* proposals.getScoped(businessId, proposalId) })
-          }
-          yield* proposals.setStatus(businessId, proposalId, "REJECTED", session.userId)
-          if (finding.status === "AWAITING_APPROVAL") yield* findings.setStatus(businessId, finding.id, "OPEN", session.userId, "fix rejected", null)
-          return yield* json(200, { proposal: yield* proposals.getScoped(businessId, proposalId) })
+          const r = yield* approveFix(businessId, proposalId, session.userId, body.approved, body.patchSha256 ?? null)
+          return yield* json(r.status, r.body)
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
-    // Apply an approved fix through the site adapter. Records the mutation
-    // identity (branch/commit/PR) and moves the finding to FIX_APPLIED.
-    // OpenRecord never merges automatically; GITHUB without credentials fails
-    // closed with a blocked message.
+    // Apply an approved fix through the site adapter. Enforces the approval
+    // binding and preconditions; the same idempotency key returns the
+    // original result. OpenRecord never merges automatically.
     HttpRouter.post(
       "/api/businesses/:id/search/fixes/:proposalId/apply",
       withSession((session: Session) =>
@@ -272,79 +254,12 @@ export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
           if (!isRouteId(businessId) || !isRouteId(proposalId)) return yield* json(422, malformed)
           const biz = yield* BusinessRepository
           if (!(yield* biz.getScoped(session.accountId, businessId))) return yield* json(404, { _tag: "BusinessNotFound" })
-          const body = decodeRequest(ApplyFixRequest, (yield* readJson) as unknown)
-          // Empty body is valid (all fields optional); only malformed JSON fails.
-          const requestedFile = body?.filePath ?? null
-          const requestedBranch = body?.branch ?? null
-          const proposals = yield* SiteFixProposalRepository
-          const proposal = yield* proposals.getScoped(businessId, proposalId)
-          if (!proposal) return yield* json(404, { _tag: "FixNotFound" })
-          if (proposal.status !== "APPROVED") return yield* json(409, { _tag: "Conflict", message: "proposal must be APPROVED before applying" })
-          if (proposal.classification === "MANUAL_ONLY") {
-            return yield* json(422, { _tag: "InvalidFactValue", reason: "this finding is MANUAL_ONLY: apply the change by hand, then run verification" })
-          }
-          const findings = yield* SiteFindingRepository
-          const finding = yield* findings.getScoped(businessId, proposal.findingId)
-          if (!finding) return yield* json(404, { _tag: "FindingNotFound" })
-          const sites = yield* SiteTargetRepository
-          const site = yield* sites.getScoped(businessId, finding.siteTargetId)
-          if (!site) return yield* json(404, { _tag: "SiteNotFound" })
-          if (site.adapterKind === "GITHUB" && !process.env["GITHUB_TOKEN"]) {
-            return yield* json(422, { _tag: "AdapterBlocked", reason: "GitHub integration requires GITHUB_TOKEN; connect the repository or use a git-backed checkout" })
-          }
-          const repoRef = (site.repoRef ?? {}) as Record<string, unknown>
-          const rootDir = typeof repoRef["rootDir"] === "string" ? (repoRef["rootDir"] as string) : null
-          if (!rootDir) {
-            return yield* json(422, { _tag: "InvalidFactValue", reason: "site has no local checkout configured (repoRef.rootDir); map the finding to its source file first" })
-          }
-          if (!allowedRoot(rootDir)) {
-            return yield* json(422, { _tag: "InvalidFactValue", reason: "repoRef.rootDir is outside the allowed workspace" })
-          }
-          const fileMap = (repoRef["fileMap"] ?? {}) as Record<string, string>
-          const filePath = requestedFile ?? fileMap[finding.url] ?? fileMap[finding.canonicalUrl] ?? defaultFileForUrl(finding.url)
-          if (!filePath) {
-            return yield* json(422, { _tag: "InvalidFactValue", reason: "source mapping unknown: refusing to guess the file (MANUAL_ONLY)" })
-          }
-          const adapter = site.adapterKind === "GIT" ? GitSiteAdapter : LocalFileSiteAdapter
-          const events = yield* SiteOperatorEventRepository
-          yield* events.append({ businessId, findingId: finding.id, kind: "MUTATION_STARTED", payload: { proposalId, filePath } }).pipe(Effect.ignore)
-          if (finding.findingKind === "BLOCKED_BY_META") {
-            const before = yield* Effect.promise(() => adapter.inspect({ rootDir, filePath })).pipe(
-              Effect.catchAll(() => Effect.succeed(null)),
-            )
-            if (before === null) {
-              return yield* json(422, { _tag: "InvalidFactValue", reason: "source file not found; refusing to guess (MANUAL_ONLY)" })
-            }
-            const after = removeNoindexFromHtml(before)
-            if (after === null) {
-              return yield* json(422, { _tag: "InvalidFactValue", reason: "noindex pattern not found in source; refusing to guess" })
-            }
-            const patch = buildPatch(filePath, before, after)
-            const branchName = requestedBranch ?? `openrecord/remove-noindex-${finding.id.slice(0, 8)}`
-            const applied = yield* Effect.promise(() =>
-              adapter.applyMutation({ rootDir, input: { filePath, before, after, message: `Remove noindex from ${finding.url}` }, branch: branchName }),
-            ).pipe(Effect.catchAll((e) => Effect.succeed({ failed: String(e) } as const)))
-            if ("failed" in (applied as Record<string, unknown>)) {
-              return yield* json(500, { _tag: "MutationFailed", reason: String((applied as { failed: string }).failed).slice(0, 300) })
-            }
-            const m = applied as { branch: string | null; commitSha: string | null; prNumber: number | null; prUrl: string | null; detail: string }
-            const mutations = yield* SiteMutationRepository
-            const record = yield* mutations.create({
-              businessId,
-              fixProposalId: proposalId,
-              findingId: finding.id,
-              adapterKind: site.adapterKind,
-              branch: m.branch,
-              commitSha: m.commitSha,
-              state: m.branch ? "BRANCH_CREATED" : "CREATED",
-              detail: [m.detail, `patch:\n${patch}`].join("\n").slice(0, 4000),
-            })
-            if (finding.status === "APPROVED") yield* findings.setStatus(businessId, finding.id, "FIX_IN_PROGRESS", session.userId, "mutation started", null)
-            yield* findings.setStatus(businessId, finding.id, "FIX_APPLIED", session.userId, `mutation ${record.id}`, null)
-            yield* events.append({ businessId, findingId: finding.id, kind: "MUTATION_COMPLETED", payload: { mutationId: record.id, branch: m.branch, commit: m.commitSha } }).pipe(Effect.ignore)
-            return yield* json(200, { mutation: record, patch })
-          }
-          return yield* json(422, { _tag: "InvalidFactValue", reason: `automated apply is not supported for ${finding.findingKind} in V1` })
+          // Empty body is valid (all fields optional); malformed fields fail.
+          const raw = yield* readJson.pipe(Effect.orElseSucceed(() => ({})))
+          const body = decodeRequest(ApplyFixRequest, raw)
+          if (!body) return yield* json(422, malformed)
+          const r = yield* applyFix(businessId, proposalId, session.userId, body)
+          return yield* json(r.status, r.body)
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
@@ -423,7 +338,8 @@ export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
             ...(body.commitSha !== undefined ? { commitSha: body.commitSha } : {}),
             ...(body.prNumber !== undefined ? { prNumber: body.prNumber } : {}),
             ...(body.prUrl !== undefined ? { prUrl: body.prUrl } : {}),
-          })
+          }, current.state)
+          if (!updated) return yield* json(409, { _tag: "Conflict", message: "mutation changed concurrently; reload" })
           return yield* json(200, { mutation: updated })
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
@@ -451,21 +367,3 @@ export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
   ) as HttpRouter.HttpRouter
-
-const defaultFileForUrl = (url: string): string | null => {
-  try {
-    const u = new URL(url)
-    const path = u.pathname
-    if (path === "/" || path === "") return "index.html"
-    const clean = path.replace(/\/$/, "").replace(/^\//, "")
-    // Only deterministic static mappings: /foo -> foo.html, /foo/ -> foo/index.html.
-    // Anything ambiguous returns null (MANUAL_ONLY, never guessed).
-    if (!clean || clean.includes("..") || /[<>"|?*]/.test(clean)) return null
-    if (/^[a-zA-Z0-9/_.-]+$/.test(clean)) {
-      return clean.endsWith(".html") ? clean : `${clean}.html`
-    }
-    return null
-  } catch {
-    return null
-  }
-}
