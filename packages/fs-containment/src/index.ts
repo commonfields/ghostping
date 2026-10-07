@@ -40,9 +40,11 @@
 // fully preventable without openat()/renameat(), which Node lacks: a local
 // process writing inside the checkout concurrently can (a) make an empty
 // temp file or empty directory appear outside the root, or (b) swap a parent
-// in the instant between the final walk and rename(). (b) is detected and
-// reported as CHANGED_DURING_WRITE, never success, but not undone. Checkouts
-// under SITE_OPERATOR_ROOTS must not be written concurrently by others.
+// in the instant between the final checks and rename(), in which case our
+// staged payload bytes can land outside the root. (b) is detected and
+// reported as CHANGED_DURING_WRITE (never success), but the escaped write is
+// not undone. Checkouts under SITE_OPERATOR_ROOTS must not be written
+// concurrently by others.
 import { createHash, randomUUID } from "node:crypto"
 import { constants, promises as fs, type Stats } from "node:fs"
 import { dirname, isAbsolute, join, relative, sep } from "node:path"
