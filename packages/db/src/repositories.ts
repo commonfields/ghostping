@@ -347,7 +347,12 @@ export const QuestionRepositoryLive = Layer.effect(
 // ---------------------------------------------------------------------------
 // CheckRun repository (includes SKIP LOCKED claim)
 // ---------------------------------------------------------------------------
+export interface ClaimScope {
+  readonly businessId: string
+}
+
 export interface CheckRunRow {
+  readonly assaySampleGroupId?: string
   readonly id: string
   readonly businessId: string
   readonly questionId: string
@@ -363,6 +368,7 @@ export interface CheckRunRow {
 }
 
 const CheckRunSchema = Schema.Struct({
+  assay_sample_group_id: Schema.optional(NullableUuidField),
   id: UuidField,
   business_id: UuidField,
   question_id: UuidField,
@@ -392,6 +398,7 @@ export const decodeCheckRun = (row: unknown): Effect.Effect<CheckRunRow, RowDeco
       failureClass: d.failure_class,
       failureDetailSafe: d.failure_detail_safe,
       attemptCount: Number(d.attempt_count ?? 0),
+      ...(d.assay_sample_group_id == null ? {} : { assaySampleGroupId: d.assay_sample_group_id }),
     })),
   )
 
@@ -408,7 +415,10 @@ export class CheckRunRepository extends Context.Tag("CheckRunRepository")<
     }) => DbEffect<CheckRunRow>
     readonly listByBusiness: (businessId: string) => DbEffect<ReadonlyArray<CheckRunRow>>
     readonly getScoped: (businessId: string, id: string) => DbEffect<CheckRunRow | null>
-    readonly claimOne: () => DbEffect<CheckRunRow | null>
+    /** Global oldest-first claim. `scope` restricts the claim to one
+     * business so a caller (tests sharing one database) never takes runs
+     * owned by another tenant's fixtures. */
+    readonly claimOne: (scope?: ClaimScope) => DbEffect<CheckRunRow | null>
     readonly markRunning: (id: string) => DbEffect<void>
     readonly recordAttempt: (id: string) => DbEffect<number>
     readonly markFinished: (
@@ -439,7 +449,7 @@ export const CheckRunRepositoryLive = Layer.effect(
           return decodeCheckRun(r)
         }),
       ),
-    claimOne: () =>
+    claimOne: (scope?: ClaimScope) =>
       Effect.gen(function*() {
         // Atomic ownership: exactly one worker can transition a given
         // QUEUED row to RUNNING. The CTE locks the candidate and the UPDATE
@@ -448,7 +458,7 @@ export const CheckRunRepositoryLive = Layer.effect(
         const rows = (yield* sql`
           WITH candidate AS (
             SELECT id FROM check_runs
-            WHERE status = 'QUEUED'
+            WHERE status = 'QUEUED' AND (${scope?.businessId ?? null}::uuid IS NULL OR business_id = ${scope?.businessId ?? null}::uuid)
             ORDER BY queued_at ASC
             LIMIT 1
             FOR UPDATE SKIP LOCKED
@@ -522,6 +532,9 @@ export class ObservationRepository extends Context.Tag("ObservationRepository")<
       collectedAt: string
       answerText: string
       retrievalMode: string
+      modelVersion?: string | null
+      retrievalTool?: string | null
+      requestParameters?: unknown
       rawResponse: unknown
       rawDigest: string
       rawBytesHex?: string | null
@@ -659,8 +672,8 @@ export const ObservationRepositoryLive = Layer.effect(
           }
           const rawId = decodedRaw.id
           const obs = (yield* sql`
-            INSERT INTO observations (business_id, check_run_id, provider, requested_model, observed_model, collected_at, answer_text, retrieval_mode, raw_evidence_id, raw_digest, surface_identity, measurement_context, synthetic)
-            VALUES (${input.businessId}, ${input.checkRunId}, ${input.provider}, ${input.requestedModel}, ${input.observedModel}, ${input.collectedAt}::timestamptz, ${input.answerText}, ${input.retrievalMode}, ${rawId}, ${input.rawDigest}, ${input.surfaceIdentity == null ? null : JSON.stringify(input.surfaceIdentity)}::jsonb, ${input.measurementContext == null ? null : JSON.stringify(input.measurementContext)}::jsonb, ${input.synthetic ?? false})
+            INSERT INTO observations (business_id, check_run_id, provider, requested_model, observed_model, collected_at, answer_text, retrieval_mode, raw_evidence_id, raw_digest, surface_identity, measurement_context, synthetic, model_version, retrieval_tool, request_parameters)
+            VALUES (${input.businessId}, ${input.checkRunId}, ${input.provider}, ${input.requestedModel}, ${input.observedModel}, ${input.collectedAt}::timestamptz, ${input.answerText}, ${input.retrievalMode}, ${rawId}, ${input.rawDigest}, ${input.surfaceIdentity == null ? null : JSON.stringify(input.surfaceIdentity)}::jsonb, ${input.measurementContext == null ? null : JSON.stringify(input.measurementContext)}::jsonb, ${input.synthetic ?? false}, ${input.modelVersion ?? null}, ${input.retrievalTool ?? null}, ${input.requestParameters == null ? null : JSON.stringify(input.requestParameters)}::jsonb)
             RETURNING *`) as Array<unknown>
           const o = obs[0]
           const base = yield* decodeObservationBase(o)

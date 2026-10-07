@@ -265,6 +265,9 @@ importers:
       '@effect/sql-pg':
         specifier: 0.53.0
         version: 0.53.0(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(@effect/sql@0.52.1(@effect/experimental@0.61.1(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(@effect/platform@0.97.2(effect@3.22.2))(effect@3.22.2))(effect@3.22.2)
+      '@openrecord/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@openrecord/domain':
         specifier: workspace:*
         version: link:../domain

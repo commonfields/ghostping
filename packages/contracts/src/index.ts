@@ -378,3 +378,49 @@ export type RecordMutationIdentityRequest = typeof RecordMutationIdentityRequest
 // ids become 4xx, never opaque SQL errors.
 export const RouteId = Schema.UUID
 export const decodeRouteId = Schema.decodeUnknownEither(RouteId)
+
+// Read-only prospect assay. Review identities are never request fields.
+export const AssayRetrievalMode = Schema.Literal("NONE", "WEB_SEARCH", "PROVIDER_GROUNDING", "MANUAL_CAPTURE")
+const AssayTerm = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100), Schema.filter(s => s.trim().length > 0))
+export const RegisterAssaySourceRequest = Schema.Struct({
+  url: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(2048)),
+  subject: AssayTerm,
+  planTerms: Schema.Array(AssayTerm).pipe(Schema.maxItems(20)),
+  capabilityTerms: Schema.Array(AssayTerm).pipe(Schema.maxItems(20)),
+})
+export const RunAssayRequest = Schema.Struct({
+  questionId: Schema.String.pipe(Schema.pattern(/^[0-9a-f-]{36}$/i)),
+  provider: Schema.Literal("mock", "9router"),
+  requestedModel: Schema.NullOr(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200))),
+  retrievalMode: AssayRetrievalMode,
+  n: Schema.optional(Schema.Int.pipe(Schema.between(1, 20))),
+})
+const AssayReviewReason = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(4000), Schema.filter(s => s.trim().length > 0))
+export const ReviewAssayFactRequest = Schema.Struct({ decision: Schema.Literal("CONFIRMED", "INCORRECT_EXTRACTION", "AMBIGUOUS"), reason: AssayReviewReason })
+export const RetractAssayFactRequest = Schema.Struct({ reason: AssayReviewReason })
+export const ReviewAssayFindingRequest = Schema.Struct({ decision: Schema.Literal("REVIEWED_CORRECT", "REVIEWED_FALSE_POSITIVE", "REVIEWED_NOT_MEANINGFUL"), reason: AssayReviewReason })
+export const AssayRoutes = {
+  queue: (businessId: string) => `/api/businesses/${businessId}/assay`,
+  sources: (businessId: string) => `/api/businesses/${businessId}/assay/sources`,
+  groups: (businessId: string) => `/api/businesses/${businessId}/assay/groups`,
+  reviewFact: (businessId: string, factId: string) => `/api/businesses/${businessId}/assay/facts/${factId}/review`,
+  retractFact: (businessId: string, factId: string) => `/api/businesses/${businessId}/assay/facts/${factId}/retract`,
+  reviewFinding: (businessId: string, findingId: string) => `/api/businesses/${businessId}/assay/findings/${findingId}/review`,
+}
+export const ASSAY_RETRIEVAL_LIMITATION = "This answer was produced without live web retrieval. Changes to public webpages are not expected to reliably alter this result within the pilot timeframe."
+export interface AssayFact {
+  id: string; subject: string; fact_type: string; normalized: unknown; source_url: string; source_id: string | null; supporting_span: string | null; extractor_version: string | null; status: string; valid_from: string | null; valid_until: string | null; final_url: string | null; fact_retracted: boolean; source_links: Array<{ sourceId: string; sourceUrl: string; finalUrl: string | null; snapshotAt: string | null; supportingSpan: string }>
+}
+export interface AssayFinding {
+  id: string; verdict: string; sample_count: number; requested_n: number; contradict_count: number; unclear_count: number;
+  retrieval_class: string; verification_eligible: boolean; retrieval_limitation: string | null; source_diagnosis: unknown; fact: AssayFact; question: string; group_status: string;
+  missing_samples: Array<{ sampleNumber: number; failureClass: string }>;
+  samples: Array<{ sampleNumber: number; status: string; failureClass: string | null; answer: string | null; comparison: string | null;
+    supportingSpan: string | null; provider: string; observedModel: string | null; synthetic: boolean; rawDigest: string | null; retrievalMode: string | null; modelVersion: string | null; retrievalTool: string | null;
+    requestParameters: unknown; collectedAt: string | null; citations: unknown[] }>
+}
+export interface AssayQueue {
+  sources: Array<{ id: string; url: string; status: string; failure_class: string | null; fetched_text: string | null; fetched_at: string | null; final_url: string | null; raw_evidence_id: string | null }>;
+  groups: Array<{ id: string; status: string; n: number; missing_samples: Array<{ sampleNumber: number; failureClass: string }> }>;
+  facts: AssayFact[]; findings: AssayFinding[]
+}
