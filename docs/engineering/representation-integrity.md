@@ -56,12 +56,12 @@ explicitly. No scores, no causal claims.
 ## Workflow
 
 ```bash
-ghostping facts add --subject pricing --predicate monthly_price \
+openrecord facts add --subject pricing --predicate monthly_price \
   --value '$39' --type currency --source manual
-ghostping claims add --observation <obs-id> --text 'Ghostping costs $29 per month'
-ghostping judgments add --claim CLM-0001 --fact FACT-0001 \
+openrecord claims add --observation <obs-id> --text 'OpenRecord costs $29 per month'
+openrecord judgments add --claim CLM-0001 --fact FACT-0001 \
   --verdict contradicted --reviewer human
-ghostping integrity report [--claim CLM-0001]
+openrecord integrity report [--claim CLM-0001]
 ```
 
 Empty lists exit 0 with guidance; unknown IDs exit non-zero (see
@@ -79,7 +79,7 @@ business-authorized fact
 
 `integrity export-assay` writes deterministic Task-A JSONL where
 `label_origin = human_adjudicated` means exactly one thing: the label came
-from a `HumanJudgment` record. It does NOT mean Ghostping independently
+from a `HumanJudgment` record. It does NOT mean OpenRecord independently
 verified the business fact. Only current (unsuperseded) judgments export;
 history never exports as independent ground truth. Deterministic ordering
 (by claim id); stable case ids (`human-{claim}-{judgment}`); no timestamps
@@ -90,7 +90,7 @@ in identity.
 `FACT_AUTHORITY_CONFLICT` (different values, overlapping ACTIVE windows)
 and `REDUNDANT_ACTIVE_FACTS` (identical values) are derived views over
 `(project, subject, predicate)` groups. SUPERSEDED/RETIRED rows are history
-and never conflict. Ghostping surfaces conflicts (`facts conflicts`,
+and never conflict. OpenRecord surfaces conflicts (`facts conflicts`,
 insert warnings, report notes) and never chooses a winner automatically;
 human reviewers may deliberately judge against any fact. Conflicts are
 product data: `facts conflicts` exits 0 with or without them.

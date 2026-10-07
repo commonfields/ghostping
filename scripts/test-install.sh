@@ -29,8 +29,8 @@ report() {
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/install-test-XXXXXX")"
 trap 'rm -rf "${WORK}"' EXIT
 
-echo "hello-ghostping" > "${WORK}/payload.bin"
-ARCHIVE="ghostping-linux-x86_64.tar.gz"
+echo "hello-openrecord" > "${WORK}/payload.bin"
+ARCHIVE="openrecord-linux-x86_64.tar.gz"
 cp "${WORK}/payload.bin" "${WORK}/${ARCHIVE}"
 GOOD_HASH="$(sha256_of_file "${WORK}/${ARCHIVE}")"
 printf '%s  %s\n' "${GOOD_HASH}" "${ARCHIVE}" > "${WORK}/checksums.txt"
@@ -66,8 +66,8 @@ else
 fi
 
 # 5. Platform detection still maps supported targets.
-report "darwin arm64 archive" "ghostping-macos-aarch64.tar.gz" "$(detect_archive Darwin arm64)"
-report "linux x86_64 archive" "ghostping-linux-x86_64.tar.gz" "$(detect_archive Linux x86_64)"
+report "darwin arm64 archive" "openrecord-macos-aarch64.tar.gz" "$(detect_archive Darwin arm64)"
+report "linux x86_64 archive" "openrecord-linux-x86_64.tar.gz" "$(detect_archive Linux x86_64)"
 
 # 6. Unsupported targets fail instead of producing a bad URL.
 if detect_archive Linux arm64 >/dev/null 2>&1; then

@@ -47,7 +47,7 @@ const SidebarStateContext = createContext<SidebarState>({ collapsed: false, inSh
 const ChromeContext = createContext<{ setMinimal: (v: boolean) => void }>({ setMinimal: () => undefined })
 export const useChrome = () => useContext(ChromeContext)
 
-const COLLAPSED_KEY = "ghostping:sidebar-collapsed"
+const COLLAPSED_KEY = "openrecord:sidebar-collapsed"
 
 function readCollapsed(): boolean {
   try {
@@ -269,7 +269,7 @@ function BusinessSwitcher() {
             {collapsed ? null : (
               <>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-foreground">{activeBusiness?.name ?? "Ghostping"}</span>
+                  <span className="block truncate text-sm font-medium text-foreground">{activeBusiness?.name ?? "OpenRecord"}</span>
                   <span className="block truncate text-xs text-muted-foreground">
                     {activeBusiness ? "Business" : "Choose a business"}
                   </span>

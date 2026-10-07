@@ -1,7 +1,7 @@
 // Explicit operator-only contract probe. No database, retries, or body output.
 import { Config, Effect, Layer } from "effect"
 import { NodeHttpClient, NodeRuntime } from "@effect/platform-node"
-import { NineRouterSettingsLive } from "@ghostping/config"
+import { NineRouterSettingsLive } from "@openrecord/config"
 import { NineRouterProvider, NineRouterProviderLive, sha256 } from "../src/index.js"
 const main = Effect.gen(function*() {
   const enabled = yield* Config.boolean("GHOSTPING_LIVE_PROVIDER").pipe(Config.withDefault(false))

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 // Frontend acceptance logic (browser flow uses mock provider; these assert the
 // client-visible derivation + guard behavior without requiring a live server).
-import { deriveIssueState } from "@ghostping/domain"
+import { deriveIssueState } from "@openrecord/domain"
 
 describe("auth guard", () => {
   it("redirects unauthenticated sessions to signin", () => {

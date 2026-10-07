@@ -27,12 +27,12 @@ Date: 2026-10-03. Branch base: `origin/main` @ `1907c5d`.
 ## 4. Re-observation / hosted worker
 
 - `apps/worker/src/runner.ts` (poll loop), `apps/worker/src/check-runner.ts` (QUEUED → Rust worker → observations.create, retry `MAX_WORKER_ATTEMPTS=4`), `apps/worker/src/rust-worker.ts` (spawn without shell, stdin/stdout JSON, timeout → `ProviderTimeout`).
-- Rust worker `src/bin/ghostping-worker.rs` stateless; `src/worker_contract/*`.
+- Rust worker `src/bin/openrecord-worker.rs` stateless; `src/worker_contract/*`.
 - Representation collection must reuse this pattern (bounded Effect services, no recursive crawl) but with a separate `WebCollector` seam.
 
 ## 5. URL / crawl / diagnose utilities (Rust)
 
-- Only `src/bin/ghostping.rs:426-434,4918-4990` `diagnose <url>`: `reqwest::Client::new()` GET homepage + `robots.txt`/`sitemap.xml`/`llms.txt`, prints only. No HTML parsing, no crawl frontier, no sitemap recursion. Docs explicitly "never scrapes" (`docs/protocol/intervention-v1.md`, `docs/engineering/observation-kernel.md`).
+- Only `src/bin/openrecord.rs:426-434,4918-4990` `diagnose <url>`: `reqwest::Client::new()` GET homepage + `robots.txt`/`sitemap.xml`/`llms.txt`, prints only. No HTML parsing, no crawl frontier, no sitemap recursion. Docs explicitly "never scrapes" (`docs/protocol/intervention-v1.md`, `docs/engineering/observation-kernel.md`).
 - No crawler farm to reuse. New collector must be greenfield with hard limits.
 
 ## 6. HTTP clients (reuse pattern, new seam)
@@ -44,11 +44,11 @@ Date: 2026-10-03. Branch base: `origin/main` @ `1907c5d`.
 ## 7. HTML parsing dependencies (none — add minimal)
 
 - `Cargo.toml` has no scraper/selectors/html5ever/tl/lol-html. `packages/*` + `apps/web` have no cheerio/jsdom/parse5/hast/rehype (only transitive jsdom via vitest in `pnpm-lock.yaml`).
-- Decision: add `cheerio` (htmlparser2, deterministic, no browser) to new `@ghostping/representation` only. No Playwright, no Firecrawl, no jsdom at runtime.
+- Decision: add `cheerio` (htmlparser2, deterministic, no browser) to new `@openrecord/representation` only. No Playwright, no Firecrawl, no jsdom at runtime.
 
 ## 8. Local-first storage
 
-- `rusqlite 0.32 bundled` (`Cargo.toml:62`), `dirs 5`, `~/.ghostping/evidence.db` (`src/config.rs`, `src/bin/ghostping.rs`), `tauri-app` reuses local crate.
+- `rusqlite 0.32 bundled` (`Cargo.toml:62`), `dirs 5`, `~/.openrecord/evidence.db` (`src/config.rs`, `src/bin/openrecord.rs`), `tauri-app` reuses local crate.
 - Hosted PG is sole hosted store; local CLI never touches PG (`src/evidence_protocol.rs:11`).
 - Representation PG tables follow hosted pattern (append-only observations/values, editable targets/bindings); tests use deterministic local HTTP fixtures, no internet.
 

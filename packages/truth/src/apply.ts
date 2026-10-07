@@ -1,4 +1,4 @@
-// Safe apply V1: writes ONLY declared projection outputs plus Ghostping's
+// Safe apply V1: writes ONLY declared projection outputs plus OpenRecord's
 // own lock/receipt metadata. Fail-closed path security, symlink defense,
 // atomic replacement (temp sibling + flush + rename). Never partial bytes.
 // Receipts are append-only records of local writes — never publication.
@@ -55,7 +55,7 @@ export const resolveInsideRoot = (root: string, rel: string): string => {
   if (rel.startsWith("/") || /^[A-Za-z]:[\\/]/.test(rel)) throw new ApplyError("AbsoluteOutputPath", rel)
   const parts = rel.split("/")
   if (parts.some((s) => s === ".." || s === "")) throw new ApplyError("UnsafeOutputPath", rel)
-  if (rel === ".ghostping" || rel.startsWith(".ghostping/") || rel.startsWith(".git/") || rel.includes("/.git/")) {
+  if (rel === ".openrecord" || rel.startsWith(".openrecord/") || rel.startsWith(".git/") || rel.includes("/.git/")) {
     throw new ApplyError("ReservedOutputPath", rel)
   }
   const abs = resolve(root, rel)
@@ -151,7 +151,7 @@ export const applyArtifact = async (
     io.writeFileAtomic ??
     (async (path: string, data: Uint8Array) => {
       await fs.mkdir(dirname(path), { recursive: true })
-      const tmp = `${path}.ghostping-tmp-${randomUUID()}`
+      const tmp = `${path}.openrecord-tmp-${randomUUID()}`
       const handle = await fs.open(tmp, "w")
       try {
         await handle.writeFile(data)

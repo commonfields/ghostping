@@ -70,7 +70,7 @@ export const surfaceForWorker = (
 
 /** What the adapter requests. The 9Router adapter sends only
  * `{model, messages, stream:false}`; sampling is left to provider defaults,
- * whose effective values Ghostping does not know. */
+ * whose effective values OpenRecord does not know. */
 export const requestConfigurationForWorker = (provider: string, requestedModel: string | null): KnowledgeJson => {
   if (provider === "9router") {
     return knownValue({ model: requestedModel, sampling_parameters: "PROVIDER_DEFAULT", stream: false })

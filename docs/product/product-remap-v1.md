@@ -1,11 +1,11 @@
-# Ghostping product remap V1
+# OpenRecord product remap V1
 
 Date: 2026-10-04. Branch: `feat/product-remap-dogfood-v1`. Consolidated main: `cb36210` (PR #19 merged, #18 superseded).
-Companion evidence: `docs/product/ghostping-dogfood-v1.md`. Roadmap: `docs/product/roadmap.md`.
+Companion evidence: `docs/product/openrecord-dogfood-v1.md`. Roadmap: `docs/product/roadmap.md`.
 
 ## 1. Current product (one sentence)
 
-CURRENT: Ghostping records what a business says is true, observes what AI answers and owned web sources say about it, and tracks the evidence of mismatch through human review.
+CURRENT: OpenRecord records what a business says is true, observes what AI answers and owned web sources say about it, and tracks the evidence of mismatch through human review.
 
 ## 2. Target product (one sentence)
 

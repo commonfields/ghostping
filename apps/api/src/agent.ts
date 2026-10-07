@@ -12,7 +12,7 @@ import {
   FactRepository,
   ProductReadRepository,
   QuestionRepository,
-} from "@ghostping/db"
+} from "@openrecord/db"
 import { issueStateOf, loadRepresentations } from "./reads.js"
 import { loadDiscoveryScopes } from "./discovery-reads.js"
 
@@ -93,7 +93,7 @@ export const handleAgentMessage = (
       return {
         reply: [
           "Search Console evidence and broad SEO tooling live in the local Rust CLI, not in this hosted workspace.",
-          "Import a Search Console CSV with: ghostping observations import-gsc --file Queries.csv --date YYYY-MM-DD.",
+          "Import a Search Console CSV with: openrecord observations import-gsc --file Queries.csv --date YYYY-MM-DD.",
           "Competitor monitoring, keyword discovery, and content generation are CLI capabilities; the hosted Agent cannot run them. What it can do is trace an AI misrepresentation to your approved facts and tracked sources below.",
         ].join(" "),
         toolCalls: [{ tool: "import_search_console_evidence", summary: "boundary answered: CLI-only, no hosted write" }],

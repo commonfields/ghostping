@@ -116,7 +116,7 @@ export const proposeFix = (finding: DerivedFinding): FixProposalDraft | null => 
 const manualRationale = (kind: string): string => {
   switch (kind) {
     case "MISSING_TITLE":
-      return "A title rewrite needs human judgment about the page topic; Ghostping does not autonomously publish marketing copy."
+      return "A title rewrite needs human judgment about the page topic; OpenRecord does not autonomously publish marketing copy."
     case "MISSING_DESCRIPTION":
       return "A meta description is presentation copy; it needs human approval before publishing."
     case "INVALID_STRUCTURED_DATA":

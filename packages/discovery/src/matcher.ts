@@ -6,7 +6,7 @@
 // from visible text.
 
 import { load } from "cheerio"
-import { compareMoney, normalizeExactText, parseBoolean, parseMoney } from "@ghostping/representation"
+import { compareMoney, normalizeExactText, parseBoolean, parseMoney } from "@openrecord/representation"
 import { MATCHER_VERSION, type CandidateSummary, type DiscoveryMatch } from "./types.js"
 
 export { MATCHER_VERSION }
@@ -50,7 +50,7 @@ const SNIPPET_MAX = 512
 
 // Structured TEXT normalization composes the shared representation primitive.
 // Discovery keeps its historical trim (padded whitespace ignored on structured
-// surfaces); the NFC + CRLF/CR→LF core is owned by @ghostping/representation.
+// surfaces); the NFC + CRLF/CR→LF core is owned by @openrecord/representation.
 const normalizeExact = (s: string): string => normalizeExactText(s).trim()
 
 // Visible-text collapsing is discovery-specific (prose scanning) but reuses
@@ -60,14 +60,14 @@ const normalizeVisible = (s: string): string => normalizeExactText(s).replace(/\
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 // --- Money: shared representation comparator semantics ----------------------
-// Parsing and equality are owned by @ghostping/representation (known currency
+// Parsing and equality are owned by @openrecord/representation (known currency
 // required, JPY 0 decimals else 2, minor-unit equality). Discovery composes
 // visible-text scanning, JSON-LD object-local pairing, and snippet bounds
 // around those primitives.
 const moneyEqual = (a: string, b: string): boolean => compareMoney(a, b) === "IN_SYNC"
 
 // --- Booleans: shared representation token sets ----------------------------
-// parseBoolean is owned by @ghostping/representation; discovery only decides
+// parseBoolean is owned by @openrecord/representation; discovery only decides
 // *where* booleans may match (structured surfaces, never visible prose).
 
 // --- Value comparison per surface ------------------------------------------

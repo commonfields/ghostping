@@ -13,4 +13,4 @@ if [ $# -lt 1 ]; then
 fi
 export PROVIDER_LIVE_MODEL="$1"
 if [ $# -gt 1 ]; then export PROVIDER_LIVE_PROMPT="$2"; fi
-exec pnpm --filter @ghostping/worker exec tsx ../../packages/providers/scripts/live-9router.ts
+exec pnpm --filter @openrecord/worker exec tsx ../../packages/providers/scripts/live-9router.ts

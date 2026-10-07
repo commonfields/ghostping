@@ -13,14 +13,14 @@ modules, CLI/research/protocol tests, installers, formula, and release workflow
 remain intentionally present. This replaces the original all-Rust-deletion
 criterion and does not permit a hidden hosted Rust fallback.
 
-Post-cutover: `ghostping-worker`, `worker_contract`, and `nine_router` Rust
+Post-cutover: `openrecord-worker`, `worker_contract`, and `nine_router` Rust
 modules and IPC fixtures are removed. All other listed Rust paths remain
 outside the hosted dependency graph. See [runtime architecture](effect-runtime-v1.md)
 for the final graph and validation evidence.
 
 ## Baseline
 
-- Repository: `urbiens/ghostping`.
+- Repository: `urbiens/openrecord`.
 - Fetched `origin` with pruning before inspection.
 - Actual `origin/main`: `d59410d37d2fd588d9d20c450d5a91da4912b242`.
 - Starting checkout: `e0228b9f61f2c3776dda15207a42ec184eb9d7b9` on
@@ -40,15 +40,15 @@ currently has that condition:
 1. `README.md:11` says the local CLI features remain available;
    `README.md:265` explicitly labels the legacy workflow "Done, maintained".
 2. `.github/workflows/release.yml:28-85` builds and distributes the Rust
-   `ghostping` CLI for Linux, macOS, and Windows on version tags. It is an
+   `openrecord` CLI for Linux, macOS, and Windows on version tags. It is an
    executable release path, not an archived document.
 3. `tauri-app/src-tauri/Cargo.toml:16` depends on the root Rust crate through
-   `ghostping = { path = "../.." }`. Its `src/commands.rs` imports the root
+   `openrecord = { path = "../.." }`. Its `src/commands.rs` imports the root
    agent, cache, configuration, GEO generation, storage, tracker, and provider
    capabilities. `src/lib.rs` registers these commands with Tauri.
 4. `README.md:100` supplies a desktop development command;
    `CONTRIBUTING.md` still lists CLI, Rust provider, and Tauri contributions.
-5. `Formula/ghostping.rb` and `scripts/install.sh` / `scripts/install.ps1`
+5. `Formula/openrecord.rb` and `scripts/install.sh` / `scripts/install.ps1`
    distribute the CLI. `website/app/page.tsx` also presents the CLI workflow,
    although its distribution URLs contain placeholders.
 
@@ -70,7 +70,7 @@ React apps/web → Effect apps/api → Effect SQL repositories → PostgreSQL
                                       ↓ check_runs queue
 apps/worker runner.ts → CheckRunner → RustObservationWorker
                                     → node:child_process spawn
-                                    → ghostping-worker stdin/stdout
+                                    → openrecord-worker stdin/stdout
                                     → worker_contract::execute_job
                                       ├─ deterministic hosted mock
                                       └─ nine_router::execute_9router
@@ -81,7 +81,7 @@ apps/worker runner.ts → independent DiscoveryRunner fiber
                      → Effect SQL repositories → PostgreSQL
 ```
 
-The hosted Rust entrypoint is `src/bin/ghostping-worker.rs`. It imports only
+The hosted Rust entrypoint is `src/bin/openrecord-worker.rs`. It imports only
 `worker_contract::{execute_job, WorkerJob, JOB_CONTRACT_VERSION}`. That module
 routes to hosted mock behavior or `nine_router.rs`; neither accesses a
 database. Other Rust modules are exported by `src/lib.rs` and compiled with
@@ -105,11 +105,11 @@ No hosted subsystem remains `UNKNOWN` after this source inspection.
 
 | Subsystem | Hosted classification | Existing non-hosted use / migration note |
 | --- | --- | --- |
-| `src/bin/ghostping-worker.rs` | ACTIVE_HOSTED_DEPENDENCY | IPC entrypoint; remove only after cutover gates |
+| `src/bin/openrecord-worker.rs` | ACTIVE_HOSTED_DEPENDENCY | IPC entrypoint; remove only after cutover gates |
 | `src/worker_contract.rs` | BEHAVIOR_TO_PORT | Hosted mock, dispatch, normalization, IPC; port behavior, delete IPC |
 | `src/nine_router.rs` | BEHAVIOR_TO_PORT | Hosted gateway request, model pin, parsing, failures, raw bytes |
 | `src/lib.rs` | ACTIVE_HOSTED_DEPENDENCY | Worker library root, also the CLI and Tauri library root |
-| `src/bin/ghostping.rs` | DEAD_LEGACY | Maintained CLI entrypoint and release binary |
+| `src/bin/openrecord.rs` | DEAD_LEGACY | Maintained CLI entrypoint and release binary |
 | `src/bin/jev-assay.rs`, `src/jev_assay.rs` | DEAD_LEGACY | Separate research executable, no hosted product path |
 | `src/agent/` | DEAD_LEGACY | CLI optimize; Tauri optimize |
 | `src/audit_engine.rs` | DEAD_LEGACY | CLI evidence audit |

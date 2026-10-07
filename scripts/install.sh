@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Ghostping installer for macOS and Linux
-# Usage: curl -fsSL https://raw.githubusercontent.com/commonfields/ghostping/main/scripts/install.sh | bash
+# OpenRecord installer for macOS and Linux
+# Usage: curl -fsSL https://raw.githubusercontent.com/commonfields/openrecord/main/scripts/install.sh | bash
 set -euo pipefail
 
-REPO="commonfields/ghostping"
-BIN="ghostping"
+REPO="commonfields/openrecord"
+BIN="openrecord"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
 # ── Detect platform ──────────────────────────────────────────────────────────
@@ -14,14 +14,14 @@ detect_archive() {
     case "$os" in
         Linux)
             case "$arch" in
-                x86_64) echo "ghostping-linux-x86_64.tar.gz" ;;
+                x86_64) echo "openrecord-linux-x86_64.tar.gz" ;;
                 *) echo "Error: unsupported architecture $arch on Linux." >&2; return 1 ;;
             esac
             ;;
         Darwin)
             case "$arch" in
-                x86_64) echo "ghostping-macos-x86_64.tar.gz" ;;
-                arm64) echo "ghostping-macos-aarch64.tar.gz" ;;
+                x86_64) echo "openrecord-macos-x86_64.tar.gz" ;;
+                arm64) echo "openrecord-macos-aarch64.tar.gz" ;;
                 *) echo "Error: unsupported architecture $arch on macOS." >&2; return 1 ;;
             esac
             ;;
@@ -75,7 +75,7 @@ verify_archive() {
 
 fetch_latest_tag() {
     local tag
-    tag="$(curl -fsSL -H "User-Agent: ghostping-installer" \
+    tag="$(curl -fsSL -H "User-Agent: openrecord-installer" \
         "https://api.github.com/repos/$REPO/releases/latest" \
         | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
     if [ -z "$tag" ]; then
@@ -94,7 +94,7 @@ main() {
     echo "Fetching latest release..."
     latest="$(fetch_latest_tag)" || exit 1
 
-    echo "Installing ghostping $latest ($arch)..."
+    echo "Installing openrecord $latest ($arch)..."
 
     tmp="$(mktemp -d)"
     # shellcheck disable=SC2064
@@ -102,10 +102,10 @@ main() {
 
     url="https://github.com/$REPO/releases/download/$latest/$archive"
     echo "Downloading $url..."
-    curl -fsSL -H "User-Agent: ghostping-installer" "$url" -o "$tmp/$archive"
+    curl -fsSL -H "User-Agent: openrecord-installer" "$url" -o "$tmp/$archive"
 
     echo "Downloading checksum manifest..."
-    curl -fsSL -H "User-Agent: ghostping-installer" \
+    curl -fsSL -H "User-Agent: openrecord-installer" \
         "https://github.com/$REPO/releases/download/$latest/checksums.txt" \
         -o "$tmp/checksums.txt"
 
@@ -121,7 +121,7 @@ main() {
     chmod +x "$INSTALL_DIR/$BIN"
 
     echo ""
-    echo "  ✓ ghostping $latest installed to $INSTALL_DIR/$BIN"
+    echo "  ✓ openrecord $latest installed to $INSTALL_DIR/$BIN"
 
     if ! command -v "$BIN" &>/dev/null; then
         echo ""
@@ -133,9 +133,9 @@ main() {
 
     echo ""
     echo "  Quick start:"
-    echo "    ghostping quickstart"
-    echo "    ghostping init --name \"MyProject\" --website \"https://example.com\" --yes"
-    echo "    ghostping prompts discover && ghostping audit run --models mock --samples 3"
+    echo "    openrecord quickstart"
+    echo "    openrecord init --name \"MyProject\" --website \"https://example.com\" --yes"
+    echo "    openrecord prompts discover && openrecord audit run --models mock --samples 3"
     echo ""
 }
 

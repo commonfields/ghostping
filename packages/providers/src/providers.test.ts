@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { HttpClient, HttpClientResponse } from "@effect/platform"
 import { Effect, Layer, Redacted, Schema } from "effect"
-import { NineRouterSettings, type NineRouterSettingsValue } from "@ghostping/config"
+import { NineRouterSettings, type NineRouterSettingsValue } from "@openrecord/config"
 import {
   MockProvider, MockProviderLive, NineRouterProvider, NineRouterProviderLive, ProviderRegistry, ProviderRegistryLive,
   ProviderRequest, ProviderUnsupported, isRetryableProviderError, sha256,

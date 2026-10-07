@@ -3,7 +3,7 @@
 Immutable local-write evidence: projection, output, CREATED/UPDATED/
 UNCHANGED action, before digest (KNOWN/NOT_APPLICABLE/UNKNOWN),
 after digest, source refs, manifest digest, compiler version,
-timestamp, actor. Stored append-only under `.ghostping/receipts/`
+timestamp, actor. Stored append-only under `.openrecord/receipts/`
 (exclusive-create; corrections are new records). A receipt claims a
 local write and NOTHING about publication, indexing, retrieval, or AI
 impact — those fields do not exist.

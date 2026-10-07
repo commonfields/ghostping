@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2.json",
-  "productName": "Ghostping",
+  "productName": "OpenRecord",
   "version": "0.2.0",
-  "identifier": "com.ghostping.app",
+  "identifier": "com.openrecord.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Ghostping",
+        "title": "OpenRecord",
         "width": 1280,
         "height": 820,
         "minWidth": 960,

@@ -6,7 +6,7 @@
 // no tables are created, and no verification state is stored: source
 // verification and the before/after comparison are recomputed on every
 // request, so there is exactly one implementation of the comparison rules
-// (the callers below delegate to @ghostping/protocol and never restate
+// (the callers below delegate to @openrecord/protocol and never restate
 // them).
 //
 // Vocabulary guard: responses describe what was observed, never why it
@@ -31,8 +31,8 @@ import {
   type ObservedChange,
   type ObservedOutcome,
   type Verdict,
-} from "@ghostping/protocol"
-import { compareBoolean, compareExactText, compareMoney } from "@ghostping/representation"
+} from "@openrecord/protocol"
+import { compareBoolean, compareExactText, compareMoney } from "@openrecord/representation"
 import {
   CheckRunRepository,
   EvidenceLineageRepository,
@@ -45,7 +45,7 @@ import {
   type InterventionRow,
   type ReobservationIntentRow,
   type ReobservationRow,
-} from "@ghostping/db"
+} from "@openrecord/db"
 import { issueStateOf, loadRepresentations, scopedBusiness } from "./reads.js"
 
 // ---------------------------------------------------------------------------

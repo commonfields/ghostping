@@ -4,7 +4,7 @@
       "content": {
         "parts": [
           {
-            "text": "Ghostping is a local-first visibility tool. See the official docs for setup instructions."
+            "text": "OpenRecord is a local-first visibility tool. See the official docs for setup instructions."
           }
         ],
         "role": "model"
@@ -17,7 +17,7 @@
         ],
         "groundingSupports": [
           {
-            "segment": { "startIndex": 0, "endIndex": 43, "text": "Ghostping is a local-first visibility tool." },
+            "segment": { "startIndex": 0, "endIndex": 44, "text": "OpenRecord is a local-first visibility tool." },
             "groundingChunkIndices": [0]
           }
         ]

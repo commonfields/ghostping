@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest"
 import pg from "pg"
 import { Redacted } from "effect"
-import { parseManifest, syncManifestFacts } from "@ghostping/truth"
+import { parseManifest, syncManifestFacts } from "@openrecord/truth"
 import { migrate } from "./migrate.js"
 import { pgSyncStore } from "./truth.js"
 

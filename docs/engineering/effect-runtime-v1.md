@@ -2,7 +2,7 @@
 
 ## Scope
 
-Ghostping's hosted product now executes providers through Effect. React remains
+OpenRecord's hosted product now executes providers through Effect. React remains
 React. The user explicitly revised the original repository-wide Rust removal:
 **keep CLI and Tauri; migrate hosted runtime only**. Cargo, local SQLite, CLI
 providers, research tools, installers, Tauri, and the CLI release workflow
@@ -52,9 +52,9 @@ pnpm typecheck
 pnpm lint
 pnpm test
 pnpm build
-pnpm --filter @ghostping/api dev
-pnpm --filter @ghostping/worker dev
-pnpm --filter @ghostping/web dev
+pnpm --filter @openrecord/api dev
+pnpm --filter @openrecord/worker dev
+pnpm --filter @openrecord/web dev
 ```
 
 Apply migrations before deploying the new worker. Migration 0011 adds immutable

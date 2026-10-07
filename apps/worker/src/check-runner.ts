@@ -28,12 +28,12 @@ import type { SqlError } from "@effect/sql/SqlError"
 import {
   CheckRunRepository, ObservationRepository, ProviderAttemptEvidenceRepository,
   hostedMeasurementContext, QuestionRepository, type RawDigestMismatch, type RowDecodeError,
-} from "@ghostping/db"
+} from "@openrecord/db"
 import {
   ProviderRegistry, isProviderError, isRetryableProviderError, type ProviderError,
-} from "@ghostping/providers"
-import type { FailureClass } from "@ghostping/domain"
-import type { MeasurementContextV1 } from "@ghostping/protocol"
+} from "@openrecord/providers"
+import type { FailureClass } from "@openrecord/domain"
+import type { MeasurementContextV1 } from "@openrecord/protocol"
 export const MAX_PROVIDER_ATTEMPTS = 4
 export const RetrySchedule = Schedule.intersect(Schedule.exponential("500 millis", 2), Schedule.recurs(3))
 export const providerFailure = (error: ProviderError): { failureClass: FailureClass; detail: string } => {

@@ -59,7 +59,7 @@ describe("discovery scopes", () => {
   it("adds an owned site scope with honest ownership copy", async () => {
     const page = await readAppFile("routes/discovery.tsx")
     expect(page).toContain("Add owned site")
-    expect(page).toContain("Ghostping scans only this explicitly configured site scope.")
+    expect(page).toContain("OpenRecord scans only this explicitly configured site scope.")
     expect(page).toContain("Marked as owned by the operator.")
     expect(page).not.toContain("Ownership verified")
   })
@@ -139,7 +139,7 @@ describe("discovery candidates", () => {
   it("bounds its claims to what the scan reached", async () => {
     const page = await readAppFile("routes/discovery.tsx")
     expect(page).toContain("in this scan.")
-    expect(page).toContain("Ghostping found {latest.candidates_found}")
+    expect(page).toContain("OpenRecord found {latest.candidates_found}")
     expect(page).toContain('candidate" : "candidates"')
     expect(page).not.toContain("candidate pages")
     expect(page).not.toContain("exhaustive")
@@ -149,7 +149,7 @@ describe("discovery candidates", () => {
   it("uses singular/plural candidate copy for one and many", async () => {
     const page = await readAppFile("routes/discovery.tsx")
     expect(page.replace(/\s+/g, " ")).toContain(
-      "Ghostping found {latest.candidates_found} {latest.candidates_found === 1 ? \"candidate\" : \"candidates\"} in this scan.",
+      "OpenRecord found {latest.candidates_found} {latest.candidates_found === 1 ? \"candidate\" : \"candidates\"} in this scan.",
     )
   })
 

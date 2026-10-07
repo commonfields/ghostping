@@ -25,8 +25,8 @@ import {
   SiteTargetRepository,
   SiteTargetRepositoryLive,
   SiteVerificationRepositoryLive,
-} from "@ghostping/db"
-import type { HttpTransport } from "@ghostping/representation"
+} from "@openrecord/db"
+import type { HttpTransport } from "@openrecord/representation"
 import { SiteInspectionRunner, makeSiteInspectionRunnerLive } from "./site-inspection-runner.js"
 
 const url = process.env["TEST_DATABASE_URL"] ?? ""

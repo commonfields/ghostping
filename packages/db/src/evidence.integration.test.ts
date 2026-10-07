@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { Context, Effect, Exit, Layer, Redacted, Scope } from "effect"
 import pg from "pg"
 import { PgClient } from "@effect/sql-pg"
-import { renderEvidencePacket, serializePacket, validatePacket } from "@ghostping/protocol"
+import { renderEvidencePacket, serializePacket, validatePacket } from "@openrecord/protocol"
 import {
   JudgmentRepository,
   JudgmentRepositoryLive,

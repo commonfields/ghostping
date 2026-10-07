@@ -55,7 +55,7 @@ reviews must hold them:
   bounded scan reached (robots denials, fetch failures, JS-only shells, and
   budget stops are all non-evidence). It is not proof a value is absent.
 - **Bounded != exhaustive.** Every scan stops at budgets (below). The UI
-  says "Ghostping found N candidate pages in this scan." Never "all pages",
+  says "OpenRecord found N candidate pages in this scan." Never "all pages",
   never full-site or complete-scan language.
 - **Discovery != verification, authority != observation.** Matching compares
   observed page text against frozen authority snapshots; it never edits
@@ -72,12 +72,12 @@ reviews must hold them:
   into subdomains (`www.acme` != `docs.acme`). Cross-origin redirects end
   the hop as `OUT_OF_SCOPE_REDIRECT`, never expand authority.
 - Ownership is operator-asserted (`OPERATOR_ASSERTED_OWNED`). UI copy is
-  "Marked as owned by the operator." and "Ghostping scans only this
+  "Marked as owned by the operator." and "OpenRecord scans only this
   explicitly configured site scope." The UI never says "Ownership verified".
 
 ## 4. Robots
 
-- `User-Agent: GhostpingDiscovery/1.0` for robots and page fetches. No
+- `User-Agent: OpenRecordDiscovery/1.0` for robots and page fetches. No
   spoofing, no cookies, no auth, no browser/Playwright, no external crawler.
 - robots.txt outcomes: 200 parses; 404/410 means no file; 401/403 means
   `ROBOTS_DENIED` and nothing under that path is crawled; 5xx/timeout means
@@ -200,7 +200,7 @@ reviews must hold them:
 - Contracts asserted in `apps/web/tests/discovery.test.ts` (route, labels,
   no Drift/In-sync on candidates, bounded-claim copy, truth-changed
   warning, client surface, language guards). `typecheck`, `lint`, and
-  `vitest` all pass for `@ghostping/web`.
+  `vitest` all pass for `@openrecord/web`.
 
 ## 15. Closeout amendments (review fixes, 2026-10-04)
 
@@ -221,12 +221,12 @@ reviews must hold them:
   `allowCrossOrigin:false` + parser `scopeOrigin` option); cross-origin
   robots content is never applied (UNAVAILABLE, fail closed). Rule matching
   supports Allow, `*`, `$`, longest-wins, Allow-ties, and
-  most-specific-GhostpingDiscovery-group selection.
+  most-specific-OpenRecordDiscovery-group selection.
 - Counters: `candidates_found` counts distinct page+lineage groups
   (`countCandidateGroups`), never raw match events; 304-reused groups count
   identically. Counter equals candidate read-model row count for the run.
 - Comparators: discovery money/boolean/text parsing reuses
-  `@ghostping/representation` primitives (`parseMoney`, `parseBoolean`,
+  `@openrecord/representation` primitives (`parseMoney`, `parseBoolean`,
   `normalizeExactText`, `compareMoney`); contract tests in
   `packages/discovery/test/comparator-parity.test.ts`.
 - Failure handling: a caught deterministic runner error marks the run

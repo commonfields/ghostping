@@ -16,8 +16,8 @@ import type {
   SourceObservationV1,
   SourceTargetV1,
   WebCollector,
-} from "@ghostping/representation"
-import { NativeHttpCollector } from "@ghostping/representation"
+} from "@openrecord/representation"
+import { NativeHttpCollector } from "@openrecord/representation"
 import { migrate } from "./migrate.js"
 import {
   collectSourceBinding,
@@ -564,7 +564,7 @@ describe("real NativeHttpCollector with stub transport (no network)", () => {
 // Scratch-Postgres integration (real SQL, stub transport, no network).
 // ---------------------------------------------------------------------------
 
-const SCRATCH = process.env["GHOSTPING_SCRATCH_URL"] ?? "postgres://wira@localhost:5432/ghostping_scratch"
+const SCRATCH = process.env["GHOSTPING_SCRATCH_URL"] ?? "postgres://wira@localhost:5432/openrecord_scratch"
 
 let scratchUp = false
 try {

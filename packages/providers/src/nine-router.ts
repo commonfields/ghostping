@@ -1,6 +1,6 @@
 import { HttpClient, HttpClientRequest } from "@effect/platform"
 import { Effect, Layer, Redacted, Schema, Stream } from "effect"
-import { NineRouterSettings } from "@ghostping/config"
+import { NineRouterSettings } from "@openrecord/config"
 import {
   NineRouterProvider, ProviderAuth, ProviderContractMismatch, ProviderMalformed,
   ProviderRateLimited, ProviderTimeout, ProviderUnavailable, ProviderUnsupported, rawEvidence,

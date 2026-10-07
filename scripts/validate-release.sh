@@ -1,12 +1,12 @@
 #!/bin/bash
-# Ghostping Release Validation Script
+# OpenRecord Release Validation Script
 # Run this before releasing a new version.
 #
 # Design notes:
 # - Every required check preserves its command exit status. A failing check
 #   fails the whole script (fail-closed). No grep-based pass/fail detection.
 # - HOME is isolated so smoke tests never touch the developer's real
-#   ~/.ghostping configuration, history, or cache. CARGO_HOME/RUSTUP_HOME are
+#   ~/.openrecord configuration, history, or cache. CARGO_HOME/RUSTUP_HOME are
 #   preserved so the Rust toolchain keeps working under the isolated HOME.
 # - All smoke-test artifacts live under one temp project dir, removed on exit.
 # - Each step logs to a file; on failure the tail of the log is shown.
@@ -15,8 +15,8 @@ set -euo pipefail
 
 # ── Isolation ────────────────────────────────────────────────────────────────
 REAL_HOME="${HOME:?HOME must be set}"
-ISOLATED_HOME="$(mktemp -d "${TMPDIR:-/tmp}/ghostping-release-home-XXXXXX")"
-SMOKE_PROJECT="$(mktemp -d "${TMPDIR:-/tmp}/ghostping-smoke-XXXXXX")"
+ISOLATED_HOME="$(mktemp -d "${TMPDIR:-/tmp}/openrecord-release-home-XXXXXX")"
+SMOKE_PROJECT="$(mktemp -d "${TMPDIR:-/tmp}/openrecord-smoke-XXXXXX")"
 LOGS_DIR="${SMOKE_PROJECT}/logs"
 mkdir -p "${LOGS_DIR}"
 
@@ -55,7 +55,7 @@ run_step() {
 }
 
 echo "=========================================="
-echo "Ghostping Release Validation"
+echo "OpenRecord Release Validation"
 echo "=========================================="
 echo ""
 echo "Isolated HOME: ${ISOLATED_HOME}"
@@ -87,30 +87,30 @@ echo ""
 echo "4. Building release binary..."
 run_step "cargo build --release --locked" "build" cargo build --release --locked
 echo -e "${GREEN}✓ Release binary built${NC}"
-echo "   Binary size: $(ls -lh target/release/ghostping | awk '{print $5}')"
+echo "   Binary size: $(ls -lh target/release/openrecord | awk '{print $5}')"
 
 echo ""
 echo "5. Running smoke tests (isolated HOME, no network API keys)..."
 cd "${SMOKE_PROJECT}"
 
 # The script runs from the repo root, captured above before cd.
-BINARY="${REPO_ROOT}/target/release/ghostping"
+BINARY="${REPO_ROOT}/target/release/openrecord"
 if [ ! -x "${BINARY}" ]; then
     echo -e "${RED}Error: release binary not found at ${BINARY}${NC}"
     exit 1
 fi
 
-run_step "ghostping init" "smoke-init" "${BINARY}" init --name "SmokeTest" --website "https://example.com" --category "test" --yes
-run_step "ghostping prompts discover" "smoke-discover" "${BINARY}" prompts discover
-run_step "ghostping prompts list" "smoke-list" "${BINARY}" prompts list
-run_step "ghostping audit run (mock)" "smoke-audit1" "${BINARY}" audit run --models mock --samples 1
-run_step "ghostping audit list" "smoke-audit-list" "${BINARY}" audit list
-run_step "ghostping audit show 1" "smoke-audit-show" "${BINARY}" audit show 1
-run_step "ghostping report" "smoke-report" "${BINARY}" report --output ./reports/
-run_step "ghostping generate" "smoke-generate" "${BINARY}" generate --output ./generated/
-run_step "ghostping second audit run (mock)" "smoke-audit2" "${BINARY}" audit run --models mock --samples 1
-run_step "ghostping audit compare" "smoke-compare" "${BINARY}" audit compare --before 1 --after 2
-run_step "ghostping diagnose" "smoke-diagnose" "${BINARY}" diagnose https://example.com
+run_step "openrecord init" "smoke-init" "${BINARY}" init --name "SmokeTest" --website "https://example.com" --category "test" --yes
+run_step "openrecord prompts discover" "smoke-discover" "${BINARY}" prompts discover
+run_step "openrecord prompts list" "smoke-list" "${BINARY}" prompts list
+run_step "openrecord audit run (mock)" "smoke-audit1" "${BINARY}" audit run --models mock --samples 1
+run_step "openrecord audit list" "smoke-audit-list" "${BINARY}" audit list
+run_step "openrecord audit show 1" "smoke-audit-show" "${BINARY}" audit show 1
+run_step "openrecord report" "smoke-report" "${BINARY}" report --output ./reports/
+run_step "openrecord generate" "smoke-generate" "${BINARY}" generate --output ./generated/
+run_step "openrecord second audit run (mock)" "smoke-audit2" "${BINARY}" audit run --models mock --samples 1
+run_step "openrecord audit compare" "smoke-compare" "${BINARY}" audit compare --before 1 --after 2
+run_step "openrecord diagnose" "smoke-diagnose" "${BINARY}" diagnose https://example.com
 
 echo -e "   ${GREEN}✓ all smoke tests passed${NC}"
 

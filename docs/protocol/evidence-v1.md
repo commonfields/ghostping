@@ -38,7 +38,7 @@ Every portable object carries `schema` and `schema_version`. Objects reference e
 | `signatures` | Must be `[]` in V1. This field is reserved as the extension point for signing. |
 | `packet_digest` | See below |
 
-Raw bytes are referenced by digest and URI by default. `raw_evidence.embedded_bytes_base64` appears only when export is called with `embedRawEvidence: true`. Export fails closed if exact bytes are not stored. A reader without Ghostping's database can see what was asked, on which surface, what the business asserted at that time, what the AI emitted, what a reviewer concluded, what an operator changed, what a later comparable measurement showed, and what is unknown.
+Raw bytes are referenced by digest and URI by default. `raw_evidence.embedded_bytes_base64` appears only when export is called with `embedRawEvidence: true`. Export fails closed if exact bytes are not stored. A reader without OpenRecord's database can see what was asked, on which surface, what the business asserted at that time, what the AI emitted, what a reviewer concluded, what an operator changed, what a later comparable measurement showed, and what is unknown.
 
 ## Canonical JSON
 
@@ -61,7 +61,7 @@ The rules are implemented identically in `packages/protocol/src/canonical.ts` an
 ## Export and validation
 
 - `exportEvidencePacket(input)` (protocol, pure): assembles every derived field and seals the packet.
-- `exportIssuePacket({accountId, businessId, issueId, generatedAt, embedRawEvidence?})` (`@ghostping/db`): loads lineage in one `REPEATABLE READ` snapshot, scoped to account → business → issue. It maps the rows, exports, and validates its own output. Observations stored before this migration export with `measurement_configuration=UNKNOWN`, and their surface is rebuilt from stored columns only.
+- `exportIssuePacket({accountId, businessId, issueId, generatedAt, embedRawEvidence?})` (`@openrecord/db`): loads lineage in one `REPEATABLE READ` snapshot, scoped to account → business → issue. It maps the rows, exports, and validates its own output. Observations stored before this migration export with `measurement_configuration=UNKNOWN`, and their surface is rebuilt from stored columns only.
 - `validatePacket(input)` (TypeScript) and `validate_packet_bytes` (Rust) fail closed, in this order:
   1. `UnsupportedSchemaVersion`: wrong `schema` or `schema_version`. This is checked before any other field is trusted.
   2. `SchemaViolation`: a missing or invalid field, an extra field, or non-empty `signatures`.
@@ -72,7 +72,7 @@ The rules are implemented identically in `packages/protocol/src/canonical.ts` an
 
 Validation never imports a packet into a database.
 
-A developer CLI (`ghostping evidence export`) is deferred to P1. The Rust CLI is local-first and does not access hosted PostgreSQL. Adding that access would create a second persistence implementation.
+A developer CLI (`openrecord evidence export`) is deferred to P1. The Rust CLI is local-first and does not access hosted PostgreSQL. Adding that access would create a second persistence implementation.
 
 ## Controlled explanation
 
@@ -80,19 +80,19 @@ A developer CLI (`ghostping evidence export`) is deferred to P1. The Rust CLI is
 
 ```
 SYNTHETIC DATA. This packet contains synthetic test evidence. It is not a production observation.
-Ghostping measured Acme fixture provider API, a direct provider API.
+OpenRecord measured Acme fixture provider API, a direct provider API.
 The question was "How much does Acme Starter cost?".
 The AI response contained the claim "$29/month".
 The approved monthly price for Acme Starter was "$39/month" in fact version 1.
 A reviewer judged the claim CONTRADICTED.
 The claim and the approved value conflict.
 The AI response cited https://example.com/acme-review.
-Ghostping cannot prove that a citation caused the response.
+OpenRecord cannot prove that a citation caused the response.
 An operator recorded SOURCE_UPDATED for https://acme.example/pricing at 2026-10-01T12:00:00.000Z.
 ...
 After intervention intervention-pricing-page, an exactly matched re-observation changed from CONTRADICTED to SUPPORTED.
 Causal attribution is UNKNOWN.
-Ghostping does not know whether any intervention caused a later response.
+OpenRecord does not know whether any intervention caused a later response.
 ```
 
-The renderer follows controlled-language practice. Ghostping makes no ASD-STE100 compliance claim. The renderer output is a disposable view. The packet is the evidence.
+The renderer follows controlled-language practice. OpenRecord makes no ASD-STE100 compliance claim. The renderer output is a disposable view. The packet is the evidence.

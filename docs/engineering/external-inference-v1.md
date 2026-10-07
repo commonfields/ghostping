@@ -40,7 +40,7 @@ ChatGPT/Gemini/Claude consumer surfaces.
 
 ## Contract: result-v1 kept (no v2)
 
-`ghostping-worker-result-v1` represents the new provider without
+`openrecord-worker-result-v1` represents the new provider without
 ambiguity: gateway via `provider`, requested via `requested_model`,
 resolved via `observed_model`-or-null, usage via the exact raw body.
 No schema bump for adding a provider; v2 would require evidence that

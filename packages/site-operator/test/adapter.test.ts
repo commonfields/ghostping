@@ -36,7 +36,7 @@ describe("removeNoindexFromHtml", () => {
 
 describe("LocalFileSiteAdapter", () => {
   it("applies the mutation and verifies the live content", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ghostping-adapter-"))
+    const dir = mkdtempSync(join(tmpdir(), "openrecord-adapter-"))
     writeFileSync(join(dir, "index.html"), BROKEN)
     const before = (await LocalFileSiteAdapter.inspect({ rootDir: dir, filePath: "index.html" }))!
     const m = noindexMutationForHtml("index.html", before)!
@@ -48,7 +48,7 @@ describe("LocalFileSiteAdapter", () => {
   })
 
   it("verification fails honestly when production still contains the marker", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ghostping-adapter-"))
+    const dir = mkdtempSync(join(tmpdir(), "openrecord-adapter-"))
     writeFileSync(join(dir, "index.html"), BROKEN)
     expect(await LocalFileSiteAdapter.verifyMutation({ rootDir: dir, filePath: "index.html", absent: "noindex" })).toBe(false)
   })
@@ -56,10 +56,10 @@ describe("LocalFileSiteAdapter", () => {
 
 describe("GitSiteAdapter", () => {
   it("stages the change in a git checkout without committing or merging", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ghostping-git-"))
+    const dir = mkdtempSync(join(tmpdir(), "openrecord-git-"))
     execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir })
-    execFileSync("git", ["config", "user.email", "test@ghostping.test"], { cwd: dir })
-    execFileSync("git", ["config", "user.name", "ghostping-test"], { cwd: dir })
+    execFileSync("git", ["config", "user.email", "test@openrecord.test"], { cwd: dir })
+    execFileSync("git", ["config", "user.name", "openrecord-test"], { cwd: dir })
     writeFileSync(join(dir, "index.html"), BROKEN)
     execFileSync("git", ["add", "."], { cwd: dir })
     execFileSync("git", ["commit", "-qm", "initial"], { cwd: dir })
@@ -69,9 +69,9 @@ describe("GitSiteAdapter", () => {
     const result = await GitSiteAdapter.applyMutation({
       rootDir: dir,
       input: { filePath: "index.html", before: m.before, after: m.after, message: "Remove noindex from https://example.com/" },
-      branch: "ghostping/remove-noindex-test",
+      branch: "openrecord/remove-noindex-test",
     })
-    expect(result.branch).toBe("ghostping/remove-noindex-test")
+    expect(result.branch).toBe("openrecord/remove-noindex-test")
     // The adapter never commits: identity is observed later, never invented.
     expect(result.commitSha).toBeNull()
     expect(readFileSync(join(dir, "index.html"), "utf8")).not.toContain("noindex")
@@ -81,7 +81,7 @@ describe("GitSiteAdapter", () => {
   })
 
   it("fails closed outside a git checkout", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ghostping-nogit-"))
+    const dir = mkdtempSync(join(tmpdir(), "openrecord-nogit-"))
     writeFileSync(join(dir, "index.html"), BROKEN)
     await expect(
       GitSiteAdapter.applyMutation({ rootDir: dir, input: { filePath: "index.html", before: BROKEN, after: "x", message: "m" } }),

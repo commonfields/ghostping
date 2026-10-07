@@ -123,7 +123,7 @@ Ownership / transactions / failure / crash:
 - UNKNOWN handling: `actor=UNKNOWN` → packet unknown `actor`; NULL `actor_id`/digests → UNKNOWN entries (never fabricated).
 - Crash: atomic append; no partial intervention visible (transactional).
 
-Causality boundary: interventions record "operator did X at T"; the protocol hard-codes `causal_attribution: UNKNOWN` and renders "Ghostping does not know whether any intervention caused a later response."
+Causality boundary: interventions record "operator did X at T"; the protocol hard-codes `causal_attribution: UNKNOWN` and renders "OpenRecord does not know whether any intervention caused a later response."
 
 What is missing (ACT): no link from an intervention to a source-observation digest pair in the UI (form posts only type/target/notes; `evidenceBeforeDigest/AfterDigest` accepted by the contract but never populated by web — always NULL → UNKNOWN); no correction UI; no "intent to re-observe" captured at ACT time (see §7 gap 1).
 

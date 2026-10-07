@@ -30,24 +30,24 @@ import {
   SiteVerificationRepository,
   type RowDecodeError,
   type SiteRunRow,
-} from "@ghostping/db"
-import { safeFetch, type HttpTransport } from "@ghostping/representation"
-import { isInScope } from "@ghostping/discovery"
+} from "@openrecord/db"
+import { safeFetch, type HttpTransport } from "@openrecord/representation"
+import { isInScope } from "@openrecord/discovery"
 import {
   INSPECTOR_VERSION,
   SITE_INSPECTION_BUDGETS,
   type DerivedFinding,
-} from "@ghostping/site-operator"
+} from "@openrecord/site-operator"
 import {
   classifyIndexability,
   derivePageFindings,
   extractPageEvidence,
-} from "@ghostping/site-operator"
-import { parseRobotsTxt, isUrlAllowedByRobots } from "@ghostping/site-operator"
-import { parseSitemapXml } from "@ghostping/site-operator"
-import { buildLinkGraph } from "@ghostping/site-operator"
-import { evidenceDigest, findingIdentityKey, normalizeFindingUrl } from "@ghostping/site-operator"
-import { proposeFix } from "@ghostping/site-operator"
+} from "@openrecord/site-operator"
+import { parseRobotsTxt, isUrlAllowedByRobots } from "@openrecord/site-operator"
+import { parseSitemapXml } from "@openrecord/site-operator"
+import { buildLinkGraph } from "@openrecord/site-operator"
+import { evidenceDigest, findingIdentityKey, normalizeFindingUrl } from "@openrecord/site-operator"
+import { proposeFix } from "@openrecord/site-operator"
 
 export const SITE_FETCH_TIMEOUT_MS = SITE_INSPECTION_BUDGETS.timeoutMs
 
@@ -124,7 +124,7 @@ export const makeSiteInspectionRunnerLive = (opts: SiteRunnerOptions = {}) =>
           ...(transport ? { transport } : {}),
           limits: { timeoutMs: SITE_FETCH_TIMEOUT_MS, maxRedirects: SITE_INSPECTION_BUDGETS.maxRedirects, maxBytes: SITE_INSPECTION_BUDGETS.maxBytes, acceptedContentTypes: ["text/html", "application/xhtml+xml"] },
           redirectPolicy: { maxRedirects: SITE_INSPECTION_BUDGETS.maxRedirects, allowCrossOrigin: true, scopeOrigin, ...(isAllowedRedirect ? { isAllowedRedirect } : {}) },
-          userAgent: "Ghostping-SiteInspector/1",
+          userAgent: "OpenRecord-SiteInspector/1",
         })
 
       const runOnce = (): Effect.Effect<boolean, SqlError | RowDecodeError> =>
@@ -171,7 +171,7 @@ export const makeSiteInspectionRunnerLive = (opts: SiteRunnerOptions = {}) =>
                     ...(transport ? { transport } : {}),
                     limits: { timeoutMs: SITE_FETCH_TIMEOUT_MS, maxRedirects: 5, maxBytes: 256 * 1024, acceptedContentTypes: null },
                     redirectPolicy: { maxRedirects: 5, allowCrossOrigin: false, scopeOrigin: origin },
-                    userAgent: "Ghostping-SiteInspector/1",
+                    userAgent: "OpenRecord-SiteInspector/1",
                   }),
                 )
                 if (ev.failure === null && ev.body) {
@@ -205,7 +205,7 @@ export const makeSiteInspectionRunnerLive = (opts: SiteRunnerOptions = {}) =>
                       ...(transport ? { transport } : {}),
                       limits: { timeoutMs: SITE_FETCH_TIMEOUT_MS, maxRedirects: 5, maxBytes: 5 * 1024 * 1024, acceptedContentTypes: null },
                       redirectPolicy: { maxRedirects: 5, allowCrossOrigin: false, scopeOrigin: origin },
-                      userAgent: "Ghostping-SiteInspector/1",
+                      userAgent: "OpenRecord-SiteInspector/1",
                     }),
                   ).pipe(Effect.catchAll(() => Effect.succeed(null)))
                   if (!ev || ev.failure !== null || !ev.body) continue
@@ -535,7 +535,7 @@ export const makeSiteInspectionRunnerLive = (opts: SiteRunnerOptions = {}) =>
                       beforeDigest: p.sourceDigest,
                       afterDigest: null,
                       result,
-                      detail: stillPresent ? "Live re-inspection still exhibits the issue." : "Ghostping verified the fix on the live site.",
+                      detail: stillPresent ? "Live re-inspection still exhibits the issue." : "OpenRecord verified the fix on the live site.",
                     }).pipe(Effect.ignore)
                     yield* findings.setStatus(own.businessId, p.id, toStatus, "SYSTEM", result, own.id).pipe(Effect.ignore)
                     yield* events.append({ businessId: own.businessId, runId: own.id, findingId: p.id, kind: "VERIFICATION_COMPLETED", payload: { result } }).pipe(Effect.ignore)

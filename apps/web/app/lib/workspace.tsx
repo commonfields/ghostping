@@ -16,7 +16,7 @@ type Workspace = {
 
 const WorkspaceContext = createContext<Workspace | null>(null)
 
-const LAST_BUSINESS_KEY = "ghostping:last-business"
+const LAST_BUSINESS_KEY = "openrecord:last-business"
 
 function readLastBusiness(): string | null {
   try {

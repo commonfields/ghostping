@@ -13,7 +13,7 @@ Distinctions (laws):
     Retrieval ≠ AI representation
     Citation ≠ causality
 
-Ghostping establishes: canonical truth, local artifact contents, local
+OpenRecord establishes: canonical truth, local artifact contents, local
 write occurrence, later live observation. It never infers deployed,
 indexed, retrieved, or AI correction without separate evidence.
 
@@ -22,4 +22,4 @@ indexed, retrieved, or AI correction without separate evidence.
 - Projections are generated, never separately authored truth.
 - A local write is not publication.
 - Generated artifacts must be reproducible byte-for-byte.
-- Ghostping never overwrites a file it cannot prove it manages.
+- OpenRecord never overwrites a file it cannot prove it manages.

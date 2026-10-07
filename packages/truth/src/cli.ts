@@ -1,7 +1,7 @@
 // Thin operator wrapper over the canonical truth library. No duplicated
 // manifest/compiler semantics: every command calls the single implementation
-// in this package (DB sync delegates row access to @ghostping/db).
-// Usage: pnpm --filter @ghostping/truth truth <validate|plan|apply|sync> ...
+// in this package (DB sync delegates row access to @openrecord/db).
+// Usage: pnpm --filter @openrecord/truth truth <validate|plan|apply|sync> ...
 
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
@@ -12,7 +12,7 @@ import { EMPTY_LOCK, planProjection, planStale, type ProjectionLock } from "./pl
 import { parseManifest } from "./manifest.js"
 import { syncManifestFacts } from "./service.js"
 
-const usage = `usage: truth <validate|plan|apply|sync> --manifest <ghostping.yaml> [--root <dir>] [--revision <sha>] [--actor <kind:id>]`
+const usage = `usage: truth <validate|plan|apply|sync> --manifest <openrecord.yaml> [--root <dir>] [--revision <sha>] [--actor <kind:id>]`
 
 const args = (name: string): string | null => {
   const i = process.argv.indexOf(name)
@@ -77,8 +77,8 @@ const main = async (): Promise<void> => {
       console.error("sync requires DATABASE_URL")
       process.exit(2)
     }
-    const { pgSyncStore, pgBridgeStore } = await import("@ghostping/db")
-    const { normalizeUrl } = await import("@ghostping/representation")
+    const { pgSyncStore, pgBridgeStore } = await import("@openrecord/db")
+    const { normalizeUrl } = await import("@openrecord/representation")
     const businessId = args("--business-id")
     if (!businessId) {
       console.error("sync requires --business-id")
@@ -123,7 +123,7 @@ const main = async (): Promise<void> => {
 const readLock = async (root: string): Promise<ProjectionLock> => {
   let raw: string
   try {
-    raw = await readFile(resolve(root, ".ghostping/projections.lock.json"), "utf8")
+    raw = await readFile(resolve(root, ".openrecord/projections.lock.json"), "utf8")
   } catch (e) {
     // Missing lock means a fresh root: nothing is managed yet.
     // Any other read failure leaves lock state unknown, so fail closed.
@@ -150,13 +150,13 @@ const fileIo = (root: string): ApplyIo => ({
   readLock: () => readLock(root),
   writeLock: async (lock) => {
     const { mkdir, writeFile } = await import("node:fs/promises")
-    await mkdir(resolve(root, ".ghostping"), { recursive: true })
-    await writeFile(resolve(root, ".ghostping/projections.lock.json"), `${JSON.stringify(lock, null, 2)}\n`)
+    await mkdir(resolve(root, ".openrecord"), { recursive: true })
+    await writeFile(resolve(root, ".openrecord/projections.lock.json"), `${JSON.stringify(lock, null, 2)}\n`)
   },
   appendReceipt: async (receipt) => {
     const { mkdir, writeFile } = await import("node:fs/promises")
-    await mkdir(resolve(root, ".ghostping/receipts"), { recursive: true })
-    await writeFile(resolve(root, `.ghostping/receipts/${receipt.id}.json`), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" })
+    await mkdir(resolve(root, ".openrecord/receipts"), { recursive: true })
+    await writeFile(resolve(root, `.openrecord/receipts/${receipt.id}.json`), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" })
   },
 })
 

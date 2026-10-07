@@ -10,7 +10,7 @@
 // transaction and persists observation + matches + frontier-DONE atomically.
 //
 // Pure crawl policy (scope validation, robots, sitemaps, frontier order,
-// matching, authority snapshots) lives in @ghostping/discovery; this module
+// matching, authority snapshots) lives in @openrecord/discovery; this module
 // is storage only and never parses HTML or fetches.
 import { Context, Data, Effect, Layer, Schema } from "effect"
 import { PgClient } from "@effect/sql-pg"
@@ -33,7 +33,7 @@ import {
 
 const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v))
 
-// Version defaults mirror @ghostping/discovery MATCHER_VERSION /
+// Version defaults mirror @openrecord/discovery MATCHER_VERSION /
 // POLICY_VERSION (kept as literals here so storage never constrains the
 // policy package; runs may also pin explicit versions per enqueue).
 const DEFAULT_MATCHER_VERSION = "discovery-matcher/1"

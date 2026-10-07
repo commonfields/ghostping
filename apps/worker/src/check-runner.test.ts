@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer, Redacted, Schedule } from "effect"
 import { SqlError } from "@effect/sql/SqlError"
-import { CheckRunRepository, ObservationRepository, ProviderAttemptEvidenceRepository, QuestionRepository } from "@ghostping/db"
-import { ProviderRegistry, ProviderAuth, ProviderRateLimited, ProviderTimeout, ProviderUnavailable, ProviderMalformed, ProviderUnsupported, ProviderContractMismatch, rawEvidence, type ProviderError, type ProviderObservation } from "@ghostping/providers"
+import { CheckRunRepository, ObservationRepository, ProviderAttemptEvidenceRepository, QuestionRepository } from "@openrecord/db"
+import { ProviderRegistry, ProviderAuth, ProviderRateLimited, ProviderTimeout, ProviderUnavailable, ProviderMalformed, ProviderUnsupported, ProviderContractMismatch, rawEvidence, type ProviderError, type ProviderObservation } from "@openrecord/providers"
 import { CheckRunner, makeCheckRunnerLive, MAX_PROVIDER_ATTEMPTS } from "./check-runner.js"
 const ok: ProviderObservation = {
   ...rawEvidence(new TextEncoder().encode(' {"answer":"x"} '), null), provider: "mock", requestedModel: "requested", observedModel: "mock-v1",

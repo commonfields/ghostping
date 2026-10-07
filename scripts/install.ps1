@@ -1,20 +1,20 @@
-# Ghostping installer for Windows (PowerShell)
-# Usage: irm https://raw.githubusercontent.com/commonfields/ghostping/main/scripts/install.ps1 | iex
+# OpenRecord installer for Windows (PowerShell)
+# Usage: irm https://raw.githubusercontent.com/commonfields/openrecord/main/scripts/install.ps1 | iex
 
 param(
-    [string]$InstallDir = "$env:LOCALAPPDATA\Programs\ghostping"
+    [string]$InstallDir = "$env:LOCALAPPDATA\Programs\openrecord"
 )
 
 $ErrorActionPreference = "Stop"
-$Repo = "commonfields/ghostping"
-$Archive = "ghostping-windows-x86_64.zip"
+$Repo = "commonfields/openrecord"
+$Archive = "openrecord-windows-x86_64.zip"
 
 # ── Get latest release ─────────────────────────────────────────────────────
 
 Write-Host "Fetching latest release..."
 $LatestUrl = "https://api.github.com/repos/$Repo/releases/latest"
 try {
-    $Release = Invoke-RestMethod -Uri $LatestUrl -Headers @{ "User-Agent" = "ghostping-installer" }
+    $Release = Invoke-RestMethod -Uri $LatestUrl -Headers @{ "User-Agent" = "openrecord-installer" }
     $Tag = $Release.tag_name
 } catch {
     Write-Error "Failed to fetch latest release: $_"
@@ -26,12 +26,12 @@ if (-not $Tag) {
     exit 1
 }
 
-Write-Host "Installing ghostping $Tag (Windows x86_64)..."
+Write-Host "Installing openrecord $Tag (Windows x86_64)..."
 
 # ── Download and install ───────────────────────────────────────────────────
 
 $DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/$Archive"
-$TmpDir = Join-Path $env:TEMP "ghostping-install-$(Get-Random)"
+$TmpDir = Join-Path $env:TEMP "openrecord-install-$(Get-Random)"
 New-Item -ItemType Directory -Path $TmpDir | Out-Null
 
 try {
@@ -66,8 +66,8 @@ try {
         New-Item -ItemType Directory -Path $InstallDir | Out-Null
     }
 
-    $ExePath = Join-Path $TmpDir "ghostping.exe"
-    $Destination = Join-Path $InstallDir "ghostping.exe"
+    $ExePath = Join-Path $TmpDir "openrecord.exe"
+    $Destination = Join-Path $InstallDir "openrecord.exe"
     Copy-Item -Path $ExePath -Destination $Destination -Force
 
 } finally {
@@ -88,11 +88,11 @@ if ($CurrentPath -notlike "*$InstallDir*") {
 # ── Verify ─────────────────────────────────────────────────────────────────
 
 Write-Host ""
-Write-Host "  ✓ ghostping $Tag installed to $Destination" -ForegroundColor Green
+Write-Host "  ✓ openrecord $Tag installed to $Destination" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Quick start:"
-Write-Host "    ghostping quickstart"
-Write-Host "    ghostping init --name `"MyProject`" --website `"https://example.com`" --yes"
-Write-Host "    ghostping prompts discover"
-Write-Host "    ghostping audit run --models mock --samples 3"
+Write-Host "    openrecord quickstart"
+Write-Host "    openrecord init --name `"MyProject`" --website `"https://example.com`" --yes"
+Write-Host "    openrecord prompts discover"
+Write-Host "    openrecord audit run --models mock --samples 3"
 Write-Host ""

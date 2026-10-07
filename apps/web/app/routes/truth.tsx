@@ -54,7 +54,7 @@ export function TruthPage() {
     <div className="space-y-6">
       <PageHeader
         title="Truth"
-        description="The facts this business stands behind. Ghostping compares source and AI representations against these versions."
+        description="The facts this business stands behind. OpenRecord compares source and AI representations against these versions."
         actions={
           repositoryManaged ? null : (
             <Button onClick={() => setAddOpen(true)}>
@@ -71,7 +71,7 @@ export function TruthPage() {
           {repositoryManaged ? (
             <Badge variant="secondary">Managed by repository manifest</Badge>
           ) : (
-            <Badge variant="supported">Managed in Ghostping</Badge>
+            <Badge variant="supported">Managed in OpenRecord</Badge>
           )}
           <span className="text-sm text-muted-foreground tabular-nums">
             {activeCount} active {activeCount === 1 ? "fact" : "facts"}
@@ -93,7 +93,7 @@ export function TruthPage() {
           <AlertTitle>Two active facts cover the same thing</AlertTitle>
           <AlertDescription>
             <p>
-              The highlighted rows are both active for the same period. Ghostping does not pick a winner. Supersede or retire one of them so
+              The highlighted rows are both active for the same period. OpenRecord does not pick a winner. Supersede or retire one of them so
               reviews have a single source of truth.
             </p>
           </AlertDescription>

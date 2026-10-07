@@ -127,7 +127,7 @@ export function SiteFindingPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {!activeProposal ? (
-                <EmptyState icon={<ClockIcon />} title="Manual change required" description="Ghostping cannot safely derive this correction. Apply it by hand, then run verification." className="py-8" />
+                <EmptyState icon={<ClockIcon />} title="Manual change required" description="OpenRecord cannot safely derive this correction. Apply it by hand, then run verification." className="py-8" />
               ) : (
                 <>
                   <p className="text-sm text-muted-foreground">{activeProposal.rationale}</p>
@@ -178,7 +178,7 @@ export function SiteFindingPage() {
           <Card className="shadow-(--float-shadow)">
             <CardHeader>
               <CardTitle>Verification</CardTitle>
-              <CardDescription>A fix counts only after Ghostping re-observes the live page.</CardDescription>
+              <CardDescription>A fix counts only after OpenRecord re-observes the live page.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {mutations.length === 0 && verifications.length === 0 ? (
@@ -190,14 +190,14 @@ export function SiteFindingPage() {
                       <p className="font-medium">Change {m.state.toLowerCase().replace(/_/g, " ")}</p>
                       {m.branch ? <p className="text-muted-foreground">Branch: <span className="font-mono">{m.branch}</span></p> : null}
                       {m.commitSha ? <p className="text-muted-foreground">Commit: <span className="font-mono">{m.commitSha.slice(0, 12)}</span></p> : null}
-                      {m.prUrl ? <p className="text-muted-foreground">Pull request: <a className="underline" href={m.prUrl}>{m.prUrl}</a></p> : <p className="text-muted-foreground">Ghostping never merges automatically; a human merges the pull request.</p>}
+                      {m.prUrl ? <p className="text-muted-foreground">Pull request: <a className="underline" href={m.prUrl}>{m.prUrl}</a></p> : <p className="text-muted-foreground">OpenRecord never merges automatically; a human merges the pull request.</p>}
                       <RecordIdentityForm businessId={id} mutation={m} onRecorded={() => detail.reload()} />
                     </div>
                   ))}
                   {verifications.map((v: SiteVerification) => (
                     <div key={v.id} className="rounded-lg border p-3 text-sm">
                       <p className="font-medium">
-                        {v.result === "VERIFIED_FIXED" ? "Ghostping verified the fix on the live site." : v.result === "VERIFIED_NOT_FIXED" ? "The live site still shows the problem." : "Verification pending."}
+                        {v.result === "VERIFIED_FIXED" ? "OpenRecord verified the fix on the live site." : v.result === "VERIFIED_NOT_FIXED" ? "The live site still shows the problem." : "Verification pending."}
                       </p>
                       {v.detail ? <p className="text-muted-foreground">{v.detail}</p> : null}
                       <p className="text-xs text-muted-foreground">{formatDateTime(v.checkedAt)}</p>
@@ -274,7 +274,7 @@ function RecordIdentityForm({ businessId, mutation, onRecorded }: { businessId: 
               .finally(() => setPending(false))
           }}
         >
-          <p className="text-xs text-muted-foreground">Record what was observed outside Ghostping. Merges are observed here, never performed.</p>
+          <p className="text-xs text-muted-foreground">Record what was observed outside OpenRecord. Merges are observed here, never performed.</p>
           {nextState !== "MERGED" ? (
             <>
               <div className="grid gap-1">

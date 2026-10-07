@@ -37,7 +37,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (s.error) {
     return (
       <div className="flex min-h-svh items-center justify-center text-destructive">
-        Cannot reach the Ghostping API ({s.error}). Start the API server and reload.
+        Cannot reach the OpenRecord API ({s.error}). Start the API server and reload.
       </div>
     )
   }

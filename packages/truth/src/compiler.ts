@@ -15,7 +15,7 @@ export interface ResolvedFact {
 /**
  * Truthful source lineage for one projection input.
  *
- * MANIFEST_FACT: compiled offline from ghostping.yaml only. Proves the
+ * MANIFEST_FACT: compiled offline from openrecord.yaml only. Proves the
  * manifest fact key and manifest digest. Claims NO database identity.
  *
  * AUTHORITATIVE_FACT: compiled after a successful manifest sync resolved

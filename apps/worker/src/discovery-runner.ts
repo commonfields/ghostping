@@ -1,7 +1,7 @@
 // DiscoveryRunner: claims one QUEUED discovery run (atomic single-statement
 // ownership with lease reclaim), freezes the authority snapshot, crawls the
 // scope through the shared SafeHttpFetcher, matches page bodies against
-// frozen lineage values via @ghostping/discovery, and transitions RUNNING ->
+// frozen lineage values via @openrecord/discovery, and transitions RUNNING ->
 // SUCCEEDED | PARTIAL | FAILED.
 //
 // Terminal semantics:
@@ -35,8 +35,8 @@ import {
   type DiscoveryMatchWrite,
   type DiscoveryRunRow,
   type RowDecodeError,
-} from "@ghostping/db"
-import { normalizeUrl, safeFetch, type HttpTransport, type SafeFetchEvidence } from "@ghostping/representation"
+} from "@openrecord/db"
+import { normalizeUrl, safeFetch, type HttpTransport, type SafeFetchEvidence } from "@openrecord/representation"
 import {
   buildAuthoritySnapshot,
   buildFrontier,
@@ -55,7 +55,7 @@ import {
   type DiscoveredVia,
   type FactRowInput,
   type RobotsRules,
-} from "@ghostping/discovery"
+} from "@openrecord/discovery"
 
 export const DISCOVERY_FETCH_TIMEOUT_MS = 8000
 const HEARTBEAT_MS = 30_000

@@ -1,10 +1,10 @@
 // Demo world seed: one login + five companies showing every Product Surface state.
 // Fictional data. Idempotent per company: existing companies are skipped
 // (observations are append-only and cannot be wiped).
-// Run: DATABASE_URL=... pnpm --filter @ghostping/worker exec tsx ../../scripts/demo-seed.ts
+// Run: DATABASE_URL=... pnpm --filter @openrecord/worker exec tsx ../../scripts/demo-seed.ts
 import { randomBytes, scryptSync } from "node:crypto"
 import pg from "pg"
-import { buildAuthoritySnapshot } from "@ghostping/discovery"
+import { buildAuthoritySnapshot } from "@openrecord/discovery"
 
 const DEMO_EMAIL = "demo@northstar.test"
 const DEMO_PASSWORD = "password123"

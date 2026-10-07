@@ -14,7 +14,7 @@ const dir = join(here, "../migrations")
 // errors) with exactly one winner. A session-level advisory lock makes the
 // whole batch mutually exclusive without retries (real failures still
 // throw). Released on unlock, or automatically if the session drops.
-// Key = first 60 bits of sha256("ghostping-db-migrations").
+// Key = first 60 bits of sha256("openrecord-db-migrations").
 const MIGRATION_ADVISORY_LOCK = "769653221042929474"
 
 export async function migrate(databaseUrl: string): Promise<void> {

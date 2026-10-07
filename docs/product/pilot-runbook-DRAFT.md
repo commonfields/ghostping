@@ -1,6 +1,6 @@
 # $750 pilot runbook (DRAFT)
 
-Grounds: `product-remap-v1.md` §15, `roadmap.md` milestone 2, `ghostping-dogfood-v1.md`. One brand, ≤15 buyer questions, 4 weeks, manually operated. Per-brand deploy: own API/web/worker + Postgres, `NINE_ROUTER_API_KEY` in env (pinned live model; mock fallback forbidden for customer evidence).
+Grounds: `product-remap-v1.md` §15, `roadmap.md` milestone 2, `openrecord-dogfood-v1.md`. One brand, ≤15 buyer questions, 4 weeks, manually operated. Per-brand deploy: own API/web/worker + Postgres, `NINE_ROUTER_API_KEY` in env (pinned live model; mock fallback forbidden for customer evidence).
 
 ## Weekly wave (facts → checks → judgments → interventions → verify → re-observe → exportEvidencePacket)
 

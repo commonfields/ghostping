@@ -5,7 +5,7 @@
 
 import { DISCOVERY_BUDGETS_V1 } from "./types.js"
 
-export const DISCOVERY_USER_AGENT = "GhostpingDiscovery/1.0"
+export const DISCOVERY_USER_AGENT = "OpenRecordDiscovery/1.0"
 
 export interface RobotsRules {
   readonly disallows: ReadonlyArray<string>
@@ -86,7 +86,7 @@ const robotsPatternMatches = (pattern: string, target: string): boolean => {
 }
 
 /** Parse robots.txt for our user agents. Pure and deterministic. */
-export const parseRobots = (txt: string, userAgents: ReadonlyArray<string> = ["GhostpingDiscovery", "*"]): RobotsRules => {
+export const parseRobots = (txt: string, userAgents: ReadonlyArray<string> = ["OpenRecordDiscovery", "*"]): RobotsRules => {
   const ours = userAgents.map((a) => a.toLowerCase())
   interface Group {
     agents: string[]
@@ -245,7 +245,7 @@ export const isCrawlForbidden = (outcome: RobotsOutcome): boolean =>
 export const fetchAndParseRobots = async (
   origin: string,
   fetcher: SafeHttpFetcher,
-  userAgents: ReadonlyArray<string> = ["GhostpingDiscovery", "*"],
+  userAgents: ReadonlyArray<string> = ["OpenRecordDiscovery", "*"],
   opts?: FetchRobotsOptions,
 ): Promise<RobotsOutcome> => {
   const normalizedOrigin = origin.replace(/\/+$/, "")

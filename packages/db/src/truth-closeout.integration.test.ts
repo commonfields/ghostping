@@ -5,8 +5,8 @@
 // unchanged). Requires DATABASE_URL (CI postgres service; skipped otherwise).
 import { describe, expect, it } from "vitest"
 import pg from "pg"
-import { parseManifest, syncManifestFacts } from "@ghostping/truth"
-import type { FactSyncStore } from "@ghostping/truth"
+import { parseManifest, syncManifestFacts } from "@openrecord/truth"
+import type { FactSyncStore } from "@openrecord/truth"
 import { pgSyncStore } from "./truth.js"
 
 const url = process.env["DATABASE_URL"] ?? process.env["TEST_DATABASE_URL"] ?? ""

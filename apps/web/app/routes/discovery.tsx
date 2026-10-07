@@ -150,7 +150,7 @@ export function DiscoveryPage() {
       <Card className="shadow-(--float-shadow)">
         <CardHeader>
           <CardTitle>Owned site scopes</CardTitle>
-          <CardDescription>Ghostping scans only this explicitly configured site scope.</CardDescription>
+          <CardDescription>OpenRecord scans only this explicitly configured site scope.</CardDescription>
           <CardAction>
             <Button onClick={() => setAddOpen(true)}>
               <PlusIcon />
@@ -165,7 +165,7 @@ export function DiscoveryPage() {
             <EmptyState
               icon={<GlobeIcon />}
               title="No owned sites yet"
-              description="Add the site you operate. Ghostping scans only this explicitly configured site scope."
+              description="Add the site you operate. OpenRecord scans only this explicitly configured site scope."
               action={
                 <Button onClick={() => setAddOpen(true)}>
                   <PlusIcon />
@@ -276,7 +276,7 @@ export function DiscoveryPage() {
           </CardHeader>
           <CardContent className="space-y-4 px-5 pb-5">
             <p className="text-sm text-muted-foreground">
-              Ghostping found {latest.candidates_found} {latest.candidates_found === 1 ? "candidate" : "candidates"} in this scan.
+              OpenRecord found {latest.candidates_found} {latest.candidates_found === 1 ? "candidate" : "candidates"} in this scan.
             </p>
             {truthChanged ? (
               <Alert>
@@ -536,7 +536,7 @@ function AddOwnedSiteDialog({
         >
           <DialogHeader>
             <DialogTitle>Add owned site</DialogTitle>
-            <DialogDescription>Ghostping scans only this explicitly configured site scope.</DialogDescription>
+            <DialogDescription>OpenRecord scans only this explicitly configured site scope.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
             <Label htmlFor="scope-url">Site URL</Label>

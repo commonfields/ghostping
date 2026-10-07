@@ -19,8 +19,8 @@ import {
   type InterventionRow,
   type SourceBindingRow,
   type SourceObservationRow,
-} from "@ghostping/db"
-import { CreateInterventionRequest, decodeRouteId } from "@ghostping/contracts"
+} from "@openrecord/db"
+import { CreateInterventionRequest, decodeRouteId } from "@openrecord/contracts"
 import { loadInterventions, recordIntervention } from "./interventions.js"
 
 const BIZ_A = "11111111-1111-4111-8111-111111111111"

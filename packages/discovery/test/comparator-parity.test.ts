@@ -1,4 +1,4 @@
-// Cross-package contract: discovery matcher reuses @ghostping/representation
+// Cross-package contract: discovery matcher reuses @openrecord/representation
 // comparator/parser primitives (parseMoney, parseBoolean, normalizeExactText,
 // compareMoney). These tests import BOTH sides and assert the same
 // interpretation: compareMoney IN_SYNC ⟺ discovery structured match,
@@ -7,7 +7,7 @@
 // bounds, CURRENT/HISTORICAL mapping, MIN_VISIBLE_TEXT_LENGTH) is untouched.
 
 import { describe, expect, it } from "vitest"
-import { compareMoney, normalizeExactText, parseBoolean, parseMoney } from "@ghostping/representation"
+import { compareMoney, normalizeExactText, parseBoolean, parseMoney } from "@openrecord/representation"
 import { matchPage, type AuthoritySnapshot } from "../src/matcher.js"
 
 const moneySnap = (current: string): AuthoritySnapshot => ({

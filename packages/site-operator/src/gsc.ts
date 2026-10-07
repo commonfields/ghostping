@@ -3,7 +3,7 @@
 // reports blocked status and serves fixture rows labeled as fixtures; the
 // core closed loop (inspect -> fix -> verify) never depends on it.
 //
-// Distinguish SITE_INDEXABLE (Ghostping-observed directives) from
+// Distinguish SITE_INDEXABLE (OpenRecord-observed directives) from
 // GOOGLE_REPORTED_INDEXED (what Google reports). They are not interchangeable.
 
 export type GscConnectionStatus = "CONNECTED" | "BLOCKED_MISSING_CREDENTIALS" | "ERROR"

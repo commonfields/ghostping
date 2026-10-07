@@ -8,7 +8,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use ghostping::evidence_protocol::{
+use openrecord::evidence_protocol::{
     canonical_json, compare_measurements, measurement_signature, sha256_hex, validate_packet_bytes,
     KnowledgeString, MatchClassification,
 };

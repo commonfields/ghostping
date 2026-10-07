@@ -97,22 +97,22 @@ const onboardingStyles: Record<string, React.CSSProperties> = {
 function Onboarding({ onDismiss }: { onDismiss: () => void }) {
   return (
     <div style={onboardingStyles.container}>
-      <h1 style={onboardingStyles.title}>Welcome to Ghostping</h1>
+      <h1 style={onboardingStyles.title}>Welcome to OpenRecord</h1>
       <p style={onboardingStyles.tagline}>{TAGLINE}</p>
       
       <div style={onboardingStyles.card}>
         <div style={onboardingStyles.cardTitle}>Quick Start</div>
         <div style={onboardingStyles.step}>
           <span style={onboardingStyles.stepNum}>1</span>
-          <span style={onboardingStyles.stepText}>Run <code style={onboardingStyles.cmd}>ghostping config</code> to create config</span>
+          <span style={onboardingStyles.stepText}>Run <code style={onboardingStyles.cmd}>openrecord config</code> to create config</span>
         </div>
         <div style={onboardingStyles.step}>
           <span style={onboardingStyles.stepNum}>2</span>
-          <span style={onboardingStyles.stepText}>Add your API key in <code style={onboardingStyles.cmd}>~/.ghostping/config.toml</code></span>
+          <span style={onboardingStyles.stepText}>Add your API key in <code style={onboardingStyles.cmd}>~/.openrecord/config.toml</code></span>
         </div>
         <div style={onboardingStyles.step}>
           <span style={onboardingStyles.stepNum}>3</span>
-          <span style={onboardingStyles.stepText}>Run <code style={onboardingStyles.cmd}>ghostping doctor</code> to verify</span>
+          <span style={onboardingStyles.stepText}>Run <code style={onboardingStyles.cmd}>openrecord doctor</code> to verify</span>
         </div>
         <div style={onboardingStyles.step}>
           <span style={onboardingStyles.stepNum}>4</span>
@@ -128,7 +128,7 @@ function Onboarding({ onDismiss }: { onDismiss: () => void }) {
 
       <p style={{ ...onboardingStyles.muted, maxWidth: 560, marginTop: 12, lineHeight: 1.5 }}>
         <strong style={{ color: "#e6edf3" }}>Honest note:</strong>{" "}
-        Ghostping improves your <em>probability</em> of being cited by LLMs —
+        OpenRecord improves your <em>probability</em> of being cited by LLMs —
         it does not guarantee it. Results depend on content quality and model behavior.
         Audit regularly and iterate.
       </p>

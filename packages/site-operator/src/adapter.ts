@@ -5,7 +5,7 @@
 // Hosted sources never shell out (architecture guard): commits and pull
 // requests are created with normal git tooling by the operator (or CI) and
 // their identity is recorded back via the mutation identity endpoint, so a
-// merge is always observed, never performed by Ghostping. WordPress/Shopify/
+// merge is always observed, never performed by OpenRecord. WordPress/Shopify/
 // Webflow/Squarespace/Wix adapters plug in later without domain changes.
 import { readFile, writeFile, mkdir, stat } from "node:fs/promises"
 import { join, dirname } from "node:path"
@@ -103,7 +103,7 @@ export const GitSiteAdapter: SiteAdapter = {
     }
     await mkdir(dirname(abs), { recursive: true })
     await writeFile(abs, input.after, "utf8")
-    const name = branch ?? `ghostping/fix-${Date.now()}`
+    const name = branch ?? `openrecord/fix-${Date.now()}`
     return { branch: name, commitSha: null, prNumber: null, prUrl: null, detail: `staged ${input.filePath} in ${rootDir} for branch ${name}; commit and open a PR with normal git tooling, then record the identity` }
   },
   async verifyMutation({ rootDir, filePath, absent }) {

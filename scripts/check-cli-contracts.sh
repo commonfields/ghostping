@@ -4,16 +4,16 @@
 # real binary in an isolated HOME with no network and no API secrets.
 # Fails closed: any unexpected exit status fails the script.
 #
-# Usage: GHOSTPING_BIN=target/debug/ghostping bash scripts/check-cli-contracts.sh
+# Usage: GHOSTPING_BIN=target/debug/openrecord bash scripts/check-cli-contracts.sh
 # Run from the repo root.
 
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BIN="${GHOSTPING_BIN:-${REPO_ROOT}/target/debug/ghostping}"
+BIN="${GHOSTPING_BIN:-${REPO_ROOT}/target/debug/openrecord}"
 
 if [ ! -x "${BIN}" ]; then
-    echo "FAIL: binary not executable at ${BIN} (build it first: cargo build --bin ghostping)"
+    echo "FAIL: binary not executable at ${BIN} (build it first: cargo build --bin openrecord)"
     exit 1
 fi
 
@@ -100,8 +100,8 @@ drop_sandbox
 new_sandbox
 "${BIN}" init --name C --website "https://example.com" --yes >/dev/null 2>&1
 "${BIN}" prompts discover >/dev/null 2>&1
-mkdir -p "${HOME}/.ghostping"
-cat > "${HOME}/.ghostping/config.toml" <<'EOF'
+mkdir -p "${HOME}/.openrecord"
+cat > "${HOME}/.openrecord/config.toml" <<'EOF'
 [providers.ollama]
 base_url = "http://127.0.0.1:9"
 model = "llama3.2"
@@ -115,7 +115,7 @@ new_sandbox
 "${BIN}" init --name C --website "https://example.com" --yes >/dev/null 2>&1
 FIXDIR2="${REPO_ROOT}/tests/fixtures"
 "${BIN}" observations import-gsc --file "${FIXDIR2}/gsc_queries.csv" --report generic-search --date 2026-09-01 >/dev/null 2>&1
-OBS_ID="$(python3 -c "import sqlite3,os; print(sqlite3.connect(os.path.join(os.environ['HOME'], '.ghostping/evidence.db')).execute('SELECT observation_id FROM observations LIMIT 1').fetchone()[0])")"
+OBS_ID="$(python3 -c "import sqlite3,os; print(sqlite3.connect(os.path.join(os.environ['HOME'], '.openrecord/evidence.db')).execute('SELECT observation_id FROM observations LIMIT 1').fetchone()[0])")"
 expect_exit zero "facts add" "${BIN}" facts add --subject pricing --predicate monthly_price --value '$39' --type currency --source manual
 expect_exit nonzero "facts add bad type" "${BIN}" facts add --subject x --predicate y --value nope --type number --source manual
 expect_exit zero "facts list" "${BIN}" facts list
@@ -123,8 +123,8 @@ expect_exit zero "facts show" "${BIN}" facts show FACT-0001
 expect_exit nonzero "facts show missing" "${BIN}" facts show FACT-9999
 expect_exit zero "facts supersede" "${BIN}" facts add --subject pricing --predicate monthly_price --value '$49' --type currency --source manual --supersedes FACT-0001 --valid-from 2026-10-01
 expect_exit zero "facts retire" "${BIN}" facts retire FACT-0002
-expect_exit nonzero "claims add unknown observation" "${BIN}" claims add --observation obs_nope --text 'Ghostping costs $29 per month'
-expect_exit zero "claims add" "${BIN}" claims add --observation "${OBS_ID}" --text 'Ghostping costs $29 per month'
+expect_exit nonzero "claims add unknown observation" "${BIN}" claims add --observation obs_nope --text 'OpenRecord costs $29 per month'
+expect_exit zero "claims add" "${BIN}" claims add --observation "${OBS_ID}" --text 'OpenRecord costs $29 per month'
 expect_exit zero "claims list" "${BIN}" claims list
 expect_exit zero "claims show" "${BIN}" claims show CLM-0001
 expect_exit nonzero "claims show missing" "${BIN}" claims show CLM-9999
@@ -144,7 +144,7 @@ new_sandbox
 "${BIN}" init --name C --website "https://example.com" --yes >/dev/null 2>&1
 FIXDIR2="${REPO_ROOT}/tests/fixtures"
 "${BIN}" observations import-gsc --file "${FIXDIR2}/gsc_queries.csv" --report generic-search --date 2026-09-01 >/dev/null 2>&1
-OBS_ID="$(python3 -c "import sqlite3,os; print(sqlite3.connect(os.path.join(os.environ['HOME'], '.ghostping/evidence.db')).execute('SELECT observation_id FROM observations LIMIT 1').fetchone()[0])")"
+OBS_ID="$(python3 -c "import sqlite3,os; print(sqlite3.connect(os.path.join(os.environ['HOME'], '.openrecord/evidence.db')).execute('SELECT observation_id FROM observations LIMIT 1').fetchone()[0])")"
 expect_exit zero "facts conflicts empty" "${BIN}" facts conflicts
 expect_exit zero "facts add dated" "${BIN}" facts add --subject pricing --predicate monthly_price --value '$29' --type currency --source manual --valid-from 2026-01-01 --valid-until 2026-08-31
 expect_exit zero "facts add overlapping" "${BIN}" facts add --subject pricing --predicate monthly_price --value '$39' --type currency --source manual --valid-from 2026-09-01
@@ -152,7 +152,7 @@ expect_exit zero "facts conflicts present" "${BIN}" facts conflicts
 expect_exit nonzero "facts add malformed date" "${BIN}" facts add --subject x --predicate y --value v --source manual --valid-from 09/01/2026
 expect_exit nonzero "facts add malformed rfc3339" "${BIN}" facts add --subject x --predicate y --value v --source manual --valid-until 'next Friday'
 expect_exit nonzero "facts add inverted window" "${BIN}" facts add --subject x --predicate y --value v --source manual --valid-from 2026-09-02 --valid-until 2026-09-01
-expect_exit zero "claims add" "${BIN}" claims add --observation "${OBS_ID}" --text 'Ghostping costs $29 per month'
+expect_exit zero "claims add" "${BIN}" claims add --observation "${OBS_ID}" --text 'OpenRecord costs $29 per month'
 expect_exit zero "judgments add" "${BIN}" judgments add --claim CLM-0001 --fact FACT-0001 --verdict contradicted --reviewer human --rationale 'Fact says $29.'
 expect_exit zero "integrity export-assay empty filter" "${BIN}" integrity export-assay --out ./empty.jsonl --verdict supported
 expect_exit zero "integrity export-assay" "${BIN}" integrity export-assay --out ./human.jsonl

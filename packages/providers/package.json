@@ -1,5 +1,5 @@
 {
-  "name": "@ghostping/providers",
+  "name": "@openrecord/providers",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "effect": "3.22.2",
-    "@ghostping/config": "workspace:*",
+    "@openrecord/config": "workspace:*",
     "@effect/platform": "0.97.2",
     "@effect/platform-node": "0.108.2"
   },

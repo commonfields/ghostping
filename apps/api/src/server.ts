@@ -34,7 +34,7 @@ import {
   SourceTargetRepositoryLive,
   ReobservationIntentRepositoryLive,
   ReobservationRepositoryLive,
-} from "@ghostping/db"
+} from "@openrecord/db"
 import { makeRouter } from "./router.js"
 
 const Repos = Layer.mergeAll(

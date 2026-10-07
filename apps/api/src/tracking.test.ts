@@ -8,7 +8,7 @@ import {
   FactRepository,
   ProductReadRepository,
   SourceTargetRepository,
-} from "@ghostping/db"
+} from "@openrecord/db"
 import { createBinding, createTarget } from "./tracking.js"
 
 const BIZ_A = "11111111-1111-4111-8111-111111111111"

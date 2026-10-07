@@ -24,11 +24,11 @@ const dm = DM_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'Ghostping — Check if AI recommends your project',
+  title: 'OpenRecord — Check if AI recommends your project',
   description:
-    'Ghostping is a local-first CLI workbench for indie builders, solo founders, and open-source maintainers who want to audit whether AI models mention, cite, or recommend their projects.',
+    'OpenRecord is a local-first CLI workbench for indie builders, solo founders, and open-source maintainers who want to audit whether AI models mention, cite, or recommend their projects.',
   openGraph: {
-    title: 'Ghostping — Check if AI recommends your project',
+    title: 'OpenRecord — Check if AI recommends your project',
     description:
       'Audit AI mentions, citations, and recommendations. Local-first. No SaaS lock-in.',
     type: 'website',

@@ -47,7 +47,7 @@ import {
   NativeHttpCollector,
   originOf,
   shouldReuseExtraction,
-} from "@ghostping/representation"
+} from "@openrecord/representation"
 import type {
   CollectorOutcome,
   HttpTransport,
@@ -58,7 +58,7 @@ import type {
   SourceObservationV1,
   SourceTargetV1,
   WebCollector,
-} from "@ghostping/representation"
+} from "@openrecord/representation"
 import {
   BooleanField,
   decodeRow,

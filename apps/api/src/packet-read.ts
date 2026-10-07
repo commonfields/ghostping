@@ -12,8 +12,8 @@ import {
   exportIssuePacket,
   type EvidenceExportError,
   type RowDecodeError,
-} from "@ghostping/db"
-import { renderEvidencePacket, type EvidencePacketV1 } from "@ghostping/protocol"
+} from "@openrecord/db"
+import { renderEvidencePacket, type EvidencePacketV1 } from "@openrecord/protocol"
 
 export interface IssuePacket {
   readonly packet: EvidencePacketV1

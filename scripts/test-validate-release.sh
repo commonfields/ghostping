@@ -52,8 +52,8 @@ run_case() {
     stub_home="$(mktemp -d "${TMPDIR:-/tmp}/vr-test-stub-XXXXXX")"
     fake_home="$(mktemp -d "${TMPDIR:-/tmp}/vr-test-home-XXXXXX")"
     make_stub_cargo "${work}" "${fail_at}"
-    mkdir -p "${fake_home}/.ghostping"
-    echo "sentinel" > "${fake_home}/.ghostping/sentinel.txt"
+    mkdir -p "${fake_home}/.openrecord"
+    echo "sentinel" > "${fake_home}/.openrecord/sentinel.txt"
 
     # Run validation from the repo root with stub cargo first on PATH and an
     # isolated-as-real HOME. It must never write into fake_home.
@@ -71,8 +71,8 @@ run_case() {
 
     # Isolation: fake HOME must contain only the sentinel afterwards.
     local extra
-    extra="$(find "${fake_home}" -mindepth 1 ! -path "${fake_home}/.ghostping" ! -path "${fake_home}/.ghostping/sentinel.txt" | head -5)"
-    if [ -z "${extra}" ] && [ "$(cat "${fake_home}/.ghostping/sentinel.txt")" = "sentinel" ]; then
+    extra="$(find "${fake_home}" -mindepth 1 ! -path "${fake_home}/.openrecord" ! -path "${fake_home}/.openrecord/sentinel.txt" | head -5)"
+    if [ -z "${extra}" ] && [ "$(cat "${fake_home}/.openrecord/sentinel.txt")" = "sentinel" ]; then
         report "${name} leaves real HOME untouched" "untouched" "untouched"
     else
         report "${name} leaves real HOME untouched" "untouched" "modified: ${extra}"

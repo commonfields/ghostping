@@ -2,7 +2,7 @@
 //!
 //! Evaluates whether TypeSafe AI's Jev can classify narrow semantic
 //! relationships (factual relationship, citation support) with high
-//! precision and useful coverage. Ghostping's deterministic code owns every
+//! precision and useful coverage. OpenRecord's deterministic code owns every
 //! decision: Jev answers closed noul questions; composers map answers to
 //! labels and dispositions. See `research/jev-assay/PROTOCOL.md`
 //! (preregistered, frozen question-set-v1 + threshold-policy-v1).
@@ -1433,7 +1433,7 @@ mod tests {
     fn test_deterministic_baseline_behaviour() {
         // Exact normalized containment decides.
         assert_eq!(
-            deterministic_baseline("Ghostping costs $20.", "Ghostping costs $20 per month."),
+            deterministic_baseline("OpenRecord costs $20.", "OpenRecord costs $20 per month."),
             BaselineVerdict::Supported
         );
         // Numeric disagreement contradicts.
@@ -1443,7 +1443,7 @@ mod tests {
         );
         // Explicit negation contradicts.
         assert_eq!(
-            deterministic_baseline("Has no free plan.", "Ghostping has a free plan for all."),
+            deterministic_baseline("Has no free plan.", "OpenRecord has a free plan for all."),
             BaselineVerdict::Contradicted
         );
         // Unrelated evidence abstains rather than guessing.

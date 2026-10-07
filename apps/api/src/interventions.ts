@@ -14,7 +14,7 @@ import {
   type InterventionInput,
   type InterventionRow,
   type RowDecodeError,
-} from "@ghostping/db"
+} from "@openrecord/db"
 
 export interface RecordInterventionInput {
   readonly type: InterventionInput["type"]

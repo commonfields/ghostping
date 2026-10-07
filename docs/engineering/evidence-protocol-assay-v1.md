@@ -11,7 +11,7 @@ Baseline: `ca4f314610d99373944b0553f9d1001c413227f3` (`origin/main`, 2026-10-02,
 | CandidateClaim | `candidate_claims` (manual only) | `src/integrity.rs` |
 | HumanJudgment | `human_judgments` + `human_judgment_facts`, append-only `supersedes_id` chain, serialized per claim | `src/integrity.rs` |
 | Issue | Derived (`deriveIssue`). Identity is the claim id, and no table exists. | Derived |
-| CheckRun / worker contract | `check_runs` (atomic `FOR UPDATE SKIP LOCKED` claim, bounded retries); `ghostping-worker-{job,result}-v1` with shared Rust/TS fixtures | n/a |
+| CheckRun / worker contract | `check_runs` (atomic `FOR UPDATE SKIP LOCKED` claim, bounded retries); `openrecord-worker-{job,result}-v1` with shared Rust/TS fixtures | n/a |
 | Provider metadata | `provider`, `requested_model`, `observed_model`, `retrieval_mode` columns | free-string `surface`, `provider`, `model` |
 | 9Router | Pins the requested model, records `observed_model` only when returned, `retrieval_mode=unknown`, no invented citations, hashes wire bytes | same binary |
 
@@ -51,7 +51,7 @@ Fact versioning, authority-conflict detection, raw-evidence immutability and ded
 1. `packages/protocol`: Effect Schemas, canonical JSON and digest, signature and comparison, outcome, assembly, validation, renderer, and worker surface mappings.
 2. Generated JSON Schemas and golden fixtures. A Rust reader re-derives every fixture.
 3. Additive PostgreSQL: provenance columns, `interventions`, `intervention_issues`, `reobservations`.
-4. `@ghostping/db` lineage query and `exportIssuePacket`.
+4. `@openrecord/db` lineage query and `exportIssuePacket`.
 5. The worker records `MeasurementContextV1`, exact bytes, and provider metadata.
 
 Out of scope, as the brief directs: MCP, a public API, a hosted CLI export (P1), new providers, scraping, automatic extraction, scoring, and causal inference.

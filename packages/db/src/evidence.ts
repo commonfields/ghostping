@@ -2,7 +2,7 @@
 // links, the tenant-scoped issue lineage query, and packet export.
 //
 // Only evidence and events are stored. Signatures, match classification,
-// observed change, outcomes, and unknowns are derived by @ghostping/protocol
+// observed change, outcomes, and unknowns are derived by @openrecord/protocol
 // at export time, so there is exactly one implementation of those rules.
 import { createHash } from "node:crypto"
 import { Context, Data, Effect, Layer, Schema } from "effect"
@@ -27,7 +27,7 @@ import {
   type InterventionV1,
   type JudgmentV1,
   type ObservationV1,
-} from "@ghostping/protocol"
+} from "@openrecord/protocol"
 import {
   NullableTextField,
   NullableUuidField,
@@ -354,7 +354,7 @@ export const ReobservationRepositoryLive = Layer.effect(
 // observation collected by its check run. Failed checks leave the intent
 // row in place with no link. No signature, match, observed change,
 // outcome, or causal claim is stored here or anywhere else; those derive
-// in @ghostping/protocol at read/export time.
+// in @openrecord/protocol at read/export time.
 export interface ReobservationIntentRow {
   readonly id: string
   readonly businessId: string

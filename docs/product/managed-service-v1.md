@@ -1,4 +1,4 @@
-# Managed Service V1 — Ghostping Managed AI Representation
+# Managed Service V1 — OpenRecord Managed AI Representation
 
 Base: `origin/main` @ `aeb2ccd` (PR #34 merged). Status: OPERATOR-RUNNABLE ON MOCK;
 LIVE MEASUREMENT BLOCKED ON CREDENTIALS (see §14). No code changes in this
@@ -80,8 +80,8 @@ existence.
    target (URL + control) → create binding (fact + extractor + comparator).
    (`POST .../representations/targets`, `POST
    .../representations/targets/:targetId/bindings`.)
-6. **ACT.** Prepare the correction outside Ghostping (manual edit or a Git PR
-   the customer approves — Ghostping never writes to customer sources and
+6. **ACT.** Prepare the correction outside OpenRecord (manual edit or a Git PR
+   the customer approves — OpenRecord never writes to customer sources and
    owns no GitHub write access). Then **Record action** on the issue:
    type (`SOURCE_UPDATED` / `SOURCE_PUBLISHED` /
    `THIRD_PARTY_CORRECTION_REQUESTED` / `KNOWLEDGE_BASE_UPDATED` /
@@ -254,7 +254,7 @@ Scores do not exist; do not invent them.
   that ships corrections quickly.
 - **Reject:** all-relevant-information uncontrollable third-party; nobody can
   approve facts; expects guaranteed ChatGPT rankings or SEO traffic; regulated
-  use needing assurances Ghostping does not provide.
+  use needing assurances OpenRecord does not provide.
 - **Outreach draft (do not send without operator approval):** "I'm running a
   small managed pilot for software companies. We monitor what AI assistants
   tell prospective buyers about your product, investigate factual errors, fix

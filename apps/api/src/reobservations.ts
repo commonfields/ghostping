@@ -27,7 +27,7 @@ import {
   type ReobservationIntentRow,
   type ReobservationRow,
   type RowDecodeError,
-} from "@ghostping/db"
+} from "@openrecord/db"
 
 export interface RequestRecheckInput {
   readonly interventionId: string | null

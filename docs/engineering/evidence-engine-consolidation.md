@@ -1,6 +1,6 @@
 # Evidence-engine consolidation
 
-Product invariant: Ghostping has **one authoritative definition of an audit** —
+Product invariant: OpenRecord has **one authoritative definition of an audit** —
 the evidence engine (`audit_engine.rs`, `audit_storage.rs`, `evidence.db`).
 The legacy `tracker.rs` / `storage.rs` / `mentions.db` path is a second,
 older definition. This note inventories every consumer, classifies it, and
@@ -17,7 +17,7 @@ records the smallest safe consolidation slice. No silent behavior changes.
 | `audit list` / `audit show` / `audit compare` | Read evidence records (show prefers live recomputation) |
 | `report` (`ReportGenerator` + CLI inline report) | Reads evidence records; labels mock TEST DATA |
 | `generate` (`ContentGenerator`) | Reads evidence gaps; writes `generated_assets` |
-| `schedule`-generated jobs (post-consolidation) | Execute `ghostping audit run` from the project dir → evidence records |
+| `schedule`-generated jobs (post-consolidation) | Execute `openrecord audit run` from the project dir → evidence records |
 
 ### `Storage` / `mentions.db` + `tracker::run_track` (legacy)
 
@@ -38,7 +38,7 @@ records the smallest safe consolidation slice. No silent behavior changes.
 ## Consolidation slice implemented
 
 1. **Scheduled jobs produce evidence.** `ScheduledAudit::argv()` is exactly
-   `ghostping audit run [--models M] --yes`, executed from the project
+   `openrecord audit run [--models M] --yes`, executed from the project
    directory (launchd `WorkingDirectory`, cron `cd ... && ...`). Covered by
    fixture tests that execute the generated argv/shell against a stub.
 2. **Legacy identity is explicit.** `TrackSummary.source` is always

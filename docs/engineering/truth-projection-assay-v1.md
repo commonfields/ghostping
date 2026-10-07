@@ -22,8 +22,8 @@ Two disjoint stores, no sync between them:
 Yes. Hosted: API routes (`apps/api/src/router.ts:440-541` create/supersede/
 retire, conflict-guarded by `activeOverlapping`), direct `FactRepositoryLive`
 calls (`packages/db/src/repositories.ts:158-200`), raw-SQL seeds
-(`packages/db/src/seed.ts:18-24`). Local: `ghostping facts add|retire`
-(`src/bin/ghostping.rs:3746-3916` via `AuditStorage::insert_fact`,
+(`packages/db/src/seed.ts:18-24`). Local: `openrecord facts add|retire`
+(`src/bin/openrecord.rs:3746-3916` via `AuditStorage::insert_fact`,
 `src/integrity.rs:615-662,799-808`). No CLI↔hosted sync exists
 (`0001_init.sql:1-2`: PG is the sole hosted store).
 
@@ -74,7 +74,7 @@ immutable records.
 
 ## 8. Which existing representation objects can be reused?
 
-All verification reuses `@ghostping/representation` with no new engine:
+All verification reuses `@openrecord/representation` with no new engine:
 `SourceTargetV1`/`SourceBindingV1` shapes (`types.ts:16-43`),
 `RepresentationStore` (`service.ts:15-23`), `collectAndEvaluate`,
 `buildGraph` + `deriveFinding` + `compareMoney/Boolean/ExactText`,
@@ -90,9 +90,9 @@ idempotently.
   documented `AuthoritativeFact` bridge encoding + round-trip tests.
 - No YAML runtime exists in TS packages (only transitive lockfile hits);
   the truth package adds `yaml` (safe Core schema, no tags/anchors→objects).
-- No `.ghostping/` lock/receipt conventions exist; only JEV assay receipts
+- No `.openrecord/` lock/receipt conventions exist; only JEV assay receipts
   (`src/jev_assay.rs`) and `generated_assets` rows — file receipts under
-  `.ghostping/receipts/` plus `projections.lock.json` are new but minimal.
+  `.openrecord/receipts/` plus `projections.lock.json` are new but minimal.
 - Boundary audit (precondition 2): `readCapped` truncates only when
   `total > maxBytes + 1`, so exactly `maxBytes + 1` bytes are wrongly
   accepted. Fixed as the first commit of this branch with boundary tests.

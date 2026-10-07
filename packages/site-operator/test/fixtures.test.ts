@@ -1,7 +1,7 @@
 // SEARCH_OPERATOR_V1 deterministic fixtures A-J + contract tests.
 // No network, no randomness: pure inspection logic over static HTML.
 import { describe, expect, it } from "vitest"
-import { isForbiddenIp } from "@ghostping/representation"
+import { isForbiddenIp } from "@openrecord/representation"
 import {
   FINDING_KIND_META,
   canTransitionFinding,

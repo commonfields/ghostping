@@ -1,4 +1,4 @@
-use ghostping::{
+use openrecord::{
     agent::optimizer::{self, OptimizeOptions},
     cache::Cache,
     config::Config,
@@ -65,7 +65,7 @@ fn open_cache() -> Result<Cache, String> {
     Cache::new(&base_dir).map_err(|e| e.to_string())
 }
 
-fn load_providers(models: Option<String>) -> Result<Vec<Arc<dyn ghostping::providers::LlmProvider>>, String> {
+fn load_providers(models: Option<String>) -> Result<Vec<Arc<dyn openrecord::providers::LlmProvider>>, String> {
     let config = Config::load().map_err(|e| e.to_string())?;
     Ok(tracker::build_providers_filtered(&config, models.as_deref()))
 }
@@ -103,12 +103,12 @@ async fn run_audit_async(
 ) -> Result<AuditResult, String> {
     let providers = load_providers(models)?;
     if providers.is_empty() {
-        return Err("No providers enabled. Configure at least one in ~/.ghostping/config.toml".into());
+        return Err("No providers enabled. Configure at least one in ~/.openrecord/config.toml".into());
     }
     let storage = open_storage()?;
     let cache = open_cache()?;
     let config = Config::load().map_err(|e| e.to_string())?;
-    let prompts = ghostping::geo::prompts::default_prompts(&domain, niche.as_deref(), None);
+    let prompts = openrecord::geo::prompts::default_prompts(&domain, niche.as_deref(), None);
 
     let summary = tracker::run_track(
         &domain,

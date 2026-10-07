@@ -1,5 +1,5 @@
 {
-  "name": "@ghostping/discovery",
+  "name": "@openrecord/discovery",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@ghostping/representation": "workspace:*",
+    "@openrecord/representation": "workspace:*",
     "cheerio": "1.0.0",
     "effect": "3.22.2"
   },

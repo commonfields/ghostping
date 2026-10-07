@@ -11,7 +11,7 @@ import {
   DiscoveryScopeRepository,
   FactRepository,
   ProductReadRepository,
-} from "@ghostping/db"
+} from "@openrecord/db"
 import {
   groupDiscoveryCandidates,
   isDuplicateActiveRun,

@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import { deriveIssueState } from "@ghostping/domain"
+import { deriveIssueState } from "@openrecord/domain"
 import {
   canonicalJson,
   compareMeasurements,
@@ -291,14 +291,14 @@ describe("controlled explanation renderer", () => {
     expect(text).toContain('The approved monthly price for Acme Starter was "$39/month" in fact version 1.')
     expect(text).toContain("The claim and the approved value conflict.")
     expect(text).toContain("The AI response cited https://example.com/acme-review.")
-    expect(text).toContain("Ghostping cannot prove that a citation caused the response.")
+    expect(text).toContain("OpenRecord cannot prove that a citation caused the response.")
     expect(text).toContain("After intervention intervention-pricing-page, an exactly matched re-observation changed from CONTRADICTED to SUPPORTED.")
     expect(text).toContain("Causal attribution is UNKNOWN.")
     expect(text).not.toMatch(/caused the AI|fixed|resolved by|because of the intervention|ASD-STE100/i)
   })
   it("makes temporal fact changes and missing outcomes explicit", () => {
     expect(renderEvidencePacket(packet("superseded-fact"))).toContain("The two judgments used different fact versions.")
-    expect(renderEvidencePacket(packet("intervention-not-observed"))).toContain("Ghostping has not observed an outcome after the intervention.")
+    expect(renderEvidencePacket(packet("intervention-not-observed"))).toContain("OpenRecord has not observed an outcome after the intervention.")
     expect(renderEvidencePacket(packet("changed-unjudged"))).toContain("No reviewer has judged the later response.")
   })
 })

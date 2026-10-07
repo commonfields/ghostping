@@ -5,9 +5,9 @@
 
 import pg from "pg"
 import { Schema } from "effect"
-import { sameCanonicalUrl } from "@ghostping/representation"
-import { AuthorityError, decodeBridge, type AuthorityStore, type BridgeStore, type FactSyncStore, type FactTxStore, type Provenance, type SyncedFact } from "@ghostping/truth"
-import type { ManifestFactV1 } from "@ghostping/truth"
+import { sameCanonicalUrl } from "@openrecord/representation"
+import { AuthorityError, decodeBridge, type AuthorityStore, type BridgeStore, type FactSyncStore, type FactTxStore, type Provenance, type SyncedFact } from "@openrecord/truth"
+import type { ManifestFactV1 } from "@openrecord/truth"
 import {
   NullableTextField,
   NullableTimestampField,

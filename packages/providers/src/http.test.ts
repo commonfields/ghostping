@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createServer, type Server } from "node:http"
 import { Effect, Layer, Redacted } from "effect"
 import { NodeHttpClient } from "@effect/platform-node"
-import { NineRouterSettings } from "@ghostping/config"
+import { NineRouterSettings } from "@openrecord/config"
 import { NineRouterProvider, NineRouterProviderLive, sha256 } from "./index.js"
 let server: Server
 let port: number

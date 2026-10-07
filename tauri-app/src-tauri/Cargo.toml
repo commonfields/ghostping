@@ -2,18 +2,18 @@
 resolver = "2"
 
 [package]
-name = "ghostping-app"
+name = "openrecord-app"
 version = "0.2.0"
 edition = "2021"
-description = "Ghostping desktop — local-first GEO agent"
+description = "OpenRecord desktop — local-first GEO agent"
 
 [lib]
-name = "ghostping_app_lib"
+name = "openrecord_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
-# The ghostping core library (path relative to this Cargo.toml)
+# The openrecord core library (path relative to this Cargo.toml)
 [dependencies]
-ghostping = { path = "../.." }
+openrecord = { path = "../.." }
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }

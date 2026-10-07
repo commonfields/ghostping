@@ -1,7 +1,7 @@
 // Candidate-group counting: candidates_found must count logical candidates
 // (page + lineage), never raw match events. Pure unit tests, no Postgres.
 import { describe, expect, it } from "vitest"
-import { countCandidateGroups } from "@ghostping/discovery"
+import { countCandidateGroups } from "@openrecord/discovery"
 
 describe("countCandidateGroups", () => {
   it("17 identical occurrences on one page/lineage count as one candidate", () => {

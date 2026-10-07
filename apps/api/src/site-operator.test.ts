@@ -2,7 +2,7 @@
 // transitions. DB-free: stubbed Effect layers.
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
-import { SiteFindingRepository } from "@ghostping/db"
+import { SiteFindingRepository } from "@openrecord/db"
 import { canRecordMutationState, transitionFinding, validateSiteRoot } from "./site-operator.js"
 
 describe("validateSiteRoot", () => {
@@ -88,7 +88,7 @@ describe("canRecordMutationState", () => {
     expect(canRecordMutationState("CREATED", "BRANCH_CREATED")).toBe(true)
     expect(canRecordMutationState("BRANCH_CREATED", "PR_OPEN")).toBe(true)
     expect(canRecordMutationState("PR_OPEN", "MERGED")).toBe(true)
-    // Ghostping never merges by itself: MERGED is reachable only from PR_OPEN.
+    // OpenRecord never merges by itself: MERGED is reachable only from PR_OPEN.
     expect(canRecordMutationState("CREATED", "MERGED")).toBe(false)
     expect(canRecordMutationState("CREATED", "PR_OPEN")).toBe(false)
     expect(canRecordMutationState("MERGED", "PR_OPEN")).toBe(false)

@@ -1,6 +1,6 @@
-# Ghostping Landing Page
+# OpenRecord Landing Page
 
-A clean, developer-focused landing page for Ghostping — the local-first CLI workbench for auditing AI model visibility.
+A clean, developer-focused landing page for OpenRecord — the local-first CLI workbench for auditing AI model visibility.
 
 ## Quick Start
 
@@ -56,9 +56,9 @@ project, update these values at the top of `app/page.tsx`:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GITHUB_REPO` | GitHub repository URL | `'https://github.com/commonfields/ghostping'` |
-| `RELEASES_URL` | GitHub releases page | `'https://github.com/commonfields/ghostping/releases'` |
-| `DOCS_URL` | Documentation URL | `'https://github.com/commonfields/ghostping#readme'` |
+| `GITHUB_REPO` | GitHub repository URL | `'https://github.com/commonfields/openrecord'` |
+| `RELEASES_URL` | GitHub releases page | `'https://github.com/commonfields/openrecord/releases'` |
+| `DOCS_URL` | Documentation URL | `'https://github.com/commonfields/openrecord#readme'` |
 | `INSTALL_SH` | macOS/Linux install script | raw `scripts/install.sh` URL above |
 | `INSTALL_PS1` | Windows install script | raw `scripts/install.ps1` URL above |
 
@@ -105,4 +105,4 @@ website/
 
 ## License
 
-MIT — same as the Ghostping project.
+MIT — same as the OpenRecord project.

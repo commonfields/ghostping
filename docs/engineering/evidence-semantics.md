@@ -1,6 +1,6 @@
 # Evidence semantics (kernel correctness)
 
-How Ghostping preserves what upstream sources actually establish — and
+How OpenRecord preserves what upstream sources actually establish — and
 refuses to upgrade uncertainty. Complements
 `observation-integrity.md` (import/migration mechanics).
 
@@ -10,7 +10,7 @@ design. The pipeline stops at deterministic interpretation:
 ```text
 provider/platform emitted fact
         ↓
-Ghostping-preserved observation
+OpenRecord-preserved observation
         ↓
 deterministic interpretation
         ↓
@@ -72,7 +72,7 @@ retracted: reported-zero is the honest ceiling.)
 
 Per the provider contract, `groundingSupports[].segment` carries
 `partIndex`/`startIndex`/`endIndex`/`text` where offsets are **byte
-offsets into the referenced part**. Ghostping preserves `ResponsePart`s
+offsets into the referenced part**. OpenRecord preserves `ResponsePart`s
 and validates `part[bytes[start..end]]` against `segment.text`:
 
 - missing `partIndex` → part 0 (single-part shape);

@@ -1,5 +1,5 @@
 {
-  "name": "@ghostping/domain",
+  "name": "@openrecord/domain",
   "version": "0.1.0",
   "type": "module",
   "exports": {

@@ -1,5 +1,5 @@
 {
-  "name": "@ghostping/truth",
+  "name": "@openrecord/truth",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -13,8 +13,8 @@
     "truth": "tsx src/cli.ts"
   },
   "dependencies": {
-    "@ghostping/db": "workspace:*",
-    "@ghostping/representation": "workspace:*",
+    "@openrecord/db": "workspace:*",
+    "@openrecord/representation": "workspace:*",
     "pg": "8.13.1",
     "yaml": "2.7.0"
   },

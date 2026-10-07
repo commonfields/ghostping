@@ -3,7 +3,7 @@
 // sleeping, no Postgres) against the real startRunnerLoops composition.
 import { Deferred, Effect, Fiber } from "effect"
 import { describe, expect, it } from "vitest"
-import { RawDigestMismatch } from "@ghostping/db"
+import { RawDigestMismatch } from "@openrecord/db"
 import { startRunnerLoops } from "./runner.js"
 
 const testPollMs = 5
