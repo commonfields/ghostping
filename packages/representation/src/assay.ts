@@ -25,8 +25,8 @@ export interface MoneyFact {
 }
 
 const PERIOD_PATTERNS: ReadonlyArray<[BillingPeriod, RegExp]> = [
-  ["MONTH", /\b(per\s+month|(?:a|each|every)\s+month|\/\s*mo\b|\/\s*month\b|\bmonthly\b|\bmo\b)/i],
-  ["YEAR", /\b(per\s+(?:year|annum)|(?:a|each|every)\s+year|\/\s*yr\b|\/\s*year\b|\bannual(?:ly)?|yearly\b|\byr\b)/i],
+  ["MONTH", /\b(per\s+month|(?:a|each|every)\s+month|\bmonthly\b|\bmo\b)|\/\s*(?:mo|month)\b/i],
+  ["YEAR", /\b(per\s+(?:year|annum)|(?:a|each|every)\s+year|\bannual(?:ly)?|yearly\b|\byr\b)|\/\s*(?:yr|year)\b/i],
   ["ONE_TIME", /\b(one-?time|once|lifetime|setup\s+fee)\b/i],
 ]
 
@@ -39,7 +39,7 @@ const UNIT_PATTERNS: ReadonlyArray<[MoneyUnit, RegExp]> = [
 ]
 
 // Any "per <noun>" / "each <noun>" that is not a billing period names a basis.
-const OTHER_UNIT_LANGUAGE = /\b(?:per|each|every)\s+(?!month\b|year\b|annum\b|mo\b|yr\b)\S|\/\s*(?!mo\b|month\b|yr\b|year\b)[a-z]|\bfor\s+(?:\d|each\b|every\b|all\b|(?:the\s+)?(?:whole|entire)\b|(?:a|your|the)\s+teams?\b|teams?\b)|\b(?:whole|entire)\s+(?:team|company|org)|\b(?:team|company|org(?:anization)?)-?wide\b/i
+const OTHER_UNIT_LANGUAGE = /\b(?:per|each|every)\s+(?!month\b|year\b|annum\b|mo\b|yr\b)\S|\/\s*(?!mo\b|month\b|yr\b|year\b)[a-z]|\bfor\s+(?:\d|each\b|every\b|all\b|(?:students?|nonprofits?|non-profits?|education(?:al)?|educators?|academic|startups?|government|schools?|charit\w*|individuals?|freelancers?)\b|(?:the\s+)?(?:whole|entire)\b|(?:a|your|the)\s+teams?\b|teams?\b)|\b(?:whole|entire)\s+(?:team|company|org)|\b(?:team|company|org(?:anization)?)-?wide\b/i
 
 const QUALIFIER_PATTERNS: ReadonlyArray<[MoneyQualifier, RegExp]> = [
   ["STARTING_AT", /\b(start(?:s|ing)?\s+at|begins?\s+at|from|as\s+low\s+as)\b/i],

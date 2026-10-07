@@ -44,17 +44,25 @@ const guarded = (text: string, subject: string, aliases: readonly string[], requ
   // are preferable to crediting another company's statement to the prospect.
   return !(remaining.match(/\b[A-Z][A-Za-z0-9]+\b/g) ?? []).some(word => !SAFE_CAPITALS.has(word))
 }
+// A capability denial may carry present-tense adverbs ("does not currently
+// support") but nothing else; any other negation shape stays undecided.
+const DENIAL_ADVERBS = "(?: +(?:currently|natively|directly|fully|really|officially|yet|actually))*"
+const NEGATION = /\b(?:not|never|no|cannot|without|lacks?|lacking)\b|n['’]t\b/i
+const UNCERTAIN_ASSERTION = /\?|\b(?:whether|wonder|unclear|unsure|doubt|seems?|appears?|apparently|supposedly|reportedly|likely|probably|won['’]t|will not)\b/i
 const booleanClaim = (subject: string, text: string, kind: "plan" | "capability", aliases: readonly string[]): boolean | null => {
-  if (!guarded(text, subject, aliases)) return null
-  const term = escape(subject)
+  if (!guarded(text, subject, aliases) || UNCERTAIN_ASSERTION.test(text)) return null
+  const term = `${escape(subject)}(?![-\\w])`
   const yes = kind === "plan"
     ? new RegExp(`\\b${term}(?: (?:plan|tier))? (?:is |remains )?(?:available|offered)\\b`, "i")
-    : new RegExp(`\\b(?:supports?|integrates? with|includes?) ${term}\\b|\\b${term}(?: integration)? is (?:supported|available)\\b`, "i")
+    : new RegExp(`\\b(?:supports?|integrates? with|includes?) ${term}|\\b${term}(?: integration)? is (?:supported|available)\\b`, "i")
   const no = kind === "plan"
-    ? new RegExp(`\\b${term}(?: (?:plan|tier))? (?:is )?(?:not available|unavailable)\\b|\\b(?:has no|does not offer) ${term}(?: (?:plan|tier))?\\b`, "i")
-    : new RegExp(`\\b(?:does not|doesn't|cannot|can't) (?:support|integrate with|include) ${term}\\b|\\b${term}(?: integration)? is (?:not supported|unavailable)\\b`, "i")
+    ? new RegExp(`\\b${term}(?: (?:plan|tier))? (?:is )?(?:not available|unavailable)\\b|\\b(?:has no|does not offer) ${term}(?: (?:plan|tier))?`, "i")
+    : new RegExp(`\\b(?:does not|doesn't|cannot|can't)${DENIAL_ADVERBS} (?:support|integrate with|include) ${term}|\\b${term}(?: integration)? is (?:not supported|unavailable)\\b`, "i")
   const negative = no.test(text)
-  const positive = yes.test(text.replace(no, ""))
+  // A sentence that negates anything but the exact denial shape cannot be
+  // read as an affirmation either ("does not appear to support", "no longer").
+  if (!negative && NEGATION.test(text)) return null
+  const positive = !negative && yes.test(text)
   return positive === negative ? null : positive
 }
 export const comparePlanAvailabilityClaim = (fact: BooleanAssayFact, subject: string, answer: string, aliases: readonly string[] = []): ClaimComparison => compareBoolean(fact, subject, answer, "plan", aliases)

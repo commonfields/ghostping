@@ -92,3 +92,40 @@ describe("pricing cards keep their ordinary trial wording", () => {
     expect(f && (f.normalized as { qualifier: string }).qualifier).toBe("EXACT")
   })
 })
+
+describe("independent review round: capability denials, questions, near-miss nouns and segment prices", () => {
+  const cap = (value: boolean, a: string) => extractAssayJudgment({ factType: "BOOLEAN_CAPABILITY", subject: "Slack", normalized: { value, qualifier: "EXACT" }, businessAliases: ["Acme"] }, a).comparison
+  it.each([
+    "Acme does not currently support Slack.", "Acme does not natively support Slack.", "Acme does not directly support Slack.",
+    "Acme does not fully support Slack.", "Acme does not yet support Slack.", "Acme does not really support Slack.", "Acme cannot currently support Slack.",
+  ])("adverb-interrupted denial is a denial: %s", a => {
+    expect(cap(false, a)).toBe("MATCHES")
+    expect(cap(true, a)).toBe("CONTRADICTS")
+  })
+  it.each([
+    "Acme does not appear to support Slack.", "Acme won't support Slack.", "does acme support slack?", "can acme support slack?",
+    "I wonder whether Acme supports Slack.", "Whether Acme supports Slack is unclear to me.", "Acme supports Slack? Not really.",
+    "Acme supports Slack-like integrations.", "Acme no longer supports Slack.",
+  ])("questions, hedges and near-miss nouns are never a verdict: %s", a => {
+    expect(cap(false, a)).toBe("UNCLEAR")
+    expect(cap(true, a)).toBe("UNCLEAR")
+  })
+  it("a plain affirmation and denial still decide", () => {
+    expect(cap(true, "Acme supports Slack.")).toBe("MATCHES")
+    expect(cap(false, "Acme supports Slack.")).toBe("CONTRADICTS")
+    expect(cap(false, "Acme does not support Slack.")).toBe("MATCHES")
+  })
+  const normalized = { amountMinor: 7900, currency: "USD", billingPeriod: "MONTH", unit: "UNSTATED", qualifier: "EXACT" } as const
+  const price = (a: string) => extractAssayJudgment({ factType: "PRICE", subject: "Pro", normalized, businessAliases: ["Acme"] }, a).comparison
+  it("segment-qualified prices are not the plan price", () => {
+    expect(price("Acme's Pro plan costs $79/month for students.")).toBe("UNCLEAR")
+    expect(price("Acme's Pro plan costs $79/month for nonprofits.")).toBe("UNCLEAR")
+    const html = `<div><div><h3>Pro</h3><p>$79/month for students</p></div><div><h3>Team</h3><p>$149/month</p></div></div>`
+    const proposed = proposeAssayFacts(html, { subject: "Acme", planTerms: ["Pro", "Team"], capabilityTerms: [] }).facts.find(f => f.subject === "Pro")
+    expect(proposed && (proposed.normalized as { unit: string }).unit).not.toBe("UNSTATED")
+  })
+  it("'$79 / month' keeps its period", () => {
+    expect(price("Acme's Pro plan costs $79 / month.")).toBe("MATCHES")
+    expect(price("Acme's Pro plan costs $49 / month.")).toBe("CONTRADICTS")
+  })
+})
