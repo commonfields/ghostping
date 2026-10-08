@@ -59,9 +59,11 @@ environment limitation, not a code defect.
 There is no applied-migrations table, so each file must be idempotent (`IF NOT EXISTS`,
 `DROP TRIGGER IF EXISTS`, `CREATE OR REPLACE`).
 
-**Applied migrations are immutable.** Never edit an existing file — supersede it with a new numbered
-migration that redefines what it must. For example `0017_authority_sync_rebrand.sql` redefines a
-function rather than editing `0005`, which keeps already-migrated databases consistent with the repo.
+**Applied migrations are behavior-frozen.** `migrate.ts` re-runs every file on every migrate (there
+is no ledger), so each file must stay idempotent, and an edit to an existing file must not change the
+schema a full migrate leaves behind — comments, or a definition a later migration already replaces.
+Behavior changes go in a new numbered migration: `0017_authority_sync_rebrand.sql` redefines a
+function rather than changing what `0005` leaves in place.
 
 ---
 

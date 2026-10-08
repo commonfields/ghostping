@@ -1,9 +1,8 @@
--- SEARCH_OPERATOR_V1-era rebrand: move the manifest-sync setting from
--- ghostping.authority_sync to openrecord.authority_sync.
--- 0005_truth_projection_v1.sql is left untouched (applied-migration
--- immutability); redefining the function here is the forward-safe path.
--- Old databases pick this up on the next migrate run; fresh databases get
--- the new name from the start. The hosted API only ever sets the new name.
+-- SEARCH_OPERATOR_V1-era rebrand: the manifest-sync setting is
+-- openrecord.authority_sync. 0005_truth_projection_v1.sql now defines the
+-- function with that name from the start; this migration redefines it
+-- identically so databases migrated before the rebrand are converged on
+-- the next migrate run. The hosted API only ever sets the new name.
 
 CREATE OR REPLACE FUNCTION check_fact_authority() RETURNS trigger AS $$
 DECLARE
