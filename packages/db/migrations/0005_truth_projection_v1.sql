@@ -45,7 +45,7 @@ FOR EACH ROW EXECUTE FUNCTION check_authority_mode_transition();
 
 -- Direct hosted writes fail closed for repository-managed businesses.
 -- The manifest sync runs inside a transaction with
--- SET LOCAL openrecord.authority_sync = '1'; the hosted API never sets it.
+-- SET LOCAL ghostping.authority_sync = '1'; the hosted API never sets it.
 CREATE OR REPLACE FUNCTION check_fact_authority() RETURNS trigger AS $$
 DECLARE
   mode TEXT;
@@ -54,7 +54,7 @@ BEGIN
   SELECT writer INTO mode FROM business_authority_mode WHERE business_id = NEW.business_id;
   IF mode = 'REPOSITORY_MANIFEST' THEN
     BEGIN
-      sync_flag := current_setting('openrecord.authority_sync', true);
+      sync_flag := current_setting('ghostping.authority_sync', true);
     EXCEPTION WHEN OTHERS THEN
       sync_flag := NULL;
     END;

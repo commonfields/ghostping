@@ -1,6 +1,6 @@
 # OpenRecord Landing Page
 
-The public OpenRecord homepage: a static page for agencies describing the shareable client record. It describes only what the product does today; set `NEXT_PUBLIC_CONTACT_EMAIL` at build time to show the pilot contact button.
+A clean, developer-focused landing page for OpenRecord — the local-first CLI workbench for auditing AI model visibility.
 
 ## Quick Start
 

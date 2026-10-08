@@ -8,7 +8,7 @@
 --
 -- Stored here: evidence and events. NOT stored: match classification,
 -- observed change, outcome, "corrected" flags, or causal claims. Those are
--- derived by @openrecord/protocol at export time from these rows.
+-- derived by @ghostping/protocol at export time from these rows.
 
 -- Raw evidence: exact wire bytes when the worker supplies them. Rows are
 -- digest-deduplicated, so received_at is the first receipt of those bytes.
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS interventions (
   -- NULL = identity not proven (exported as UNKNOWN). Never fabricated.
   actor_id TEXT,
   notes TEXT,
-  -- NULL = OpenRecord holds no content digest (exported as UNKNOWN).
+  -- NULL = Ghostping holds no content digest (exported as UNKNOWN).
   evidence_before_digest TEXT CHECK (evidence_before_digest IS NULL OR evidence_before_digest ~ '^[a-f0-9]{64}$'),
   evidence_after_digest TEXT CHECK (evidence_after_digest IS NULL OR evidence_after_digest ~ '^[a-f0-9]{64}$'),
   supersedes_id UUID REFERENCES interventions(id),

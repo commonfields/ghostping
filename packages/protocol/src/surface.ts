@@ -1,7 +1,6 @@
 // Surface mappings for the providers the hosted worker currently supports.
-// Only directly established metadata is KNOWN. Rust mirrors the 9router and
-// mock mappings in `SurfaceIdentityV1::from_worker`; the frozen CLI never
-// reads gemini observations, so that surface is TypeScript-only.
+// Only directly established metadata is KNOWN. Rust mirrors these mappings in
+// `SurfaceIdentityV1::from_worker`.
 import {
   knownValue,
   NOT_APPLICABLE,
@@ -44,32 +43,6 @@ export const surfaceForWorker = (
       metadata_visibility: "PARTIAL",
     }
   }
-  if (provider === "gemini") {
-    return {
-      schema: schemaId.surface,
-      schema_version: 1,
-      // Direct Gemini API call with the google_search grounding tool.
-      kind: "SEARCH_GROUNDED_API",
-      product: "Gemini API",
-      adapter: "openrecord-gemini",
-      adapter_version: "1",
-      gateway: NOT_APPLICABLE,
-      requested_provider: knownValue("google"),
-      requested_model: knownOr(requestedModel, UNKNOWN),
-      observed_provider: knownValue("google"),
-      observed_model: knownOr(observedModel, UNKNOWN),
-      // An API-key request has no consumer account, plan or personalization.
-      account_state: NOT_APPLICABLE,
-      subscription_tier: NOT_APPLICABLE,
-      locale: UNKNOWN,
-      region: UNKNOWN,
-      // What was requested. Whether a given answer actually searched is
-      // per-observation evidence (observations.retrieval_mode).
-      search_mode: knownValue("google_search"),
-      personalization_state: NOT_APPLICABLE,
-      metadata_visibility: "PARTIAL",
-    }
-  }
   if (provider === "mock") {
     return {
       schema: schemaId.surface,
@@ -101,9 +74,6 @@ export const surfaceForWorker = (
 export const requestConfigurationForWorker = (provider: string, requestedModel: string | null): KnowledgeJson => {
   if (provider === "9router") {
     return knownValue({ model: requestedModel, sampling_parameters: "PROVIDER_DEFAULT", stream: false })
-  }
-  if (provider === "gemini") {
-    return knownValue({ model: requestedModel, tools: ["google_search"], sampling_parameters: "PROVIDER_DEFAULT" })
   }
   if (provider === "mock") return knownValue({ deterministic_fixture: true })
   throw new Error(`UnsupportedSurfaceProvider: ${provider}`)

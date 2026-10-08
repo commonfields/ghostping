@@ -135,8 +135,6 @@ export const FailureClass = Schema.Literal(
   "PROVIDER_UNSUPPORTED",
   "PROVIDER_CONTRACT_MISMATCH",
   "WORKER_FAILED",
-  // The worker's lease on a RUNNING check expired (crash, kill, partition).
-  "WORKER_LOST",
   "WORKER_CONTRACT_MISMATCH",
   "UNKNOWN",
 )

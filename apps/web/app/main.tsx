@@ -24,9 +24,6 @@ import { SearchOverviewPage } from "./routes/search"
 import { SiteFindingPage } from "./routes/site-finding"
 import { SiteRunPage } from "./routes/site-run"
 import { TruthPage } from "./routes/truth"
-import { ClientsPage } from "./routes/clients"
-import { ClientRecordPage } from "./routes/client"
-import { PublicRecordPage } from "./routes/public-record"
 
 function App() {
   return (
@@ -36,8 +33,6 @@ function App() {
         <Routes>
           <Route path="/signin" element={<SignIn />} />
           <Route path="/signup" element={<SignUp />} />
-          {/* The client-facing record: public, read-only, outside the workspace shell. */}
-          <Route path="/open/:publicId" element={<PublicRecordPage />} />
           <Route
             element={
               <RequireAuth>
@@ -49,10 +44,7 @@ function App() {
               </RequireAuth>
             }
           >
-            <Route path="/" element={<Navigate to="/clients" replace />} />
-            <Route path="/clients" element={<ClientsPage />} />
-            <Route path="/clients/:id" element={<ClientRecordPage />} />
-            <Route path="/businesses" element={<Home />} />
+            <Route path="/" element={<Home />} />
             <Route path="/businesses/:id" element={<BusinessLayout />}>
               <Route index element={<Navigate to="overview" replace />} />
               <Route path="overview" element={<Overview />} />

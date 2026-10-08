@@ -23,7 +23,7 @@ export function BusinessLayout() {
         description="It may have been removed, or it belongs to a different account."
         action={
           <Button asChild variant="outline">
-            <Link to="/businesses">See all businesses</Link>
+            <Link to="/">See all businesses</Link>
           </Button>
         }
       />

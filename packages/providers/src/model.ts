@@ -56,7 +56,6 @@ export interface ProviderAdapter {
 }
 export class MockProvider extends Context.Tag("MockProvider")<MockProvider, ProviderAdapter>() {}
 export class NineRouterProvider extends Context.Tag("NineRouterProvider")<NineRouterProvider, ProviderAdapter>() {}
-export class GeminiProvider extends Context.Tag("GeminiProvider")<GeminiProvider, ProviderAdapter>() {}
 export class ProviderRegistry extends Context.Tag("ProviderRegistry")<ProviderRegistry, ProviderAdapter>() {}
 
 export const isProviderError = (e: { readonly _tag: string }): e is ProviderError =>

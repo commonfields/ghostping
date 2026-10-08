@@ -420,13 +420,7 @@ export class CheckRunRepository extends Context.Tag("CheckRunRepository")<
      * owned by another tenant's fixtures. */
     readonly claimOne: (scope?: ClaimScope) => DbEffect<CheckRunRow | null>
     readonly markRunning: (id: string) => DbEffect<void>
-    /** Counts a provider attempt and renews the run's lease. Fails when the
-     * run is no longer RUNNING (its lease was recovered), so a worker that
-     * lost ownership never makes another provider call for it. */
     readonly recordAttempt: (id: string) => DbEffect<number>
-    /** Finishes RUNNING checks whose lease expired as FAILED / WORKER_LOST.
-     * Bounded per call; never re-queues (no implicit provider call). */
-    readonly recoverAbandoned: (leaseSeconds: number, limit: number, scope?: ClaimScope) => DbEffect<number>
     readonly markFinished: (
       id: string,
       status: "SUCCEEDED" | "FAILED",
@@ -470,7 +464,7 @@ export const CheckRunRepositoryLive = Layer.effect(
             FOR UPDATE SKIP LOCKED
           )
           UPDATE check_runs AS r
-          SET status = 'RUNNING', started_at = now(), heartbeat_at = now()
+          SET status = 'RUNNING', started_at = now()
           FROM candidate
           WHERE r.id = candidate.id AND r.status = 'QUEUED'
           RETURNING r.*`) as Array<unknown>
@@ -480,35 +474,17 @@ export const CheckRunRepositoryLive = Layer.effect(
       }),
     markRunning: (id: string) =>
       // Guarded transition: only QUEUED -> RUNNING is legal here.
-      sql`UPDATE check_runs SET status = 'RUNNING', started_at = now(), heartbeat_at = now() WHERE id = ${id} AND status = 'QUEUED'`.pipe(
+      sql`UPDATE check_runs SET status = 'RUNNING', started_at = now() WHERE id = ${id} AND status = 'QUEUED'`.pipe(
         Effect.asVoid,
       ),
     recordAttempt: (id: string) =>
       Effect.gen(function*() {
-        const rows = (yield* sql`UPDATE check_runs SET attempt_count = attempt_count + 1, heartbeat_at = now() WHERE id = ${id} AND status = 'RUNNING' RETURNING attempt_count`) as Array<
+        const rows = (yield* sql`UPDATE check_runs SET attempt_count = attempt_count + 1 WHERE id = ${id} RETURNING attempt_count`) as Array<
           unknown
         >
-        if (rows.length === 0) return yield* Effect.fail(new SqlError({ message: "check run lease lost: run is no longer RUNNING" }))
         const decoded = yield* decodeRow(AttemptCountSchema, "check_runs", rows[0])
         return Number(decoded.attempt_count)
       }),
-    recoverAbandoned: (leaseSeconds: number, limit: number, scope?: ClaimScope) =>
-      sql`
-        WITH stale AS (
-          SELECT id FROM check_runs
-          WHERE status = 'RUNNING'
-            AND COALESCE(heartbeat_at, started_at, queued_at) < now() - make_interval(secs => ${leaseSeconds})
-            AND (${scope?.businessId ?? null}::uuid IS NULL OR business_id = ${scope?.businessId ?? null}::uuid)
-          ORDER BY COALESCE(heartbeat_at, started_at, queued_at)
-          LIMIT ${limit}
-          FOR UPDATE SKIP LOCKED
-        )
-        UPDATE check_runs AS r
-        SET status = 'FAILED', completed_at = now(), failure_class = 'WORKER_LOST',
-          failure_detail_safe = 'worker lease expired before the check finished; not retried automatically'
-        FROM stale
-        WHERE r.id = stale.id AND r.status = 'RUNNING'
-        RETURNING r.id`.pipe(Effect.map((rows) => rows.length)),
     markFinished: (id: string, status, failureClass, failureDetailSafe) =>
       // Terminal transition: only RUNNING -> SUCCEEDED | FAILED. Terminal
       // rows (SUCCEEDED/FAILED) can never be re-opened via this path.

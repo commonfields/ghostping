@@ -30,7 +30,6 @@ const providers: Array<{ value: Provider; label: string }> = [
 
 const failureHelp = (failureClass: string | null): string | null => {
   if (failureClass === "PROVIDER_UNSUPPORTED") return "The selected provider or model is unavailable for this request. Pick a configured 9Router model."
-  if (failureClass === "WORKER_LOST") return "The worker stopped before this check finished, so nothing was observed. Run the check again for a fresh answer."
   return null
 }
 

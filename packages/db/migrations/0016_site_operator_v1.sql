@@ -191,7 +191,7 @@ CREATE INDEX IF NOT EXISTS idx_site_fix_proposals_business
 
 -- ---------------------------------------------------------------------------
 -- Mutations: branch/commit/PR identity for an approved fix. V1 never merges
--- automatically; MERGED is observed, never performed by OpenRecord.
+-- automatically; MERGED is observed, never performed by Ghostping.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS site_mutations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -215,7 +215,7 @@ CREATE INDEX IF NOT EXISTS idx_site_mutations_finding
 
 -- ---------------------------------------------------------------------------
 -- Verifications: live re-observation outcomes. A mutation is complete only
--- after OpenRecord inspects the live target again.
+-- after Ghostping inspects the live target again.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS site_verifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
