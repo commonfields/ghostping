@@ -1,6 +1,21 @@
 # Contributing to OpenRecord
 
-Thank you for your interest in contributing! OpenRecord is built for indie hackers and open-source maintainers — contributions that keep it fast, local, and useful are most welcome.
+Thank you for your interest in contributing! OpenRecord is an evidence system for AI representation
+integrity. Contributions that keep the evidence honest are most welcome — see the design rules in the
+[README](README.md#design-rules).
+
+> **Two codebases live here.** The TypeScript monorepo (`apps/`, `packages/`) is the product. The Rust
+> CLI (`src/`) is a frozen legacy tool described in
+> [README](README.md#the-openrecord-cli-is-a-separate-legacy-tool). Most contributions target the
+> monorepo.
+
+## Maintaining the legacy CLI
+
+Everything below this line documents the frozen Rust CLI for maintainers. Skip it unless you are
+fixing a security or correctness defect.
+
+`templates/community/`, `src/providers/`, and the plugin manifest format are CLI-only concepts. They
+do not exist in the product and are not being extended.
 
 ---
 
@@ -8,29 +23,64 @@ Thank you for your interest in contributing! OpenRecord is built for indie hacke
 
 | Type | Where |
 |------|-------|
-| Bug fixes | `src/` — open a PR with a test |
-| New providers | `src/providers/` |
-| Prompt templates | `templates/community/` |
-| CLI polish | `src/bin/openrecord.rs` |
-| Tauri desktop | `tauri-app/` |
-| Documentation | `README.md`, `CONTRIBUTING.md` |
+| Product bug fixes | `apps/api`, `apps/worker`, `apps/web` — open a PR with a test |
+| Evidence semantics | `packages/protocol`, `packages/representation` |
+| Database schema | `packages/db/migrations/` — see the migration rules below |
+| Providers | `packages/providers` |
+| Documentation | `README.md`, `CONTRIBUTING.md`, `docs/` |
 
 ---
 
-## Dev Setup
+## Dev Setup (product)
+
+Prerequisites: Node.js 24 (`.node-version`), pnpm 10.12.1, and PostgreSQL 16.
 
 ```bash
 git clone https://github.com/commonfields/openrecord
 cd openrecord
+pnpm install --frozen-lockfile
+
+docker compose up -d postgres
+export DATABASE_URL="postgres://openrecord:openrecord@localhost:5432/openrecord"
+pnpm db:migrate
+
+pnpm typecheck   # must pass
+pnpm lint        # must pass, zero warnings
+pnpm test        # must pass
+pnpm build
+```
+
+Two tests assert PostgreSQL ≥ 16. On PostgreSQL 14 those two version assertions fail; that is an
+environment limitation, not a code defect.
+
+### Migrations
+
+`packages/db/src/migrate.ts` re-applies **every** `.sql` file on each run under an advisory lock.
+There is no applied-migrations table, so each file must be idempotent (`IF NOT EXISTS`,
+`DROP TRIGGER IF EXISTS`, `CREATE OR REPLACE`).
+
+**Applied migrations are immutable.** Never edit an existing file — supersede it with a new numbered
+migration that redefines what it must. For example `0017_authority_sync_rebrand.sql` redefines a
+function rather than editing `0005`, which keeps already-migrated databases consistent with the repo.
+
+---
+
+## Dev Setup (legacy Rust CLI)
+
+Frozen. Changes are not currently accepted unless they fix a security or correctness defect.
+
+```bash
 cargo build --release
-cargo test        # must pass all 23 tests
-cargo clippy
+cargo test        # 165 tests
+cargo fmt --check && cargo clippy -D warnings
 ```
 
 Binary must stay under **10 MB**:
 ```bash
 ls -lh target/release/openrecord
 ```
+
+The sections below document the legacy plugin and provider systems for maintainers.
 
 ---
 

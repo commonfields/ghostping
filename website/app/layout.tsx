@@ -24,13 +24,13 @@ const dm = DM_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'OpenRecord — Check if AI recommends your project',
+  title: 'OpenRecord — Evidence for AI representation integrity',
   description:
-    'OpenRecord is a local-first CLI workbench for indie builders, solo founders, and open-source maintainers who want to audit whether AI models mention, cite, or recommend their projects.',
+    'OpenRecord is an evidence system for AI representation integrity. It records what a business says is true, observes what AI systems say, and traces the difference to evidence.',
   openGraph: {
-    title: 'OpenRecord — Check if AI recommends your project',
+    title: 'OpenRecord — Evidence for AI representation integrity',
     description:
-      'Audit AI mentions, citations, and recommendations. Local-first. No SaaS lock-in.',
+      'Find what AI gets wrong about your business, trace it to evidence, and verify what changes.',
     type: 'website',
   },
 }

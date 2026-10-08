@@ -57,24 +57,9 @@ The flow reads top to bottom, from the smallest input to the broadest result. Ea
 
 ## Quick start
 
-### Check what AI says from your terminal
+### Use the web app
 
-On macOS or Linux, install the latest CLI release:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/commonfields/openrecord/main/scripts/install.sh | bash
-```
-
-The installer verifies the download before installing. On Windows, use [`scripts/install.ps1`](scripts/install.ps1). To build from source instead:
-
-```bash
-cargo build --release --locked
-./target/release/openrecord quickstart
-```
-
-### Use the hosted web app
-
-Prerequisites: Node.js 24 (see [`.node-version`](.node-version)), pnpm, and PostgreSQL 16.
+This is the product. Prerequisites: Node.js 24 (see [`.node-version`](.node-version)), pnpm, and PostgreSQL 16.
 
 ```bash
 git clone https://github.com/commonfields/openrecord.git
@@ -107,6 +92,29 @@ DATABASE_URL="postgres://openrecord:openrecord@localhost:5432/openrecord" pnpm -
 ```
 
 Open [http://localhost:3000](http://localhost:3000), create an account and business, add approved facts, and run a check. The default mock provider is deterministic, offline, and needs no credentials. Live providers are optional and off by default.
+
+### The `openrecord` CLI is a separate, legacy tool
+
+The repository also ships a Rust CLI under [`src/`](src) with its own release pipeline. It is a
+**different product** with different rules: it produces visibility and accuracy **scores**, generates
+content, and targets a different audience. It shares no runtime, data, or auth with the web app
+described above.
+
+It is frozen and not part of the evidence system. If you are evaluating OpenRecord or contributing to
+the product, use the web app instructions above.
+
+On macOS or Linux, the last published CLI release installs with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/commonfields/openrecord/main/scripts/install.sh | bash
+```
+
+On Windows, use [`scripts/install.ps1`](scripts/install.ps1). To build from source instead:
+
+```bash
+cargo build --release --locked
+./target/release/openrecord quickstart
+```
 
 ### For developers
 
