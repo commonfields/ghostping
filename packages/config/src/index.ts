@@ -72,3 +72,29 @@ export const NineRouterSettingsLive = Layer.effect(NineRouterSettings, Effect.ge
   const enabled = yield* Config.boolean("NINE_ROUTER_ENABLED").pipe(Config.withDefault(false))
   return enabled ? yield* NineRouterConfig : null
 }))
+
+// Gemini with Google Search grounding: the record's single live surface.
+// Absent key = not configured (null); a configured surface needs a key.
+const GeminiConfig = Config.all({
+  baseUrl: Config.string("GEMINI_BASE_URL").pipe(
+    Config.withDefault("https://generativelanguage.googleapis.com/v1beta"),
+    Config.validate({ message: "invalid provider endpoint (HTTPS or exact loopback required)", validation: validProviderEndpoint }),
+    Config.map(Redacted.make),
+  ),
+  apiKey: Config.redacted("GEMINI_API_KEY").pipe(Config.validate({
+    message: "provider key must be nonempty", validation: key => Redacted.value(key).trim().length > 0,
+  })),
+  model: Config.string("GEMINI_MODEL").pipe(Config.withDefault("gemini-2.5-flash"), Config.validate({
+    message: "model must be a plain model id", validation: m => /^[a-z0-9][a-z0-9.\-]*$/.test(m),
+  })),
+  timeoutMs: Config.integer("GEMINI_TIMEOUT_MS").pipe(Config.withDefault(60_000), Config.validate({
+    message: "timeout must be 1..300000 milliseconds", validation: n => n > 0 && n <= 300_000,
+  })),
+  responseMaxBytes: ProviderResponseMaxBytes,
+})
+export type GeminiSettingsValue = Config.Config.Success<typeof GeminiConfig>
+export class GeminiSettings extends Context.Tag("GeminiSettings")<GeminiSettings, GeminiSettingsValue | null>() {}
+export const GeminiSettingsLive = Layer.effect(GeminiSettings, Effect.gen(function*() {
+  const key = yield* Config.option(Config.string("GEMINI_API_KEY"))
+  return Option.isSome(key) ? yield* GeminiConfig : null
+}))

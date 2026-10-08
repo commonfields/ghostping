@@ -28,7 +28,7 @@ suite("assay HTTP session identity (TEST fixtures only)", () => {
     return { user, session, business, fact }
   }
   const request = (path: string, session?: string, body?: unknown) => web.handler(new Request(`http://localhost${path}`, {
-    method: body === undefined ? "GET" : "POST", headers: { ...(session ? { cookie: `gp_session=${session}` } : {}), "content-type": "application/json" },
+    method: body === undefined ? "GET" : "POST", headers: { ...(session ? { cookie: `or_session=${session}` } : {}), "content-type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   }))
   it("requires a cookie session, scopes the business, and rejects forged review identities", async () => {

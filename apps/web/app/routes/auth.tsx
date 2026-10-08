@@ -88,7 +88,8 @@ function CredentialsForm({ mode }: { mode: "signin" | "signup" }) {
         {pending ? <Spinner /> : null}
         {mode === "signin" ? "Sign in" : "Create account"}
       </Button>
-      {mode === "signin" ? (
+      {/* Seeded demo login: local development only, never in a production build. */}
+      {mode === "signin" && import.meta.env.DEV ? (
         <Button
           type="button"
           variant="ghost"

@@ -14,7 +14,7 @@ with its PHASE HANDOFF. Claims here are bounded by the evidence cited.
 | HEAD / origin/main | `703efb5206a2856787cf85cf7fe08ac6e3224624` (identical after fetch) |
 | Working tree | clean |
 | Open PRs | none |
-| Recent merges | #40 rebrand protocol ids, #38 rebrand Ghostping→OpenRecord, #37 SEARCH_OPERATOR_V1, #36 product-surface-v1 (auth layout fix), #35 managed-service runbook |
+| Recent merges | #40 rebrand protocol ids, #38 rebrand to OpenRecord, #37 SEARCH_OPERATOR_V1, #36 product-surface-v1 (auth layout fix), #35 managed-service runbook |
 | Latest migration | `0017_authority_sync_rebrand.sql` |
 | Migration model | `packages/db/src/migrate.ts` re-applies **every** `.sql` file on each run under an advisory lock; there is no applied-migrations table, so every migration must be idempotent (`IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`, `CREATE OR REPLACE`) |
 | Node | `engines: >=24 <25`, `.node-version` = 24; validated with v24.3.0 (system default v20.19.5 is out of range) |

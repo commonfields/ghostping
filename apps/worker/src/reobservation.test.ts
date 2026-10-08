@@ -100,6 +100,7 @@ const runCase = async (
         }
       }),
     recordAttempt: () => Effect.sync(() => ++state.attempts),
+    recoverAbandoned: () => Effect.succeed(0),
     markFinished: (_id: string, status: "SUCCEEDED" | "FAILED", failureClass: string | null) =>
       Effect.sync(() => {
         state.status = status
