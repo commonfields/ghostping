@@ -4,9 +4,9 @@
 [![Latest release](https://img.shields.io/github/v/release/commonfields/openrecord?display_name=tag&sort=semver)](https://github.com/commonfields/openrecord/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/commonfields/openrecord)](LICENSE)
 
-> Show clients exactly what AI said before and after your work.
+> Find what AI gets wrong about your business, trace it to evidence, correct what you control, and verify what changes.
 
-OpenRecord gives agencies a shareable evidence record for each client: the approved fact, the raw AI answer, its source, a human judgment, and the next weekly check. Underneath, it is an evidence system: it records what a business says is true, observes what an AI surface says, lets people review the difference, and re-checks after corrective work.
+OpenRecord is an evidence system for AI representation integrity. It records what a business says is true, observes what AI systems and web sources say, lets people review the difference, and verifies corrective work.
 
 It does not turn incomplete evidence into a score or claim that one change caused another:
 
@@ -25,10 +25,11 @@ It does not turn incomplete evidence into a score or claim that one change cause
 
 ## Who it's for
 
-- Agencies that improve how AI describes or recommends their clients, and need before-and-after evidence they can forward to those clients.
-- The people at those agencies who agree the facts with each client, review what the AI said, and fix what they control.
+- Businesses that want to know what AI systems say about them, with evidence attached.
+- Teams responsible for business facts who need one place to record what the business stands behind.
+- Reviewers who decide which differences matter and what to fix on surfaces they control.
 
-What you get: one read-only, revocable URL per client showing three approved facts, the question asked about each, the exact answer one live AI surface (Gemini with Google Search grounding) gave, the sources it cited, a human judgment, and the weekly re-check with its observed outcome. The operator workflow is described in [docs/product/agency-record-v1.md](docs/product/agency-record-v1.md).
+What you get: a record of approved facts, observations with provenance, human-reviewed issues, documented corrections, and re-observation results.
 
 ## How it works
 
@@ -56,9 +57,24 @@ The flow reads top to bottom, from the smallest input to the broadest result. Ea
 
 ## Quick start
 
-### Use the web app
+### Check what AI says from your terminal
 
-This is the product. Prerequisites: Node.js 24 (see [`.node-version`](.node-version)), pnpm, and PostgreSQL 16.
+On macOS or Linux, install the latest CLI release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/commonfields/openrecord/main/scripts/install.sh | bash
+```
+
+The installer verifies the download before installing. On Windows, use [`scripts/install.ps1`](scripts/install.ps1). To build from source instead:
+
+```bash
+cargo build --release --locked
+./target/release/openrecord quickstart
+```
+
+### Use the hosted web app
+
+Prerequisites: Node.js 24 (see [`.node-version`](.node-version)), pnpm, and PostgreSQL 16.
 
 ```bash
 git clone https://github.com/commonfields/openrecord.git
@@ -90,30 +106,7 @@ DATABASE_URL="postgres://openrecord:openrecord@localhost:5432/openrecord" pnpm -
 DATABASE_URL="postgres://openrecord:openrecord@localhost:5432/openrecord" pnpm --filter @openrecord/web dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), create an account, and add a client under **Clients**. The client record's live surface is Gemini with Google Search grounding: set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`, default `gemini-2.5-flash`) for the worker. Without a key, record checks fail visibly as unsupported; nothing falls back to another model. For an offline local walkthrough only, start the API with `RECORD_PROVIDER=mock RECORD_ALLOW_FIXTURE=1`: those answers are synthetic, labelled as such, and can never produce an observed correction.
-
-### The `openrecord` CLI is a separate, legacy tool
-
-The repository also ships a Rust CLI under [`src/`](src) with its own release pipeline. It is a
-**different product** with different rules: it produces visibility and accuracy **scores**, generates
-content, and targets a different audience. It shares no runtime, data, or auth with the web app
-described above.
-
-It is frozen and not part of the evidence system. If you are evaluating OpenRecord or contributing to
-the product, use the web app instructions above.
-
-On macOS or Linux, the last published CLI release installs with:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/commonfields/openrecord/main/scripts/install.sh | bash
-```
-
-On Windows, use [`scripts/install.ps1`](scripts/install.ps1). To build from source instead:
-
-```bash
-cargo build --release --locked
-./target/release/openrecord quickstart
-```
+Open [http://localhost:3000](http://localhost:3000), create an account and business, add approved facts, and run a check. The default mock provider is deterministic, offline, and needs no credentials. Live providers are optional and off by default.
 
 ### For developers
 

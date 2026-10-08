@@ -12,7 +12,7 @@
 -- Stored here: linkage only (business, issue, original observation,
 -- optional intervention, fulfilling check run, author, timestamp). NOT
 -- stored: match classification, observed change, outcome, "corrected"
--- flags, or causal claims. Those are derived by @openrecord/protocol at
+-- flags, or causal claims. Those are derived by @ghostping/protocol at
 -- read/export time from the reobservations rows the worker finalizes, so
 -- there is exactly one implementation of those rules.
 --

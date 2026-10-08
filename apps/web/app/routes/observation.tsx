@@ -69,7 +69,7 @@ export function ObservationPage() {
         description="It may belong to another account, or the link is incomplete."
         action={
           <Button asChild variant="outline">
-            <Link to="/businesses">See all businesses</Link>
+            <Link to="/">See all businesses</Link>
           </Button>
         }
       />

@@ -106,7 +106,6 @@ import {
 } from "./discovery-reads.js"
 import { assayApi, assaySyntheticEnabled } from "./assay-routes.js"
 import { siteApi } from "./site-routes.js"
-import { recordApi } from "./record-routes.js"
 
 const json = (status: number, body: unknown, headers?: Record<string, string>) =>
   HttpServerResponse.json(body, { status, headers })
@@ -1413,10 +1412,7 @@ export const makeRouter = () => {
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),
     ),
   )
-  return HttpRouter.concat(
-    HttpRouter.concat(HttpRouter.concat(api, productApi), discoveryApi),
-    HttpRouter.concat(HttpRouter.concat(siteApi(withSession), assayApi(withSession)), recordApi(withSession)),
-  )
+  return HttpRouter.concat(HttpRouter.concat(HttpRouter.concat(api, productApi), discoveryApi), HttpRouter.concat(siteApi(withSession), assayApi(withSession)))
 }
 
 export const RepoLayers = {

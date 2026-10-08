@@ -3,7 +3,6 @@ import { Link, Outlet, useLocation, useMatch, useNavigate } from "react-router"
 import {
   BookCheckIcon,
   Building2Icon,
-  FileCheck2Icon,
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
@@ -178,9 +177,8 @@ function SidebarBody() {
             <SidebarLink to={`${base}/checks`} icon={<RadarIcon />} label="Checks" />
           </SidebarGroup>
         ) : null}
-        <SidebarGroup label="Agency">
-          <SidebarLink to="/clients" icon={<FileCheck2Icon />} label="Clients" />
-          <SidebarLink to="/businesses" end icon={<Building2Icon />} label="All businesses" />
+        <SidebarGroup label="Account">
+          <SidebarLink to="/" end icon={<Building2Icon />} label="All businesses" />
         </SidebarGroup>
       </nav>
 
@@ -365,7 +363,7 @@ function AccountMenu() {
           Keyboard shortcuts
         </DropdownMenuItem>
         <DropdownMenuSeparator className="my-1.5" />
-        <DropdownMenuItem onSelect={() => nav("/businesses")}>
+        <DropdownMenuItem onSelect={() => nav("/")}>
           <Building2Icon />
           All businesses
         </DropdownMenuItem>
@@ -410,9 +408,6 @@ function Breadcrumbs() {
       crumbs.push({ label: "Checks", to: `/businesses/${activeBusiness.id}/checks` })
     }
     crumbs.push({ label: "AI answer" })
-  } else if (parts[0] === "clients") {
-    crumbs.push({ label: "Clients", ...(parts[1] ? { to: "/clients" } : {}) })
-    if (parts[1]) crumbs.push({ label: "Client record" })
   } else {
     crumbs.push({ label: "All businesses" })
   }

@@ -13,10 +13,8 @@
 //
 // Exact failure windows:
 // - Crash before the create transaction commits: the check stays RUNNING
-//   with no observation and no link until its lease expires; the next
-//   runOnce (any worker) then finishes it as FAILED / WORKER_LOST. It is
-//   never re-queued, so recovery cannot create a provider call; a new
-//   observation needs an explicit new run.
+//   with no observation and no link (pre-existing worker behavior for
+//   crashes; identical to a check that never ran).
 // - Crash after commit: observation, SUCCEEDED, and link are all durable
 //   (one transaction); the cover call and sweeper are no-ops via
 //   UNIQUE(issue_id, observation_id) + insert-or-select.
@@ -37,11 +35,6 @@ import {
 import type { FailureClass } from "@openrecord/domain"
 import type { MeasurementContextV1 } from "@openrecord/protocol"
 export const MAX_PROVIDER_ATTEMPTS = 4
-/** A RUNNING check whose heartbeat is older than this is abandoned. The
- * heartbeat renews before every provider attempt and one attempt is bounded
- * by the provider timeout (60s default), so a live worker never ages out. */
-export const RUN_LEASE_SECONDS = 15 * 60
-const RECOVERY_BATCH = 25
 export const RetrySchedule = Schedule.intersect(Schedule.exponential("500 millis", 2), Schedule.recurs(3))
 export const providerFailure = (error: ProviderError): { failureClass: FailureClass; detail: string } => {
   switch (error._tag) {
@@ -58,10 +51,7 @@ export class CheckRunner extends Context.Tag("CheckRunner")<CheckRunner, {
   /** `scope` limits the claim to one business (tests); the loop is global. */
   readonly runOnce: (scope?: ClaimScope) => Effect.Effect<boolean, SqlError | RowDecodeError | RawDigestMismatch>
 }>() {}
-export const makeCheckRunnerLive = (
-  retrySchedule: Schedule.Schedule<unknown, ProviderError | SqlError | RowDecodeError | RawDigestMismatch> = RetrySchedule,
-  options: { readonly leaseSeconds?: number } = {},
-) =>
+export const makeCheckRunnerLive = (retrySchedule: Schedule.Schedule<unknown, ProviderError | SqlError | RowDecodeError | RawDigestMismatch> = RetrySchedule) =>
   Layer.effect(CheckRunner, Effect.gen(function*() {
     const runs = yield* CheckRunRepository
     const questions = yield* QuestionRepository
@@ -74,10 +64,8 @@ export const makeCheckRunnerLive = (
       // intent from a completed run is linked even when the queue is idle.
       // Bounded (25) per iteration; returning true keeps polling until drained.
       const swept = yield* observations.sweepUnfulfilledReobservations(25)
-      const recovered = yield* runs.recoverAbandoned(options.leaseSeconds ?? RUN_LEASE_SECONDS, RECOVERY_BATCH, scope)
-      if (recovered > 0) yield* Effect.logWarning("abandoned checks finished as WORKER_LOST").pipe(Effect.annotateLogs({ recovered }))
       const claimed = yield* runs.claimOne(scope)
-      if (!claimed) return swept > 0 || recovered > 0
+      if (!claimed) return swept > 0
       const log = (message: string, fields: Record<string, string | number | boolean | null> = {}) => Effect.logInfo(message).pipe(Effect.annotateLogs({
         business_id: claimed.businessId, check_run_id: claimed.id, provider: claimed.provider,
         requested_model: claimed.requestedModel, ...fields,
