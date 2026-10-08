@@ -17,7 +17,7 @@ export type RecordOutcome = "OBSERVED_CORRECTION" | "NO_OBSERVED_CHANGE" | "INDE
 export type IndeterminateReason =
   | "NO_BASELINE" | "BEFORE_CHECK_FAILED" | "AFTER_CHECK_FAILED" | "FACT_CHANGED" | "QUESTION_CHANGED" | "SYNTHETIC_EVIDENCE"
   | "BEFORE_NO_RETRIEVAL" | "AFTER_NO_RETRIEVAL" | "SURFACE_CHANGED" | "SURFACE_UNKNOWN" | "OUT_OF_ORDER"
-  | "BEFORE_UNKNOWN" | "AFTER_UNKNOWN" | "ANSWER_NO_LONGER_MATCHES"
+  | "BEFORE_UNKNOWN" | "AFTER_UNKNOWN" | "ANSWER_NO_LONGER_MATCHES" | "BASELINE_MATCHED" | "PARTIAL_RUN"
 
 /** Retrieval modes that mean the provider reported actually using live web results. */
 const RETRIEVAL_OBSERVED = new Set(["PROVIDER_GROUNDING", "WEB_SEARCH", "grounded"])
@@ -41,7 +41,7 @@ export const currentJudgment = (chain: ReadonlyArray<RecordJudgment>): RecordJud
   return heads.length === 1 ? heads[0]! : null
 }
 
-export interface SlotEvidence { readonly check: RecordCheck; readonly item: RecordItem; readonly judgment: RecordJudgment | null }
+export interface SlotEvidence { readonly check: RecordCheck; readonly item: RecordItem; readonly judgment: RecordJudgment | null; readonly runComplete: boolean }
 export type SlotComparison =
   | { readonly state: "PENDING_CHECK" }
   | { readonly state: "AWAITING_REVIEW" }
@@ -80,8 +80,10 @@ export const compareSlot = (before: SlotEvidence | null, after: SlotEvidence): S
   const now: RecordDecision = after.judgment.decision
   if (was === "UNKNOWN") return indeterminate("BEFORE_UNKNOWN")
   if (now === "UNKNOWN") return indeterminate("AFTER_UNKNOWN")
+  if (!before.runComplete || !after.runComplete) return indeterminate("PARTIAL_RUN")
   if (was === "CONTRADICTS" && now === "MATCHES") return { state: "DERIVED", outcome: "OBSERVED_CORRECTION", reason: null }
-  if (was === now) return { state: "DERIVED", outcome: "NO_OBSERVED_CHANGE", reason: null }
+  if (was === "CONTRADICTS" && now === "CONTRADICTS") return { state: "DERIVED", outcome: "NO_OBSERVED_CHANGE", reason: null }
+  if (was === "MATCHES" && now === "MATCHES") return indeterminate("BASELINE_MATCHED")
   return indeterminate("ANSWER_NO_LONGER_MATCHES")
 }
 
@@ -112,13 +114,15 @@ export const reasonText = (reason: IndeterminateReason, after: SlotEvidence | nu
     case "BEFORE_UNKNOWN": return "The earlier answer could not be judged against the approved fact."
     case "AFTER_UNKNOWN": return "The later answer could not be judged against the approved fact."
     case "ANSWER_NO_LONGER_MATCHES": return "The earlier answer matched the approved fact; the later answer contradicts it."
+    case "BASELINE_MATCHED": return "The earlier answer already matched the approved fact, so there was no contradiction to verify a correction against. Both answers match."
+    case "PARTIAL_RUN": return "One of the checks was only partially completed, so this record cannot establish a weekly outcome."
   }
 }
 
-export const outcomeText = (comparison: Extract<SlotComparison, { state: "DERIVED" }>, before: SlotEvidence | null, after: SlotEvidence): string => {
+export const outcomeText = (comparison: Extract<SlotComparison, { state: "DERIVED" }>, after: SlotEvidence): string => {
   if (comparison.outcome === "OBSERVED_CORRECTION") return "Observed correction. The earlier answer contradicted the approved fact; the later answer matches it."
   if (comparison.outcome === "NO_OBSERVED_CHANGE") {
-    return before?.judgment?.decision === "MATCHES" ? "No observed change. Both answers match the approved fact." : "No observed change. Both answers contradict the approved fact."
+    return "No observed change. Both answers contradict the approved fact."
   }
   return reasonText(comparison.reason!, after)
 }
@@ -153,7 +157,8 @@ const timelines = (s: RecordSnapshot): SlotTimeline[] => {
   const itemById = new Map(s.items.map(i => [i.id, i]))
   const baselineRun = [...s.runs].reverse().find(r => r.kind === "INITIAL") ?? null
   const followUps = baselineRun === null ? [] : s.runs.filter(r => r.kind === "FOLLOW_UP" && r.baselineRunId === baselineRun.id)
-  const evidence = (check: RecordCheck): SlotEvidence => ({ check, item: itemById.get(check.itemId)!, judgment: currentJudgment(check.judgments) })
+  const evidence = (check: RecordCheck): SlotEvidence => ({ check, item: itemById.get(check.itemId)!, judgment: currentJudgment(check.judgments),
+    runComplete: runStatus(s.checks.filter(c => c.runId === check.runId)) === "SUCCEEDED" })
   const checkFor = (run: RecordRun, slot: number) => s.checks.find(c => c.runId === run.id && itemById.get(c.itemId)?.slot === slot) ?? null
   const heads = s.items.filter(i => !i.superseded).sort((a, b) => a.slot - b.slot)
   return heads.map(head => {
@@ -190,7 +195,7 @@ export const operatorView = (s: RecordSnapshot) => {
       slot: t.slot, item: t.head, history: s.items.filter(i => i.slot === t.slot),
       baselineCheckId: t.baseline?.check.id ?? null, latestFollowUpCheckId: t.latestFollowUp?.check.id ?? null,
       comparison: comparison === null ? null : comparison.state === "DERIVED"
-        ? { ...comparison, text: outcomeText(comparison, t.baseline, t.latestFollowUp!) } : comparison,
+        ? { ...comparison, text: outcomeText(comparison, t.latestFollowUp!) } : comparison,
       actions: actionsBetween(s.actions, t.slot, null, null),
     }
   })
@@ -208,7 +213,7 @@ const httpUrl = (value: string | null): string | null => {
   if (value === null) return null
   try {
     const u = new URL(value)
-    return u.protocol === "https:" || u.protocol === "http:" ? u.toString() : null
+    return (u.protocol === "https:" || u.protocol === "http:") && !u.username && !u.password ? u.toString() : null
   } catch { return null }
 }
 
@@ -220,11 +225,15 @@ const DECISION_COPY: Record<RecordDecision, string> = {
 
 const publicAnswer = (e: SlotEvidence) => {
   const o = e.check.observation
+  const context = { question: e.item.question.prompt, fact: { label: e.item.fact.predicate, value: e.item.fact.valueText } }
   if (e.check.status !== "SUCCEEDED" || o === null) {
-    return { status: "CHECK_FAILED" as const, checkedAt: checkedAt(e), explanation: `This check could not be completed: ${failureWords(e.check.failureClass)}.` }
+    return { ...context, status: "CHECK_FAILED" as const, checkedAt: checkedAt(e), explanation: `This check could not be completed: ${failureWords(e.check.failureClass)}.` }
   }
   const judgment = e.judgment!
+  const suggestions = o.provider === "gemini" && o.providerMetadata !== null && typeof o.providerMetadata === "object"
+    ? (o.providerMetadata as { searchSuggestionsHtml?: unknown }).searchSuggestionsHtml : null
   return {
+    ...context,
     status: "ANSWERED" as const,
     checkedAt: o.collectedAt,
     surface: surfaceLabel(o),
@@ -236,6 +245,7 @@ const publicAnswer = (e: SlotEvidence) => {
     },
     syntheticFixture: o.synthetic,
     answer: o.answerText,
+    searchSuggestionsHtml: typeof suggestions === "string" ? suggestions : null,
     citations: o.citations.flatMap(c => { const url = httpUrl(c.uri); return url === null && c.title === null ? [] : [{ url, title: c.title }] }),
     evidenceDigest: o.rawDigest,
     judgment: { decision: judgment.decision, label: DECISION_COPY[judgment.decision], reviewedAt: judgment.reviewedAt, reviewedBy: "Reviewed by the agency" },
@@ -249,13 +259,16 @@ const publicAction = (a: RecordAction) => ({
 })
 
 export const publicRecord = (s: RecordSnapshot) => {
-  const facts = timelines(s).filter(t => t.head.approval !== null).map(t => {
-    const after = t.publishedFollowUp
+  const facts = timelines(s).filter(t => t.head.approval !== null && t.head.fact.status === "ACTIVE").map(t => {
+    // An answer belongs to the approved version that was actually checked.
+    // Never display an old verdict as the verdict for newly approved wording.
+    const after = t.publishedFollowUp?.item.id === t.head.id ? t.publishedFollowUp : null
     // An unreviewed baseline keeps the comparison private (AWAITING_REVIEW)
     // rather than reading as "no earlier answer".
     const comparison = after === null ? null : compareSlot(t.baseline, after)
     const before = t.baseline !== null && checkPublished(t.baseline.check) ? t.baseline : null
-    const latest = after !== null && comparison?.state === "DERIVED" ? after : before
+    const candidate = after !== null && comparison?.state === "DERIVED" ? after : before
+    const latest = candidate?.item.id === t.head.id ? candidate : null
     return {
       position: t.slot,
       fact: { label: t.head.fact.predicate, subject: t.head.fact.subject, value: t.head.fact.valueText,
@@ -267,7 +280,7 @@ export const publicRecord = (s: RecordSnapshot) => {
         actions: actionsBetween(s.actions, t.slot, checkedAt(before), checkedAt(after)).map(publicAction),
         after: publicAnswer(after),
         outcome: comparison.outcome,
-        explanation: outcomeText(comparison, before, after),
+        explanation: outcomeText(comparison, after),
       },
       // Actions recorded since the last published check, awaiting a re-check.
       pendingActions: latest === null ? [] : actionsBetween(s.actions, t.slot, checkedAt(latest), null).map(publicAction),
@@ -275,7 +288,7 @@ export const publicRecord = (s: RecordSnapshot) => {
   })
   const answered = facts.flatMap(f => (f.latest?.status === "ANSWERED" ? [f.latest] : []))
   const latestSurface = [...answered].sort((a, b) => a.checkedAt.localeCompare(b.checkedAt)).at(-1)
-  const lastCheckedAt = latestSurface?.checkedAt ?? null
+  const lastCheckedAt = facts.flatMap(f => f.latest?.checkedAt ? [f.latest.checkedAt] : []).sort().at(-1) ?? null
   return {
     client: { name: s.profile.name, website: httpUrl(s.profile.websiteUrl) },
     checkedBy: "OpenRecord",

@@ -189,7 +189,7 @@ suite("client record acceptance (TEST agency, TEST clients, TEST reviewer)", () 
       actions: [{ note: "Updated the client pricing/service page." }],
       after: { judgment: { decision: "MATCHES" }, answer: "Yes — breakfast is included in every room rate at TEST Acme Hotel." } })
     expect(corrected.pendingActions).toEqual([])
-    expect(after.facts[0]!.comparison).toMatchObject({ outcome: "NO_OBSERVED_CHANGE", explanation: "No observed change. Both answers match the approved fact." })
+    expect(after.facts[0]!.comparison).toMatchObject({ outcome: "INDETERMINATE", explanation: "The earlier answer already matched the approved fact, so there was no contradiction to verify a correction against. Both answers match." })
     expect(after.facts[2]!.comparison).toMatchObject({ outcome: "INDETERMINATE", explanation: "The earlier answer could not be judged against the approved fact." })
     expect(after.disclosure).toBe(CAUSALITY_DISCLOSURE)
     // Outside the disclosure (which denies it), nothing attributes the change.
@@ -291,6 +291,10 @@ suite("client record acceptance (TEST agency, TEST clients, TEST reviewer)", () 
     await expect(pool.query("UPDATE record_judgments SET decision = 'UNKNOWN' WHERE id = $1", [first.id])).rejects.toThrow(/append-only/)
     await expect(pool.query("DELETE FROM record_judgments WHERE id = $1", [first.id])).rejects.toThrow(/append-only/)
     await expect(pool.query("UPDATE observations SET answer_text = 'rewritten' WHERE id = $1", [obs.id])).rejects.toThrow()
+    const bound = (await snapshot(a)).items[0]!
+    await expect(pool.query("UPDATE authoritative_facts SET value_text = 'rewritten' WHERE id = $1", [bound.fact.id])).rejects.toThrow(/immutable/)
+    await expect(pool.query("UPDATE buyer_questions SET prompt = 'rewritten' WHERE id = $1", [bound.question.id])).rejects.toThrow(/immutable/)
+    await expect(pool.query("UPDATE check_runs SET requested_model = 'another-model' WHERE record_run_id = $1", [queued.id])).rejects.toThrow(/immutable/)
     // A reviewer outside the agency cannot be recorded, even directly.
     const outsider = await agency()
     await expect(pool.query("INSERT INTO record_judgments (business_id, observation_id, item_id, decision, reviewed_by_user_id) SELECT business_id, $1, record_item_id, 'MATCHES', $2 FROM check_runs WHERE id = $3",

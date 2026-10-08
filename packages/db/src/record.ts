@@ -125,8 +125,8 @@ export interface SaveSlotInput {
   readonly predicate: string
   readonly valueText: string
   readonly valueType: RecordFactValueType
-  readonly validFrom: string
-  readonly validUntil: string | null
+  readonly validFrom?: string
+  readonly validUntil?: string | null
   readonly sourceUrl: string
   readonly question: string
 }
@@ -226,23 +226,26 @@ export const RecordRepositoryLive = Layer.effect(RecordRepository, Effect.map(Pg
       const mode = yield* sql`SELECT writer FROM business_authority_mode WHERE business_id = ${businessId}`
       if (mode[0] && mode[0]["writer"] === "REPOSITORY_MANIFEST") return yield* refuse("FactsManagedByRepository")
       const head = (yield* heads(businessId)).find(i => i.slot === input.slot) ?? null
+      const validFrom = input.validFrom ?? head?.fact.validFrom ?? new Date().toISOString()
+      const validUntil = input.validUntil === undefined ? head?.fact.validUntil ?? null : input.validUntil
+      if (validUntil !== null && Date.parse(validUntil) <= Date.parse(validFrom)) return yield* refuse("InvalidFactValidity")
       // Fact identity is (subject, predicate). A changed value supersedes the
       // version the slot tracks; a different identity is a new fact.
       let factId: string
       const sameIdentity = head !== null && head.fact.subject === input.subject && head.fact.predicate === input.predicate && head.fact.status === "ACTIVE"
       const sameValue = sameIdentity && head.fact.valueText === input.valueText && head.fact.valueType === input.valueType
-        && head.fact.validFrom === new Date(input.validFrom).toISOString() && head.fact.validUntil === (input.validUntil === null ? null : new Date(input.validUntil).toISOString())
+        && head.fact.validFrom === new Date(validFrom).toISOString() && head.fact.validUntil === (validUntil === null ? null : new Date(validUntil).toISOString())
       if (sameValue) {
         factId = head!.fact.id
       } else if (sameIdentity) {
         yield* sql`UPDATE authoritative_facts SET status = 'SUPERSEDED' WHERE id = ${head!.fact.id} AND business_id = ${businessId}`
         const rows = yield* sql`INSERT INTO authoritative_facts (business_id, subject, predicate, value_text, value_type, version, supersedes_id, valid_from, valid_until, source_kind)
           VALUES (${businessId}, ${input.subject}, ${input.predicate}, ${input.valueText}, ${input.valueType}, ${head!.fact.version + 1}, ${head!.fact.id},
-            ${input.validFrom}::timestamptz, ${input.validUntil}::timestamptz, 'WEBSITE') RETURNING id`
+            ${validFrom}::timestamptz, ${validUntil}::timestamptz, 'WEBSITE') RETURNING id`
         factId = String(rows[0]!["id"])
       } else {
         const rows = yield* sql`INSERT INTO authoritative_facts (business_id, subject, predicate, value_text, value_type, valid_from, valid_until, source_kind)
-          VALUES (${businessId}, ${input.subject}, ${input.predicate}, ${input.valueText}, ${input.valueType}, ${input.validFrom}::timestamptz, ${input.validUntil}::timestamptz, 'WEBSITE') RETURNING id`
+          VALUES (${businessId}, ${input.subject}, ${input.predicate}, ${input.valueText}, ${input.valueType}, ${validFrom}::timestamptz, ${validUntil}::timestamptz, 'WEBSITE') RETURNING id`
         factId = String(rows[0]!["id"])
       }
       // A question is never edited in place: changed wording is a new
@@ -283,6 +286,8 @@ export const RecordRepositoryLive = Layer.effect(RecordRepository, Effect.map(Pg
       if (kind === "INITIAL" && runs.some(r => r.kind === "FOLLOW_UP")) return yield* refuse("BaselineLocked")
       const approved = (yield* heads(businessId)).filter(i => i.approval !== null && i.fact.status === "ACTIVE")
       if (approved.length === 0) return yield* refuse("NoApprovedFacts")
+      const now = Date.now()
+      if (approved.some(i => Date.parse(i.fact.validFrom) > now || (i.fact.validUntil !== null && Date.parse(i.fact.validUntil) <= now))) return yield* refuse("FactNotCurrentlyValid")
       const rows = yield* sql`INSERT INTO record_runs (business_id, kind, baseline_run_id, provider, requested_model, requested_by_user_id)
         VALUES (${businessId}, ${kind}, ${kind === "FOLLOW_UP" ? baseline!.id : null}, ${input.provider}, ${input.requestedModel}, ${session.userId})
         RETURNING id, kind, baseline_run_id, provider, requested_model, retrieval_required, created_at`
@@ -335,6 +340,7 @@ export const RecordRepositoryLive = Layer.effect(RecordRepository, Effect.map(Pg
     }).pipe(sql.withTransaction),
 
     snapshot: businessId => Effect.gen(function*() {
+      yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY`
       const profileRows = yield* sql`SELECT p.business_id, b.name, p.website_url, p.engagement, p.created_at FROM record_profiles p JOIN businesses b ON b.id = p.business_id WHERE p.business_id = ${businessId}`
       if (!profileRows[0]) return null
       const p = yield* decodeRow(ProfileSchema, "record_profiles", profileRows[0])
@@ -377,7 +383,7 @@ export const RecordRepositoryLive = Layer.effect(RecordRepository, Effect.map(Pg
       const share = shares[0] ? toShare(yield* decodeRow(ShareSchema, "record_shares", shares[0])) : null
       return { profile: { businessId: p.business_id, name: p.name, websiteUrl: p.website_url, engagement: p.engagement, createdAt: iso(p.created_at) },
         items, runs, checks, actions, share }
-    }),
+    }).pipe(sql.withTransaction),
 
     businessForPublicId: publicId => sql`SELECT business_id FROM record_shares WHERE public_id = ${publicId} AND status = 'ACTIVE'`.pipe(
       Effect.map(rows => rows[0] ? String(rows[0]["business_id"]) : null)),

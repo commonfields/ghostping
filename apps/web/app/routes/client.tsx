@@ -11,16 +11,19 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { PageHeader } from "@/components/page"
 import { Skeleton } from "@/components/ui/skeleton"
+import { SearchSuggestions } from "@/components/search-suggestions"
 import { errorMessage, formatDate, formatDateTime } from "@/lib/format"
 import { ApiError } from "@/lib/api"
 import {
-  DECISION_LABELS, OUTCOME_LABELS, publicRecordPath, Records, RUN_STATUS_LABELS,
+  DECISION_LABELS, OUTCOME_LABELS, publicRecordPath, Records, RUN_STATUS_LABELS, safeRecordUrl,
   type Decision, type OperatorRecord, type RecordCheck, type RecordResponse, type ValueType,
 } from "@/lib/record"
 import { useApi } from "@/lib/use-api"
 
 const REFUSALS: Record<string, string> = {
   NoApprovedFacts: "Approve at least one fact before running a check.",
+  FactNotCurrentlyValid: "An approved fact is not currently valid. Save and approve its current version before checking.",
+  InvalidFactValidity: "The end of a fact's validity must follow its start.",
   RunInProgress: "A check is already running for this client.",
   NoBaseline: "Run the first check before a weekly re-check.",
   BaselineLocked: "A weekly re-check already compares against the first check, so the first check cannot be redone.",
@@ -48,7 +51,7 @@ function useAction(reload: () => Promise<void>) {
   const [busy, setBusy] = useState(false)
   const run = async (fn: () => Promise<unknown>, success?: string) => {
     setBusy(true)
-    try { await fn(); await reload(); if (success) toast.success(success) } catch (e) { toast.error(failure(e)) } finally { setBusy(false) }
+    try { await fn(); await reload(); if (success) toast.success(success); return true } catch (e) { toast.error(failure(e)); return false } finally { setBusy(false) }
   }
   return { busy, run }
 }
@@ -66,7 +69,7 @@ function Identity({ record, reload }: { record: OperatorRecord; reload: () => Pr
     </p>
   }
   return (
-    <form className="flex flex-wrap items-end gap-3" onSubmit={e => { e.preventDefault(); void run(() => Records.update(record.profile.businessId, { name: name.trim(), websiteUrl: website.trim() }), "Client updated").then(() => setEditing(false)) }}>
+    <form className="flex flex-wrap items-end gap-3" onSubmit={e => { e.preventDefault(); void run(() => Records.update(record.profile.businessId, { name: name.trim(), websiteUrl: website.trim() }), "Client updated").then(saved => { if (saved) setEditing(false) }) }}>
       <div className="grid gap-1"><Label htmlFor="name">Client name</Label><Input id="name" value={name} onChange={e => setName(e.target.value)} /></div>
       <div className="grid gap-1"><Label htmlFor="site">Website</Label><Input id="site" type="url" value={website} onChange={e => setWebsite(e.target.value)} /></div>
       <Button type="submit" disabled={busy}>Save</Button>
@@ -88,6 +91,7 @@ function SlotEditor({ clientId, clientName, slot, current, reload }: {
   const dirty = !item || label !== item.fact.predicate || value !== item.fact.valueText || valueType !== item.fact.valueType || source !== item.sourceUrl || question !== item.question.prompt
   const save = () => run(() => Records.saveSlot(clientId, slot, {
     subject: item?.fact.subject ?? clientName, predicate: label.trim(), valueText: value.trim(), valueType, sourceUrl: source.trim(), question: question.trim(),
+    ...(item ? { validFrom: item.fact.validFrom, validUntil: item.fact.validUntil } : {}),
   }), "Saved. Approve this version before it is checked.")
   return (
     <form className="grid gap-3" onSubmit={e => { e.preventDefault(); void save() }}>
@@ -129,14 +133,15 @@ function Review({ clientId, check, reload }: { clientId: string; check: RecordCh
         {check.retrievalObserved ? <span>live web retrieval used</span> : <strong className="text-amber-700">{check.retrievalRequested ? "retrieval requested but not used" : "no live web retrieval"}</strong>}
         {o.synthetic ? <strong className="text-amber-700"> · synthetic fixture</strong> : null}
       </p>
-      {o.citations.length ? <ol className="list-decimal pl-5 text-sm">{o.citations.map((c, i) => <li key={i}>{c.uri ? <a className="break-all underline" href={c.uri} target="_blank" rel="noreferrer">{c.title ?? c.uri}</a> : c.title}</li>)}</ol> : <p className="text-sm text-muted-foreground">No sources cited.</p>}
+      {o.citations.length ? <ol className="list-decimal pl-5 text-sm">{o.citations.map((c, i) => { const url = safeRecordUrl(c.uri); return <li key={i}>{url ? <a className="break-all underline" href={url} target="_blank" rel="noreferrer">{c.title ?? url}</a> : c.title}</li> })}</ol> : <p className="text-sm text-muted-foreground">No sources cited.</p>}
+      <SearchSuggestions html={o.provider === "gemini" && o.providerMetadata !== null && typeof o.providerMetadata === "object" && "searchSuggestionsHtml" in o.providerMetadata && typeof o.providerMetadata.searchSuggestionsHtml === "string" ? o.providerMetadata.searchSuggestionsHtml : null} />
       <div className="space-y-2 rounded-md border p-3">
         <p className="text-sm">{check.judgment ? <>Your judgment: <strong>{DECISION_LABELS[check.judgment.decision]}</strong> ({formatDateTime(check.judgment.reviewedAt)}){check.judgments.length > 1 ? ` · corrected ${check.judgments.length - 1}×, history kept` : ""}</> : <strong>Needs your review. It stays private until you judge it.</strong>}</p>
         <Textarea placeholder="Internal note (never shown to the client)" value={note} onChange={e => setNote(e.target.value)} maxLength={2000} />
         <div className="flex flex-wrap gap-2">
           {(["MATCHES", "CONTRADICTS", "UNKNOWN"] as Decision[]).map(d => (
             <Button key={d} size="sm" variant={check.judgment?.decision === d ? "default" : "outline"} disabled={busy}
-              onClick={() => void run(() => Records.judge(clientId, o.id, d, note.trim() || null), `Marked ${DECISION_LABELS[d].toLowerCase()}`).then(() => setNote(""))}>{DECISION_LABELS[d]}</Button>
+              onClick={() => void run(() => Records.judge(clientId, o.id, d, note.trim() || null), `Marked ${DECISION_LABELS[d].toLowerCase()}`).then(saved => { if (saved) setNote("") })}>{DECISION_LABELS[d]}</Button>
           ))}
         </div>
       </div>
@@ -159,7 +164,7 @@ function ActionForm({ record, reload }: { record: OperatorRecord; reload: () => 
   const submit = () => run(() => Records.action(record.profile.businessId, {
     slot: slot === "all" ? null : (Number(slot) as 1 | 2 | 3), note: note.trim(), links: link.trim() ? [link.trim()] : [],
     performedAt: new Date(`${day}T12:00:00Z`) > new Date() ? new Date().toISOString() : new Date(`${day}T12:00:00Z`).toISOString(),
-  }), "Action recorded").then(() => { setNote(""); setLink("") })
+  }), "Action recorded").then(saved => { if (saved) { setNote(""); setLink("") } })
   return (
     <form className="grid gap-3" onSubmit={e => { e.preventDefault(); void submit() }}>
       <p className="text-sm text-muted-foreground">What the agency changed. The note and link are shown on the client's record.</p>
@@ -171,11 +176,11 @@ function ActionForm({ record, reload }: { record: OperatorRecord; reload: () => 
             {record.slots.map(s => <SelectItem key={s.slot} value={String(s.slot)}>Fact {s.slot}: {s.item.fact.predicate}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Input type="date" aria-label="Date of the change" value={day} max={new Date().toISOString().slice(0, 10)} onChange={e => setDay(e.target.value)} />
+        <Input type="date" aria-label="Date of the change" required value={day} max={new Date().toISOString().slice(0, 10)} onChange={e => setDay(e.target.value)} />
         <Input placeholder="Agency updated /rooms with breakfast details." aria-label="Action note" value={note} onChange={e => setNote(e.target.value)} maxLength={500} />
       </div>
       <Input type="url" placeholder="Link to the changed page (optional)" aria-label="Changed page link" value={link} onChange={e => setLink(e.target.value)} maxLength={2000} />
-      <div><Button type="submit" variant="outline" disabled={busy || !note.trim()}>Record action</Button></div>
+      <div><Button type="submit" variant="outline" disabled={busy || !note.trim() || !day}>Record action</Button></div>
     </form>
   )
 }
@@ -189,7 +194,7 @@ function Share({ record, reload }: { record: OperatorRecord; reload: () => Promi
     <div className="space-y-2">
       <Input readOnly value={href} aria-label="Public record URL" onFocus={e => e.target.select()} />
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => void navigator.clipboard.writeText(href).then(() => toast.success("Link copied"))}>Copy link</Button>
+        <Button onClick={() => void navigator.clipboard.writeText(href).then(() => toast.success("Link copied"), () => toast.error("Could not copy the link. Select and copy the URL above."))}>Copy link</Button>
         <Button variant="outline" asChild><a href={href} target="_blank" rel="noreferrer">Open</a></Button>
         <Button variant="ghost" disabled={busy} onClick={() => { if (window.confirm("Revoke this link? It stops working immediately and cannot be re-enabled.")) void run(() => Records.revoke(id), "Link revoked") }}>Revoke link</Button>
       </div>

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react"
 import { useParams } from "react-router"
 import { DECISION_LABELS, fetchPublicRecord, OUTCOME_LABELS, type PublicAction, type PublicAnswer, type PublicFact, type PublicRecord } from "@/lib/record"
 import { cn } from "@/lib/utils"
+import { SearchSuggestions } from "@/components/search-suggestions"
 
 const date = (iso: string | null) =>
   iso === null ? "—" : new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(iso))
@@ -33,6 +34,8 @@ export function AnswerEvidence({ answer }: { answer: PublicAnswer }) {
   return (
     <div className="space-y-3 text-sm">
       <figure>
+        <p className="mb-2">Approved fact at this check: {answer.fact.label}: {answer.fact.value}</p>
+        <p className="mb-2">Question asked: “{answer.question}”</p>
         <figcaption className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">AI answer, exactly as recorded</figcaption>
         <blockquote className="whitespace-pre-wrap rounded-md border-l-4 bg-muted/50 px-4 py-3 text-base">{answer.answer}</blockquote>
       </figure>
@@ -52,6 +55,7 @@ export function AnswerEvidence({ answer }: { answer: PublicAnswer }) {
           </ol>
         )}
       </div>
+      <SearchSuggestions html={answer.searchSuggestionsHtml} />
     </div>
   )
 }
@@ -143,6 +147,7 @@ export function PublicRecordPage() {
   }, [])
   useEffect(() => {
     let live = true
+    setState({ record: null, error: null, loading: true })
     fetchPublicRecord(publicId).then(
       record => { if (live) setState({ record, error: null, loading: false }) },
       () => { if (live) setState({ record: null, error: "This record is temporarily unavailable.", loading: false }) },

@@ -33,7 +33,7 @@ const check = (obs: RecordObservation | null, status: RecordCheck["status"] = ob
   failureClass: status === "FAILED" ? "PROVIDER_UNAVAILABLE" : null, failureDetailSafe: status === "FAILED" ? "provider unavailable" : null,
   queuedAt: "2026-10-01T00:00:00.000Z", completedAt: "2026-10-01T00:00:00.000Z", observation: obs, judgments, ...over,
 })
-const ev = (c: RecordCheck, it: RecordItem = item()): SlotEvidence => ({ check: c, item: it, judgment: currentJudgment(c.judgments) })
+const ev = (c: RecordCheck, it: RecordItem = item()): SlotEvidence => ({ check: c, item: it, judgment: currentJudgment(c.judgments), runComplete: true })
 const T1 = "2026-10-01T10:00:00.000Z"
 const T2 = "2026-10-08T10:00:00.000Z"
 const pair = (b: RecordJudgment["decision"], a: RecordJudgment["decision"]) =>
@@ -43,7 +43,7 @@ describe("record comparison rules", () => {
   it("derives the three outcomes from reviewed judgments", () => {
     expect(pair("CONTRADICTS", "MATCHES")).toEqual({ state: "DERIVED", outcome: "OBSERVED_CORRECTION", reason: null })
     expect(pair("CONTRADICTS", "CONTRADICTS")).toEqual({ state: "DERIVED", outcome: "NO_OBSERVED_CHANGE", reason: null })
-    expect(pair("MATCHES", "MATCHES")).toEqual({ state: "DERIVED", outcome: "NO_OBSERVED_CHANGE", reason: null })
+    expect(pair("MATCHES", "MATCHES")).toMatchObject({ outcome: "INDETERMINATE", reason: "BASELINE_MATCHED" })
     expect(pair("CONTRADICTS", "UNKNOWN")).toMatchObject({ outcome: "INDETERMINATE", reason: "AFTER_UNKNOWN" })
     expect(pair("UNKNOWN", "MATCHES")).toMatchObject({ outcome: "INDETERMINATE", reason: "BEFORE_UNKNOWN" })
     // A regression is not "no change" and not a correction.
@@ -55,6 +55,7 @@ describe("record comparison rules", () => {
     expect(compareSlot(reviewed, ev(check(null, "QUEUED")))).toEqual({ state: "PENDING_CHECK" })
     expect(compareSlot(reviewed, ev(check(observation(T2))))).toEqual({ state: "AWAITING_REVIEW" })
     expect(compareSlot(ev(check(observation(T1))), ev(check(observation(T2), "SUCCEEDED", [judgment("MATCHES")])))).toEqual({ state: "AWAITING_REVIEW" })
+    expect(compareSlot(reviewed, { ...ev(check(observation(T2), "SUCCEEDED", [judgment("MATCHES")])), runComplete: false })).toMatchObject({ outcome: "INDETERMINATE", reason: "PARTIAL_RUN" })
   })
   it("names why a comparison is INDETERMINATE", () => {
     const before = (o = observation(T1), j = [judgment("CONTRADICTS")]) => ev(check(o, "SUCCEEDED", j))
@@ -109,5 +110,34 @@ describe("public projection allowlist", () => {
     for (const hidden of [BIZ, "TEST internal note", "internal-response-id", "x".repeat(43), o.id, item().id, item().fact.id, "00000000-0000-4000-8000-0000000000u1", "javascript:"]) {
       expect(text).not.toContain(hidden)
     }
+  })
+  it("does not attach a historical judgment to a newly approved question", () => {
+    const earlier = item({ superseded: true })
+    const current = item({ id: "new-item", supersedesId: earlier.id, question: { id: "new-question", prompt: "Is breakfast free for every guest?" } })
+    const s = snapshot([check(observation(T1), "SUCCEEDED", [judgment("MATCHES")])])
+    const page = publicRecord({ ...s, items: [earlier, current] })
+    expect(page.facts[0]!.question).toBe(current.question.prompt)
+    expect(page.facts[0]!.latest).toBeNull()
+    expect(page.facts[0]!.comparison).toBeNull()
+  })
+  it("keeps the exact historical question and fact with each answer", () => {
+    const page = publicRecord(snapshot([check(observation(T1), "SUCCEEDED", [judgment("CONTRADICTS")])]))
+    expect(page.facts[0]!.latest).toMatchObject({ question: item().question.prompt, fact: { label: "Breakfast included", value: "Yes" } })
+  })
+  it("strips credentials from provider citation links", () => {
+    const o = observation(T1, { citations: [{ uri: "https://secret:credential@source.test/page", title: "source", position: 1 }] })
+    const text = JSON.stringify(publicRecord(snapshot([check(o, "SUCCEEDED", [judgment("MATCHES")])])))
+    expect(text).not.toContain("secret")
+    expect(text).not.toContain("credential")
+  })
+  it("keeps the last check date visible when the provider fails", () => {
+    const page = publicRecord(snapshot([check(null, "FAILED", [], { completedAt: T2 })]))
+    expect(page.lastCheckedAt).toBe(T2)
+    expect(page.surface).toBeNull()
+    expect(page.facts[0]!.latest).toMatchObject({ status: "CHECK_FAILED", checkedAt: T2 })
+  })
+  it("does not present retired facts as current approved information", () => {
+    const s = snapshot([check(observation(T1), "SUCCEEDED", [judgment("MATCHES")])])
+    expect(publicRecord({ ...s, items: [item({ fact: { ...item().fact, status: "RETIRED" } })] }).facts).toEqual([])
   })
 })

@@ -35,6 +35,7 @@ export type RecordObservation = {
   rawDigest: string
   synthetic: boolean
   citations: Array<{ uri: string | null; title: string | null; position: number | null }>
+  providerMetadata: unknown
 }
 export type RecordCheck = {
   id: string
@@ -94,7 +95,7 @@ export const Records = {
 
 // ---- public record (no session) ----
 
-export type PublicAnswer =
+export type PublicAnswer = { question: string; fact: { label: string; value: string } } & (
   | { status: "CHECK_FAILED"; checkedAt: string | null; explanation: string }
   | {
     status: "ANSWERED"
@@ -104,10 +105,11 @@ export type PublicAnswer =
     retrieval: { requested: boolean; observed: boolean; tool: string | null }
     syntheticFixture: boolean
     answer: string
+    searchSuggestionsHtml: string | null
     citations: Array<{ url: string | null; title: string | null }>
     evidenceDigest: string
     judgment: { decision: Decision; label: string; reviewedAt: string; reviewedBy: string }
-  }
+  })
 export type PublicAction = { performedAt: string; note: string | null; links: string[] }
 export type PublicFact = {
   position: number
@@ -128,6 +130,10 @@ export type PublicRecord = {
 }
 
 export const publicRecordPath = (publicId: string) => `/open/${publicId}`
+export const safeRecordUrl = (value: string | null): string | null => {
+  if (!value) return null
+  try { const u = new URL(value); return (u.protocol === "https:" || u.protocol === "http:") && !u.username && !u.password ? u.toString() : null } catch { return null }
+}
 export const fetchPublicRecord = async (publicId: string): Promise<PublicRecord | null> => {
   const res = await fetch(`/api/public/records/${encodeURIComponent(publicId)}`, { credentials: "omit", referrerPolicy: "no-referrer" })
   if (res.status === 404) return null

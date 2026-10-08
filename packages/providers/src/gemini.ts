@@ -24,6 +24,7 @@ export const GeminiResponse = Schema.Struct({
       webSearchQueries: Schema.optional(Schema.Array(Schema.String)),
       groundingChunks: Schema.optional(Schema.Array(GroundingChunk)),
       groundingSupports: Schema.optional(Schema.Array(GroundingSupport)),
+      searchEntryPoint: Schema.optional(Schema.Struct({ renderedContent: Schema.optional(Schema.String) })),
     })),
   })).pipe(Schema.minItems(1)),
   modelVersion: Schema.optional(Schema.String),
@@ -44,7 +45,10 @@ export const interpretGemini = (decoded: typeof GeminiResponse.Type) => {
     if (!web || (web.uri === undefined && web.title === undefined)) return []
     return [{ uri: web.uri ?? null, title: web.title ?? null, position: i + 1, attributed: supported.has(i) }]
   })
-  const retrievalObserved = queries.length > 0 || citations.length > 0
+  const retrievalObserved = queries.some(q => q.trim().length > 0) || citations.some(c => {
+    if (!c.uri) return false
+    try { const u = new URL(c.uri); return (u.protocol === "https:" || u.protocol === "http:") && !u.username && !u.password } catch { return false }
+  })
   return {
     answerText,
     citations,
@@ -53,6 +57,7 @@ export const interpretGemini = (decoded: typeof GeminiResponse.Type) => {
     providerMetadata: {
       responseId: decoded.responseId ?? null, modelVersion: decoded.modelVersion ?? null, finishReason: candidate.finishReason ?? null,
       webSearchQueries: queries, groundingChunkCount: chunks.length, usageMetadata: decoded.usageMetadata ?? null,
+      searchSuggestionsHtml: grounding?.searchEntryPoint?.renderedContent ?? null,
     },
   }
 }

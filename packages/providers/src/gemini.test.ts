@@ -8,6 +8,7 @@ import { Effect, Layer, Redacted } from "effect"
 import { NodeHttpClient } from "@effect/platform-node"
 import { GeminiSettings, type GeminiSettingsValue } from "@openrecord/config"
 import { GeminiProvider, GeminiProviderLive, sha256, type ProviderRequest } from "./index.js"
+import { interpretGemini } from "./gemini.js"
 
 const grounded = JSON.stringify({
   candidates: [{
@@ -81,6 +82,15 @@ const observe = (cfg: GeminiSettingsValue | null, request: Partial<ProviderReque
 }).pipe(Effect.provide(GeminiProviderLive.pipe(Layer.provide(NodeHttpClient.layer), Layer.provide(Layer.succeed(GeminiSettings, cfg)))), Effect.either))
 
 describe("Gemini grounding adapter (SYNTHETIC response fixtures)", () => {
+  it("does not treat blank queries or title-only chunks as observed retrieval", () => {
+    expect(interpretGemini({ candidates: [{ groundingMetadata: { webSearchQueries: [" "], groundingChunks: [{ web: { title: "Source title" } }] } }] }).retrievalMode).toBe("NONE")
+    expect(interpretGemini({ candidates: [{ groundingMetadata: { groundingChunks: [{ web: { uri: "javascript:alert(1)", title: "Source" } }] } }] }).retrievalMode).toBe("NONE")
+  })
+  it("preserves the provider's Google Search suggestions for isolated rendering", () => {
+    const result = interpretGemini({ candidates: [{ groundingMetadata: { searchEntryPoint: { renderedContent: "<div>TEST search suggestions</div>" } } }] })
+    expect(result.providerMetadata.searchSuggestionsHtml).toBe("<div>TEST search suggestions</div>")
+    expect(result.retrievalMode).toBe("NONE")
+  })
   it("records grounded answers as PROVIDER_GROUNDING with exact bytes, citations, model and request", async () => {
     requests = []
     const r = await observe(settings("grounded"))

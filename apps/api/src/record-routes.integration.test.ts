@@ -121,6 +121,11 @@ suite("client record HTTP (TEST fixtures only)", () => {
     const a = await agency()
     const businessId = await client(a.session)
     const base = `/api/record/clients/${businessId}`
+    const malformedRun = await web.handler(new Request(`http://localhost${base}/runs`, {
+      method: "POST", headers: { cookie: `or_session=${a.session}`, "content-type": "application/json" }, body: "{broken",
+    }))
+    expect(malformedRun.status).toBe(422)
+    expect((await pool.query("SELECT count(*)::int n FROM check_runs WHERE business_id=$1", [businessId])).rows[0].n).toBe(0)
     for (const [method, path, body] of [
       ["POST", "/api/record/clients", { name: "x", websiteUrl: "javascript:alert(1)" }],
       ["POST", "/api/record/clients", { name: " ", websiteUrl: "https://ok.test/" }],
@@ -133,6 +138,22 @@ suite("client record HTTP (TEST fixtures only)", () => {
       ["POST", `${base}/actions`, { slot: null, note: "x", links: ["javascript:alert(1)"] }],
       ["POST", `${base}/judgments`, { observationId: randomUUID(), decision: "SUPPORTED" }],
     ] as const) expect((await call(method, path, a.session, body)).status, JSON.stringify(body)).toBe(422)
+  })
+  it("refuses cross-origin browser writes even with an authenticated session", async () => {
+    const a = await agency()
+    const businessId = await client(a.session)
+    for (const path of ["/api/record/clients", `/api/record/clients/${businessId}/runs`, `/api/record/clients/${businessId}/share`, `/api/record/clients/${businessId}/share/revoke`]) {
+      const response = await web.handler(new Request(`http://localhost${path}`, {
+        method: "POST", headers: { cookie: `or_session=${a.session}`, origin: "https://hostile.test", "content-type": "text/plain" }, body: "{}",
+      }))
+      expect(response.status).toBe(403)
+      expect(await response.json()).toEqual({ _tag: "OriginRefused" })
+    }
+    const missingOrigin = await web.handler(new Request(`http://localhost/api/record/clients/${businessId}/share`, {
+      method: "POST", headers: { cookie: `or_session=${a.session}`, "sec-fetch-site": "same-site" },
+    }))
+    expect(missingOrigin.status).toBe(403)
+    expect((await pool.query("SELECT count(*)::int n FROM check_runs WHERE business_id=$1", [businessId])).rows[0].n).toBe(0)
   })
 
   it("refuses runs without approved facts and a second run while one is in flight", async () => {
@@ -147,6 +168,33 @@ suite("client record HTTP (TEST fixtures only)", () => {
     const again = await call("POST", `/api/record/clients/${businessId}/runs`, a.session, {})
     expect(again.status).toBe(409)
     expect(await again.json()).toEqual({ _tag: "RecordRefused", reason: "RunInProgress" })
+  })
+  it("repeated saves are idempotent and changing only the question preserves the fact version", async () => {
+    const a = await agency()
+    const businessId = await client(a.session)
+    const path = `/api/record/clients/${businessId}/slots/1`
+    const first = await ok<{ item: { id: string; fact: { id: string } } }>(call("PUT", path, a.session, slotBody(1)))
+    const repeated = await ok<{ item: { id: string; fact: { id: string } } }>(call("PUT", path, a.session, slotBody(1)))
+    expect(repeated.item.id).toBe(first.item.id)
+    const changed = await ok<{ item: { id: string; fact: { id: string }; approval: unknown } }>(call("PUT", path, a.session, { ...slotBody(1), question: "A different question?" }))
+    expect(changed.item.fact.id).toBe(first.item.fact.id)
+    expect(changed.item.id).not.toBe(first.item.id)
+    expect(changed.item.approval).toBeNull()
+  })
+  it("does not check expired or future facts", async () => {
+    const a = await agency()
+    for (const validity of [
+      { validFrom: "2020-01-01T00:00:00Z", validUntil: "2021-01-01T00:00:00Z" },
+      { validFrom: "2099-01-01T00:00:00Z" },
+    ]) {
+      const businessId = await client(a.session)
+      const { item } = await ok<{ item: { id: string } }>(call("PUT", `/api/record/clients/${businessId}/slots/1`, a.session, { ...slotBody(1), ...validity }))
+      await ok(call("POST", `/api/record/clients/${businessId}/items/${item.id}/approve`, a.session))
+      const refused = await call("POST", `/api/record/clients/${businessId}/runs`, a.session, {})
+      expect(refused.status).toBe(409)
+      expect(await refused.json()).toMatchObject({ reason: "FactNotCurrentlyValid" })
+      expect((await pool.query("SELECT count(*)::int n FROM check_runs WHERE business_id=$1", [businessId])).rows[0].n).toBe(0)
+    }
   })
 
   it("the public URL serves only the allowlisted projection, with capability headers", async () => {

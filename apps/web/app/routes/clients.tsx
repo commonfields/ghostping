@@ -50,7 +50,7 @@ export function ClientsPage() {
           <div><Button type="submit" disabled={busy || !name.trim()}>Create client</Button></div>
         </form>
       ) : null}
-      {clients.loading ? <Skeleton className="h-32 rounded-xl" /> : (clients.data?.clients.length ?? 0) === 0 ? (
+      {clients.loading ? <Skeleton className="h-32 rounded-xl" /> : clients.error ? <p role="alert">{errorMessage(clients.error)}</p> : (clients.data?.clients.length ?? 0) === 0 ? (
         <EmptyState icon={<FileCheck2Icon />} title="No clients yet" description="Add a client, approve three facts with them, and run the first check." />
       ) : (
         <ul className="divide-y rounded-xl border">

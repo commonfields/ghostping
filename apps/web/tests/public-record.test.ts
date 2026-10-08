@@ -3,6 +3,8 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { PublicRecordView } from "../app/routes/public-record"
 import type { PublicAnswer, PublicRecord } from "../app/lib/record"
+import { safeRecordUrl } from "../app/lib/record"
+import { SearchSuggestions } from "../app/components/search-suggestions"
 
 // The client-facing record, rendered without a browser from a TEST
 // projection: exact raw evidence, human labels, visible INDETERMINATE
@@ -11,6 +13,8 @@ import type { PublicAnswer, PublicRecord } from "../app/lib/record"
 const DISCLOSURE = "This shows what OpenRecord observed before and after the change. It does not prove that the edit caused the model's new answer."
 const answered = (answer: string, decision: "MATCHES" | "CONTRADICTS" | "UNKNOWN", observed = true): PublicAnswer => ({
   status: "ANSWERED", checkedAt: "2026-10-08T10:00:00.000Z", surface: "Gemini API", model: "gemini-2.5-flash",
+  question: "Is breakfast included at TEST Acme Hotel?", fact: { label: "Breakfast included", value: "Yes" },
+  searchSuggestionsHtml: null,
   retrieval: { requested: true, observed, tool: observed ? "Google Search grounding" : null }, syntheticFixture: false, answer,
   citations: [{ url: "https://old-listing.test/acme", title: "old-listing.test" }], evidenceDigest: "a".repeat(64),
   judgment: { decision, label: decision === "MATCHES" ? "Matches the approved fact" : decision === "CONTRADICTS" ? "Contradicts the approved fact" : "Unknown — the answer could not be judged against the approved fact", reviewedAt: "2026-10-08T12:00:00.000Z", reviewedBy: "Reviewed by the agency" },
@@ -37,6 +41,20 @@ const record: PublicRecord = {
 }
 
 describe("public client record", () => {
+  it("isolates provider suggestion HTML without scripts or parent-origin access", () => {
+    const widget = renderToStaticMarkup(createElement(SearchSuggestions, { html: '<div>TEST suggestion</div><script>parent.document.body.textContent="unsafe"</script>' }))
+    expect(widget).toContain('sandbox="allow-popups allow-popups-to-escape-sandbox"')
+    expect(widget).toContain('referrerPolicy="no-referrer"')
+    expect(widget).toContain("Content-Security-Policy")
+    expect(widget).not.toContain("allow-scripts")
+    expect(widget).not.toContain("allow-same-origin")
+    expect(widget).not.toContain("<script>")
+    expect(renderToStaticMarkup(createElement(SearchSuggestions, { html: null }))).toBe("")
+  })
+  it("rejects unsafe citation schemes and embedded credentials in operator links", () => {
+    for (const url of ["javascript:alert(1)", "data:text/html,hi", "https://secret:credential@source.test/"]) expect(safeRecordUrl(url)).toBeNull()
+    expect(safeRecordUrl("https://source.test/page")).toBe("https://source.test/page")
+  })
   const html = renderToStaticMarkup(createElement(PublicRecordView, { record }))
   it("shows the header, the surface and the visible causality disclosure", () => {
     expect(html).toContain("TEST Acme Hotel")

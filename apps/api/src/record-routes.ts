@@ -71,9 +71,26 @@ const failure = (e: unknown) => {
 }
 
 export const recordApi = (withSession: WithSession) => {
+  // SameSite cookies do not isolate a hostile sibling subdomain. Browser
+  // writes must come from the configured application origin. Non-browser
+  // clients without Origin still need their authenticated session.
+  const operatorSession = <E, R>(run: (s: Session) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
+    Effect.gen(function*() {
+      const request = yield* HttpServerRequest.HttpServerRequest
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        const origin = request.headers["origin"]
+        const app = yield* Config.string("APP_BASE_URL").pipe(Config.withDefault("http://localhost:3000"))
+        let allowed = false
+        try { allowed = origin === new URL(app).origin } catch { /* bad configuration fails closed */ }
+        if ((origin !== undefined && !allowed) || (origin === undefined && ["cross-site", "same-site"].includes(request.headers["sec-fetch-site"] ?? ""))) {
+          return yield* json(403, { _tag: "OriginRefused" })
+        }
+      }
+      return yield* withSession(run)
+    })
   /** Business scoped to the session's agency account and carrying a record profile. */
   const client = <E, R>(run: (s: Session, businessId: string, p: Record<string, string>) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
-    withSession((session: Session) => Effect.gen(function*() {
+    operatorSession((session: Session) => Effect.gen(function*() {
       const { params } = yield* HttpRouter.RouteContext
       const p = params as Record<string, string>
       for (const key of ["id", "itemId"]) if (p[key] !== undefined && decodeRouteId(p[key])._tag === "Left") return yield* json(422, { _tag: "InvalidRequest" })
@@ -93,7 +110,7 @@ export const recordApi = (withSession: WithSession) => {
       const clients = yield* (yield* RecordRepository).listClients(session.accountId)
       return yield* json(200, { clients })
     })).pipe(Effect.catchAll(failure))),
-    HttpRouter.post("/api/record/clients", withSession(session => Effect.gen(function*() {
+    HttpRouter.post("/api/record/clients", operatorSession(session => Effect.gen(function*() {
       const body = decode(CreateClientRequest, yield* readJson)
       if (!body) return yield* json(422, { _tag: "InvalidRequest" })
       if (body.engagement === "FIXTURE" && !recordFixtureAllowed()) return yield* json(422, { _tag: "FixtureDisabled" })
@@ -111,12 +128,12 @@ export const recordApi = (withSession: WithSession) => {
       const slot = Number(p["slot"])
       const body = decode(SaveSlotRequest, yield* readJson)
       if (!body || (slot !== 1 && slot !== 2 && slot !== 3)) return yield* json(422, { _tag: "InvalidRequest" })
-      const validFrom = new Date(body.validFrom ?? Date.now()).toISOString()
-      const validUntil = body.validUntil ? new Date(body.validUntil).toISOString() : null
-      if (validUntil !== null && Date.parse(validUntil) <= Date.parse(validFrom)) return yield* json(422, { _tag: "InvalidRequest", reason: "validUntil must follow validFrom" })
+      const validFrom = body.validFrom === undefined ? undefined : new Date(body.validFrom).toISOString()
+      const validUntil = body.validUntil === undefined ? undefined : body.validUntil === null ? null : new Date(body.validUntil).toISOString()
+      if (validFrom !== undefined && validUntil != null && Date.parse(validUntil) <= Date.parse(validFrom)) return yield* json(422, { _tag: "InvalidRequest", reason: "validUntil must follow validFrom" })
       const item = yield* (yield* RecordRepository).saveSlot(session, businessId, {
         slot, subject: body.subject.trim(), predicate: body.predicate.trim(), valueText: body.valueText.trim(), valueType: body.valueType,
-        validFrom, validUntil, sourceUrl: body.sourceUrl, question: body.question.trim(),
+        ...(validFrom === undefined ? {} : { validFrom }), ...(validUntil === undefined ? {} : { validUntil }), sourceUrl: body.sourceUrl, question: body.question.trim(),
       })
       return yield* json(200, { item })
     }))),
@@ -125,7 +142,7 @@ export const recordApi = (withSession: WithSession) => {
       return yield* view(businessId)
     }))),
     HttpRouter.post("/api/record/clients/:id/runs", client((session, businessId) => Effect.gen(function*() {
-      const body = decode(StartRunRequest, (yield* readJson) ?? {})
+      const body = decode(StartRunRequest, yield* readJson)
       if (!body) return yield* json(422, { _tag: "InvalidRequest" })
       const surface = yield* RecordSurfaceConfig
       if (surface.provider === "mock" && !recordFixtureAllowed()) return yield* json(409, { _tag: "RecordRefused", reason: "FixtureProviderDisabled" })
@@ -166,7 +183,10 @@ export const recordApi = (withSession: WithSession) => {
       const businessId = yield* records.businessForPublicId(publicId)
       if (businessId === null) return yield* notFound
       const snapshot = yield* records.snapshot(businessId)
-      if (snapshot === null) return yield* notFound
+      if (snapshot === null || snapshot.share?.publicId !== publicId) return yield* notFound
+      // Recheck after loading evidence so a revoke during the snapshot
+      // cannot disclose the record under its old capability.
+      if (yield* records.businessForPublicId(publicId).pipe(Effect.map(id => id === null))) return yield* notFound
       return yield* json(200, { record: publicRecord(snapshot) }, PUBLIC_HEADERS)
     }).pipe(Effect.catchAll(() => json(500, { _tag: "RecordUnavailable" }, PUBLIC_HEADERS)))),
   )
