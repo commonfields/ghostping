@@ -15,6 +15,7 @@ const runCase = async (script: Array<ProviderError | ProviderObservation>, opts:
     enqueue: () => Effect.dieMessage("unused"), listByBusiness: () => Effect.succeed([]), getScoped: () => Effect.succeed(null), markRunning: () => Effect.void,
     claimOne: () => Effect.succeed({ ...(opts.grouped ? { assaySampleGroupId: "group-1" } : {}), id: "run-1", businessId: "b1", questionId: "q1", provider: "mock", requestedModel: "requested", status: "RUNNING", queuedAt: "2026-10-04T00:00:00Z", startedAt: null, completedAt: null, failureClass: null, failureDetailSafe: null, attemptCount: 0 }),
     recordAttempt: () => opts.attemptFailure ? Effect.fail(new SqlError({ message: "test failure" })) : Effect.sync(() => ++state.attempts),
+    recoverAbandoned: () => Effect.succeed(0),
     markFinished: (_id, status, failureClass) => Effect.sync(() => { state.status = status; state.failure = failureClass }),
   })
   const questions = Layer.succeed(QuestionRepository, {
