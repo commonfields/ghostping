@@ -32,7 +32,7 @@ suite("client record HTTP (TEST fixtures only)", () => {
     return { account, user, session }
   }
   const call = (method: string, path: string, session?: string, body?: unknown) => web.handler(new Request(`http://localhost${path}`, {
-    method, headers: { ...(session ? { cookie: `gp_session=${session}` } : {}), "content-type": "application/json" },
+    method, headers: { ...(session ? { cookie: `or_session=${session}` } : {}), "content-type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   }))
   const ok = async <T>(r: Response | Promise<Response>): Promise<T> => {

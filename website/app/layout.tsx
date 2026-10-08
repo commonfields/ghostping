@@ -24,13 +24,12 @@ const dm = DM_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'OpenRecord — Evidence for AI representation integrity',
+  title: 'OpenRecord — Show clients what AI said before and after your work',
   description:
-    'OpenRecord is an evidence system for AI representation integrity. It records what a business says is true, observes what AI systems say, and traces the difference to evidence.',
+    'OpenRecord gives agencies a shareable evidence record: the approved fact, the raw AI answer, its source, a human judgment, and the next weekly check.',
   openGraph: {
-    title: 'OpenRecord — Evidence for AI representation integrity',
-    description:
-      'Find what AI gets wrong about your business, trace it to evidence, and verify what changes.',
+    title: 'OpenRecord — Show clients what AI said before and after your work',
+    description: 'A shareable, human-reviewed record of what one live AI surface said about your client, checked again each week.',
     type: 'website',
   },
 }
