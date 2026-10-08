@@ -19,7 +19,7 @@ export const NineRouterProviderLive = Layer.effect(NineRouterProvider, Effect.ge
   const cfg = yield* NineRouterSettings
   const http = yield* HttpClient.HttpClient
   return { observe: (input) => Effect.gen(function*() {
-    if (!cfg || input.requestedModel === null || !cfg.models.includes(input.requestedModel)) {
+    if ((input.retrievalMode !== undefined && input.retrievalMode !== "NONE") || !cfg || input.requestedModel === null || !cfg.models.includes(input.requestedModel)) {
       return yield* Effect.fail(new ProviderUnsupported({}))
     }
     const request = yield* HttpClientRequest.post(`${Redacted.value(cfg.baseUrl).replace(/\/$/, "")}/chat/completions`).pipe(
@@ -63,7 +63,8 @@ export const NineRouterProviderLive = Layer.effect(NineRouterProvider, Effect.ge
     return {
       ...raw, provider: "9router", requestedModel: input.requestedModel, observedModel: decoded.model ?? null,
       collectedAt: new Date().toISOString(), answerText: decoded.choices[0]!.message.content,
-      retrievalMode: "unknown" as const, citations, rawResponse: parsed,
+      retrievalMode: "unknown" as const, modelVersion: null, retrievalTool: null,
+      requestParameters: { model: input.requestedModel, stream: false }, citations, rawResponse: parsed,
       providerMetadata: Object.keys(providerMetadata).length ? providerMetadata : null, synthetic: false,
     }
   }).pipe(Effect.timeoutFail({ duration: cfg?.timeoutMs ?? 60_000, onTimeout: () => new ProviderTimeout({}) })) }

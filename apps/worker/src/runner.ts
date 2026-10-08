@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url"
 import { PgClient } from "@effect/sql-pg"
 import { NodeRuntime } from "@effect/platform-node"
 import {
+  AssayRepositoryLive,
   CheckRunRepositoryLive,
   DiscoveryFrontierRepositoryLive,
   DiscoveryMatchRepositoryLive,
@@ -28,6 +29,7 @@ import {
   type RawDigestMismatch,
   type RowDecodeError,
 } from "@openrecord/db"
+import { AssayRunner, AssayRunnerLive } from "./assay-runner.js"
 import { CheckRunner, CheckRunnerLive } from "./check-runner.js"
 import { DiscoveryRunner, DiscoveryRunnerLive } from "./discovery-runner.js"
 import { SiteInspectionRunner, SiteInspectionRunnerLive } from "./site-inspection-runner.js"
@@ -46,6 +48,7 @@ const WorkerConfig = Config.all({
 const buildRunnerLive = (databaseUrl: Redacted.Redacted<string>) => {
   const PgLive = PgClient.layer({ url: databaseUrl })
   const Repos = Layer.mergeAll(
+    AssayRepositoryLive,
     CheckRunRepositoryLive,
     ObservationRepositoryLive,
     ProviderAttemptEvidenceRepositoryLive,
@@ -79,7 +82,8 @@ const buildRunnerLive = (databaseUrl: Redacted.Redacted<string>) => {
     ),
     Layer.provide(PgLive),
   )
-  return Layer.mergeAll(CheckLive, DiscoveryLive, SiteLive)
+  const AssayLive = AssayRunnerLive.pipe(Layer.provide(AssayRepositoryLive), Layer.provide(PgLive))
+  return Layer.mergeAll(CheckLive, DiscoveryLive, SiteLive, AssayLive)
 }
 
 export type RunnerLoopError = SqlError | RowDecodeError | RawDigestMismatch
@@ -87,7 +91,8 @@ export type RunnerLoopError = SqlError | RowDecodeError | RawDigestMismatch
 export interface LoopRunners {
   readonly check: { readonly runOnce: () => Effect.Effect<boolean, RunnerLoopError> }
   readonly discovery: { readonly runOnce: () => Effect.Effect<boolean, RunnerLoopError> }
-  /** Optional third loop (site inspection). Absent in legacy tests. */
+  /** Optional assay and site loops. Absent in legacy tests. */
+  readonly assay?: { readonly runOnce: () => Effect.Effect<boolean, RunnerLoopError> }
   readonly site?: { readonly runOnce: () => Effect.Effect<boolean, RunnerLoopError> }
 }
 
@@ -96,12 +101,12 @@ export interface LoopRunners {
  * sleeps only when idle; a multi-minute discovery scan occupies only its
  * own fiber, so CheckRunner keeps polling. Failures are contained per
  * loop (logged through the Effect Logger, bounded) and never terminate the
- * sibling. No Redis/Kafka, no unbounded fibers: exactly two (plus the
- * optional site-inspection loop when configured).
+ * sibling. No Redis/Kafka, no unbounded fibers: two core loops plus
+ * optional site and assay loops.
  */
 export const startRunnerLoops = (runners: LoopRunners, pollMs: number): Effect.Effect<void, never, never> =>
   Effect.gen(function*() {
-    const loop = (which: "check" | "discovery" | "site", runOnce: () => Effect.Effect<boolean, RunnerLoopError>) => {
+    const loop = (which: "check" | "discovery" | "site" | "assay", runOnce: () => Effect.Effect<boolean, RunnerLoopError>) => {
       const step: Effect.Effect<void> = Effect.gen(function*() {
         while (true) {
           const did = yield* runOnce().pipe(
@@ -123,6 +128,7 @@ export const startRunnerLoops = (runners: LoopRunners, pollMs: number): Effect.E
     // neither join masks the other.
     const checkFiber = yield* Effect.fork(loop("check", runners.check.runOnce))
     const discoveryFiber = yield* Effect.fork(loop("discovery", runners.discovery.runOnce))
+    if (runners.assay) yield* Effect.fork(loop("assay", runners.assay.runOnce))
     if (runners.site) {
       const siteFiber = yield* Effect.fork(loop("site", runners.site.runOnce))
       yield* Fiber.join(checkFiber)
@@ -139,7 +145,8 @@ const main: Effect.Effect<void, SqlError | ConfigError.ConfigError> = Effect.fla
     const check = yield* CheckRunner
     const discovery = yield* DiscoveryRunner
     const site = yield* SiteInspectionRunner
-    yield* startRunnerLoops({ check, discovery, site }, cfg.pollIntervalMs)
+    const assay = yield* AssayRunner
+    yield* startRunnerLoops({ check, discovery, site, assay }, cfg.pollIntervalMs)
   }).pipe(
     Effect.provide(buildRunnerLive(cfg.databaseUrl)),
     Effect.scoped,

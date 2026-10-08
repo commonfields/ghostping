@@ -151,3 +151,119 @@ environment, architecture and defects mapped.
 Next authorized phase:
 Phase 1 — mandatory filesystem security hardening.
 ```
+
+## Phase 2 — Prospect assay tooling (2026-10-08)
+
+Read-only tooling: approved public source → proposed facts held for human
+confirmation → N repeated retrieval-aware samples → deterministic claim
+judgments over CONFIRMED facts only → candidate findings → human review
+queue. No mutation, outreach, scoring or CRM surface was added.
+
+### What exists
+
+| Piece | Where |
+|---|---|
+| Schema (0019 foundation, 0020 execution) | `packages/db/migrations/0019_*`, `0020_*` |
+| Money normalization, comparison, thresholds | `packages/representation/src/assay.ts` |
+| Page fact proposals, answer judgments | `packages/representation/src/assay-extraction.ts` |
+| Sources, sampling, derivation, review repos | `packages/db/src/assay.ts` |
+| Worker loop (fetch via `safeFetch`, derive) | `apps/worker/src/assay-runner.ts` |
+| API + operator page | `apps/api/src/assay-routes.ts`, `apps/web/app/routes/assay.tsx` |
+
+Behaviour that matters for interpreting results:
+
+- **Sampling:** N defaults to 5 (1..20). Each sample is its own `check_run` and
+  observation. Group status is recomputed: all ok `SUCCEEDED`, some failed
+  `PARTIALLY_SUCCEEDED` (missing samples + failure class recorded), none
+  `FAILED`. Thresholds use the *successful* denominator.
+- **Retrieval honesty:** an observation stores the mode the provider
+  *reports*. 9router reports `unknown` and refuses retrieval-enabled requests;
+  the mock always reports `unknown` + `synthetic` (gated to tests or
+  `ASSAY_ALLOW_SYNTHETIC=1`). Findings are classed `RETRIEVAL_ENABLED`,
+  `STALE_PARAMETRIC_KNOWLEDGE`, `MANUAL_CAPTURE`, `SYNTHETIC_FIXTURE` or
+  `UNKNOWN`; only `RETRIEVAL_ENABLED` is verification-eligible. The §49
+  limitation text shows for everything else.
+- **Human gates:** fact review (CONFIRMED / INCORRECT_EXTRACTION / AMBIGUOUS),
+  fact retraction, and finding review are session-attributed, write-once, with
+  server-forced timestamps. No worker/seed/script path can write them
+  (architecture test). A fact is a snapshot from its source's `fetched_at`;
+  answers collected earlier are never judged.
+- **Comparison rule:** CONTRADICTS only on the same disclosed basis (period,
+  qualifier, unit stated identically or both unstated). Hedges, negations,
+  other entities, past/future/regional/segment scoping, per-unit language,
+  ranges, magnitude suffixes and ambiguous currency/number syntax are UNCLEAR.
+  Diagnosis is `LIKELY_SOURCE` evidence only, never a root-cause claim.
+
+### Adversarial review log
+
+1. Opus 5.5 round 1: 2 blockers + 6 majors (other-company/conditional
+   credit; incomparable prices; mock fakes retrieval; no time binding; no
+   retraction; findings not DB-enforced; ReDoS; missing §49 text). All fixed
+   with regression tests.
+2. Orchestrator attack round: stated-basis / negation / hedge / trial false
+   contradictions; "a month" unrecognised; an over-strict unit rule that made
+   natural answers incomparable (fixtures only passed because they said "flat").
+3. Muse Spark 1.3 round 2 (63 price phrasings, boolean + plan-card probes):
+   zero false price contradictions after (2); found adverb-interrupted
+   denials, questions, "Slack-like" and segment prices ("for students") — all
+   fixed with regression tests. Frontier-model reviewers were unavailable
+   (usage limits) for rounds 2–3, so the last fixes have regression tests for
+   every reproduced case but no further independent pass.
+
+### Phase 2 handoff
+
+```text
+PHASE 2 HANDOFF
+
+Objective:
+Minimal read-only prospect assay tooling sufficient to run the 10-company assay.
+
+Starting SHA:
+3e7ad74 (main after PR #41)
+
+Ending SHA:
+(HEAD of feat/phased-pilot-phase2-assay; see PR)
+
+Commits:
+4374db7 foundation; 4a76a36 extraction/providers; 25a2fe9 schema 0020;
+2400660 worker; b7562f2 API+UI; cde2685 + final fix commit (review rounds)
+
+Implemented:
+Sources, proposed facts, human fact review/retraction, N-sampling with
+PARTIALLY_SUCCEEDED, retrieval-aware provenance, deterministic judgments,
+finding derivation (CONFIRMED facts only), source diagnosis (LIKELY_SOURCE),
+finding review queue + UI, DB-level tenancy/immutability.
+
+Not implemented:
+Live provider adapter with retrieval; LLM claim extraction; corroboration
+engine; UI retract button (API only); lease reclaim for stuck RUNNING samples;
+free-text/worded prices ("79 dollars"); non-English answers.
+
+Tests:
+typecheck, lint, build pass; migrations replay; 900 TS tests pass x2 (Node 24,
+PG16, test DB unpinned). Fixture gate: fetched page -> proposed facts ->
+TEST-reviewer confirm -> 5 samples -> 4/5 CONFIRMED finding -> review.
+
+Adversarial checks:
+See log above. Held: only-CONFIRMED, UNCLEAR-never-contradicts, no engineering
+review path, cross-tenant INSERT/UPDATE, sample integrity, retrieval honesty.
+
+Known limitations:
+Guards are conservative: many real answers will be UNCLEAR, so yield may
+understate the true problem rate. Capability phrasing coverage is narrow
+("supports", "integrates with", "includes"). Plan-price proposals need
+operator-supplied plan names and a single price per card. No live retrieval
+provider exists in this environment, so the fixture gate does NOT show the
+assay works against real engines.
+
+Gate result:
+PASS (machine-verifiable fixture gate). Not a product result.
+
+Reason:
+Gate path proven on deterministic fixtures; every reproduced adversarial
+break has a regression test.
+
+Next authorized phase:
+Phase 3 is blocked on human inputs: provider credentials with retrieval, and
+a human-frozen 10-company cohort. Phase 5/6 per owner instruction.
+```

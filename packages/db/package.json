@@ -16,6 +16,7 @@
   "dependencies": {
     "@effect/sql": "0.52.1",
     "@effect/sql-pg": "0.53.0",
+    "@openrecord/contracts": "workspace:*",
     "@openrecord/domain": "workspace:*",
     "@openrecord/protocol": "workspace:*",
     "@openrecord/representation": "workspace:*",

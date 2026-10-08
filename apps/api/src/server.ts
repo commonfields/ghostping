@@ -5,6 +5,8 @@ import { PgClient } from "@effect/sql-pg"
 import { createServer } from "node:http"
 import {
   AuthRepositoryLive,
+  AssayRepositoryLive,
+  AssayReviewRepositoryLive,
   BusinessRepositoryLive,
   CheckRunRepositoryLive,
   ClaimRepositoryLive,
@@ -38,6 +40,8 @@ import {
 import { makeRouter } from "./router.js"
 
 const Repos = Layer.mergeAll(
+  AssayRepositoryLive,
+  AssayReviewRepositoryLive,
   AuthRepositoryLive,
   BusinessRepositoryLive,
   FactRepositoryLive,

@@ -23,11 +23,11 @@
 //   intent row is retained append-only for a later recheck. Failure reads
 //   as MEASUREMENT_FAILED downstream, never NO_OBSERVED_CHANGE: this
 //   worker never derives outcomes at all.
-import { Context, Effect, Layer, Redacted, Schedule } from "effect"
+import { Context, Effect, Layer, Option, Redacted, Schedule } from "effect"
 import type { SqlError } from "@effect/sql/SqlError"
 import {
-  CheckRunRepository, ObservationRepository, ProviderAttemptEvidenceRepository,
-  hostedMeasurementContext, QuestionRepository, type RawDigestMismatch, type RowDecodeError,
+  AssayRepository, CheckRunRepository, ObservationRepository, ProviderAttemptEvidenceRepository,
+  hostedMeasurementContext, QuestionRepository, type ClaimScope, type RawDigestMismatch, type RowDecodeError,
 } from "@openrecord/db"
 import {
   ProviderRegistry, isProviderError, isRetryableProviderError, type ProviderError,
@@ -48,7 +48,8 @@ export const providerFailure = (error: ProviderError): { failureClass: FailureCl
   }
 }
 export class CheckRunner extends Context.Tag("CheckRunner")<CheckRunner, {
-  readonly runOnce: () => Effect.Effect<boolean, SqlError | RowDecodeError | RawDigestMismatch>
+  /** `scope` limits the claim to one business (tests); the loop is global. */
+  readonly runOnce: (scope?: ClaimScope) => Effect.Effect<boolean, SqlError | RowDecodeError | RawDigestMismatch>
 }>() {}
 export const makeCheckRunnerLive = (retrySchedule: Schedule.Schedule<unknown, ProviderError | SqlError | RowDecodeError | RawDigestMismatch> = RetrySchedule) =>
   Layer.effect(CheckRunner, Effect.gen(function*() {
@@ -57,12 +58,13 @@ export const makeCheckRunnerLive = (retrySchedule: Schedule.Schedule<unknown, Pr
     const observations = yield* ObservationRepository
     const evidence = yield* ProviderAttemptEvidenceRepository
     const providers = yield* ProviderRegistry
-    return { runOnce: () => Effect.gen(function*() {
+    const assay = yield* Effect.serviceOption(AssayRepository)
+    return { runOnce: (scope?: ClaimScope) => Effect.gen(function*() {
       // Deterministic recovery before claiming new work, so an unfulfilled
       // intent from a completed run is linked even when the queue is idle.
       // Bounded (25) per iteration; returning true keeps polling until drained.
       const swept = yield* observations.sweepUnfulfilledReobservations(25)
-      const claimed = yield* runs.claimOne()
+      const claimed = yield* runs.claimOne(scope)
       if (!claimed) return swept > 0
       const log = (message: string, fields: Record<string, string | number | boolean | null> = {}) => Effect.logInfo(message).pipe(Effect.annotateLogs({
         business_id: claimed.businessId, check_run_id: claimed.id, provider: claimed.provider,
@@ -74,10 +76,15 @@ export const makeCheckRunnerLive = (retrySchedule: Schedule.Schedule<unknown, Pr
         yield* runs.markFinished(claimed.id, "FAILED", "UNKNOWN", "question unavailable")
         return true
       }
+      if (claimed.assaySampleGroupId && Option.isNone(assay)) {
+        yield* runs.markFinished(claimed.id, "FAILED", "PROVIDER_UNSUPPORTED", "assay execution configuration unavailable")
+        return true
+      }
+      const sampling = Option.isSome(assay) ? yield* assay.value.requestForRun(claimed.id) : null
       const attemptOnce = Effect.gen(function*() {
         const attempt = yield* runs.recordAttempt(claimed.id)
         const started = Date.now()
-        const result = yield* providers.observe({ runId: claimed.id, provider: claimed.provider, requestedModel: claimed.requestedModel, prompt: q.prompt }).pipe(
+        const result = yield* providers.observe({ runId: claimed.id, provider: claimed.provider, requestedModel: claimed.requestedModel, prompt: q.prompt, ...(sampling ?? {}) }).pipe(
           Effect.catchAll(error => Effect.gen(function*() {
             if (error.evidence) {
               const raw = Redacted.value(error.evidence)
@@ -121,7 +128,8 @@ export const makeCheckRunnerLive = (retrySchedule: Schedule.Schedule<unknown, Pr
       yield* observations.create({
         businessId: claimed.businessId, checkRunId: claimed.id, provider: r.provider,
         requestedModel: r.requestedModel, observedModel: r.observedModel, collectedAt: r.collectedAt,
-        answerText: r.answerText, retrievalMode: r.retrievalMode, rawResponse: r.rawResponse,
+        answerText: r.answerText, retrievalMode: r.retrievalMode, modelVersion: r.modelVersion ?? null,
+        retrievalTool: r.retrievalTool ?? null, requestParameters: r.requestParameters, rawResponse: r.rawResponse,
         rawDigest: r.rawDigest, rawBytesHex: Buffer.from(r.rawBytes).toString("hex"), rawContentType: r.rawContentType,
         rawResponseMaxBytes: r.responseMaxBytes, providerMetadata: r.providerMetadata,
         surfaceIdentity: measurementContext?.surface ?? null, measurementContext, synthetic: r.synthetic,

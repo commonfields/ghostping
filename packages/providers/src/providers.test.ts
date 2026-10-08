@@ -4,7 +4,7 @@ import { Effect, Layer, Redacted, Schema } from "effect"
 import { NineRouterSettings, type NineRouterSettingsValue } from "@openrecord/config"
 import {
   MockProvider, MockProviderLive, NineRouterProvider, NineRouterProviderLive, ProviderRegistry, ProviderRegistryLive,
-  ProviderRequest, ProviderUnsupported, isRetryableProviderError, sha256,
+  ProviderRequest, ProviderUnsupported, makeMockProviderLive, isRetryableProviderError, sha256,
 } from "./index.js"
 const input = { runId: "run-1", provider: "9router", requestedModel: "provider/model-a", prompt: "test prompt" }
 const settings: NineRouterSettingsValue = { baseUrl: Redacted.make("http://localhost/v1"), apiKey: Redacted.make("test-only-key"), models: ["provider/model-a", "provider/model-b"], timeoutMs: 1000, responseMaxBytes: 2048 }
@@ -129,5 +129,27 @@ describe("Effect provider boundary", () => {
     const r = await Effect.runPromise(Effect.gen(function*() { return yield* (yield* ProviderRegistry).observe({ ...input, provider: "openai" }) }).pipe(Effect.provide(ProviderRegistryLive.pipe(Layer.provide(MockProviderLive), Layer.provide(nine))), Effect.either))
     expect(r._tag === "Left" && r.left._tag).toBe("ProviderUnsupported")
     expect(Schema.decodeUnknownEither(ProviderRequest)({ ...input, prompt: "" })._tag).toBe("Left")
+  })
+})
+
+describe("assay retrieval honesty", () => {
+  it("9router rejects retrieval requests without touching its HTTP client", async () => {
+    let calls = 0
+    const http = Layer.succeed(HttpClient.HttpClient, HttpClient.make(() => { calls++; return Effect.never }))
+    const layer = NineRouterProviderLive.pipe(Layer.provide(Layer.succeed(NineRouterSettings, settings)), Layer.provide(http))
+    for (const retrievalMode of ["WEB_SEARCH", "PROVIDER_GROUNDING", "MANUAL_CAPTURE"] as const) {
+      const result = await Effect.runPromise(Effect.gen(function*() { return yield* (yield* NineRouterProvider).observe({ ...input, retrievalMode }) }).pipe(Effect.provide(layer), Effect.either))
+      expect(result._tag === "Left" && result.left._tag).toBe("ProviderUnsupported")
+    }
+    expect(calls).toBe(0)
+  })
+  it("mock always reports unknown retrieval despite requested WEB_SEARCH", async () => {
+    const layer = makeMockProviderLive(r => r.sampleNumber === 5 ? "Northstar costs $79/month." : "Northstar costs $49/month.")
+    const result = await Effect.runPromise(Effect.gen(function*() { return yield* (yield* MockProvider).observe({ ...input, provider: "mock", sampleNumber: 5, retrievalMode: "WEB_SEARCH" }) }).pipe(Effect.provide(layer)))
+    expect(result.answerText).toBe("Northstar costs $79/month.")
+    expect(result.retrievalMode).toBe("unknown")
+    expect(result.synthetic).toBe(true)
+    expect(result.retrievalTool).toBeNull()
+    expect(result.requestParameters).toEqual({ retrievalMode: "WEB_SEARCH", sampleNumber: 5 })
   })
 })

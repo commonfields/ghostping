@@ -15,6 +15,7 @@ import {
   ObservationRepositoryLive,
   RawDigestMismatch,
   type CheckRunRow,
+  type ClaimScope,
 } from "./repositories.js"
 import type { RowDecodeError } from "./row-codecs.js"
 
@@ -23,7 +24,9 @@ const run = url ? describe : describe.skip
 
 const unique = (prefix: string) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e9)}`
 
-type ClaimFn = () => Effect.Effect<CheckRunRow | null, SqlError | RowDecodeError>
+// Claims are scoped to the test's own business: suites share one database
+// and the globally oldest QUEUED run may belong to a concurrent file.
+type ClaimFn = (scope?: ClaimScope) => Effect.Effect<CheckRunRow | null, SqlError | RowDecodeError>
 
 run("postgres closeout regressions", () => {
   let pool: pg.Pool
@@ -61,19 +64,6 @@ run("postgres closeout regressions", () => {
   // Drain QUEUED rows left by prior tests so concurrency tests are exact.
   // Uses the real claim/finish path: DELETE would cascade into observations
   // and correctly trip the append-only trigger, so it is not used here.
-  const drainQueue = async () => {
-    const env = await withRepos((ctx) => Context.get(ctx, CheckRunRepository))
-    try {
-      for (;;) {
-        const claimed = await Effect.runPromise(env.value.claimOne())
-        if (!claimed) return
-        await Effect.runPromise(env.value.markFinished(claimed.id, "FAILED", "UNKNOWN", "test drain"))
-      }
-    } finally {
-      await closeScope(env.scope)
-    }
-  }
-
   const setupClaim = async () => {
     const { b, q } = await setupBusiness()
     const runId = (await pool.query(`INSERT INTO check_runs (business_id, question_id, status) VALUES ($1,$2,'SUCCEEDED') RETURNING id`, [b, q])).rows[0]["id"] as string
@@ -106,15 +96,14 @@ run("postgres closeout regressions", () => {
   })
 
   it("1 queued run + 2 simultaneous claimers = exactly 1 successful claim", async () => {
-    await drainQueue()
     const { b, q } = await setupBusiness()
     await pool.query(`INSERT INTO check_runs (business_id, question_id) VALUES ($1,$2)`, [b, q])
     const e1 = await withRepos((ctx) => Context.get(ctx, CheckRunRepository))
     const e2 = await withRepos((ctx) => Context.get(ctx, CheckRunRepository))
     try {
       const [c1, c2] = await Promise.all([
-        Effect.runPromise(e1.value.claimOne()),
-        Effect.runPromise(e2.value.claimOne()),
+        Effect.runPromise(e1.value.claimOne({ businessId: b })),
+        Effect.runPromise(e2.value.claimOne({ businessId: b })),
       ])
       const wins = [c1, c2].filter((c) => c !== null)
       expect(wins).toHaveLength(1)
@@ -125,7 +114,6 @@ run("postgres closeout regressions", () => {
   })
 
   it("50 queued runs + 8 concurrent claimers = 50 unique, 0 duplicates, 0 lost", async () => {
-    await drainQueue()
     const { b, q } = await setupBusiness()
     for (let i = 0; i < 50; i++) {
       await pool.query(`INSERT INTO check_runs (business_id, question_id) VALUES ($1,$2)`, [b, q])
@@ -137,7 +125,7 @@ run("postgres closeout regressions", () => {
       const claimed: Array<string> = []
       const worker = async (claimOne: ClaimFn) => {
         for (;;) {
-          const got = await Effect.runPromise(claimOne())
+          const got = await Effect.runPromise(claimOne({ businessId: b }))
           if (!got) return
           claimed.push(got.id)
         }
@@ -145,7 +133,7 @@ run("postgres closeout regressions", () => {
       await Promise.all(envs.map((e) => worker(e.value.claimOne)))
       expect(claimed).toHaveLength(50)
       expect(new Set(claimed).size).toBe(50)
-      const remaining = await pool.query(`SELECT count(*) FROM check_runs WHERE status = 'QUEUED'`)
+      const remaining = await pool.query(`SELECT count(*) FROM check_runs WHERE status = 'QUEUED' AND business_id = $1`, [b])
       expect(Number(remaining.rows[0]["count"])).toBe(0)
     } finally {
       await Promise.all(envs.map((e) => closeScope(e.scope)))
@@ -153,12 +141,11 @@ run("postgres closeout regressions", () => {
   })
 
   it("state transitions are guarded in SQL (no SUCCEEDED->RUNNING, no double finish)", async () => {
-    await drainQueue()
     const { b, q } = await setupBusiness()
     const id = (await pool.query(`INSERT INTO check_runs (business_id, question_id) VALUES ($1,$2) RETURNING id`, [b, q])).rows[0]["id"] as string
     const env = await withRepos((ctx) => Context.get(ctx, CheckRunRepository))
     try {
-      const first = await Effect.runPromise(env.value.claimOne())
+      const first = await Effect.runPromise(env.value.claimOne({ businessId: b }))
       expect(first).not.toBeNull()
       // Terminal rows cannot be re-opened or re-finished via normal methods.
       await Effect.runPromise(env.value.markFinished(id, "SUCCEEDED", null, null))

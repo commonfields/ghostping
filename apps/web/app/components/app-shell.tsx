@@ -169,6 +169,7 @@ function SidebarBody() {
         {base ? (
           <SidebarGroup label="Workspace">
             <SidebarLink to={`${base}/overview`} icon={<LayoutGridIcon />} label="Overview" />
+            <SidebarLink to={`${base}/assay`} icon={<SearchIcon />} label="Prospect assay" />
             <SidebarLink to={`${base}/search`} icon={<SearchIcon />} label="Search" />
             <SidebarLink to={`${base}/issues`} icon={<InboxIcon />} label="Issues" count={attention} />
             <SidebarLink to={`${base}/representations`} icon={<GlobeIcon />} label="Representations" />
