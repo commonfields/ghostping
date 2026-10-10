@@ -6,7 +6,7 @@
 
 > Show clients exactly what AI said before and after your work.
 
-OpenRecord gives agencies a shareable evidence record for each client: the approved fact, the raw AI answer, its source, a human judgment, and the next weekly check. Underneath, it is an evidence system: it records what a business says is true, observes what an AI surface says, lets people review the difference, and re-checks after corrective work.
+OpenRecord is an evidence system for agencies that improve how AI describes or recommends their clients. Each business gets a workspace that records approved truth, observes what live AI surfaces answer, lets people review the gap, records the agency's corrective work, and re-checks weekly. Each client gets a shareable record: one read-only, revocable URL with the approved facts, the exact AI answers, their sources, the human judgments, and the observed before/after outcome.
 
 It does not turn incomplete evidence into a score or claim that one change caused another:
 
@@ -16,6 +16,8 @@ It does not turn incomplete evidence into a score or claim that one change cause
 
 - [Who it's for](#who-its-for)
 - [How it works](#how-it-works)
+- [The workspace](#the-workspace)
+- [AI providers](#ai-providers)
 - [Quick start](#quick-start)
 - [What OpenRecord does and doesn't do](#what-openrecord-does-and-doesnt-do)
 - [Security and privacy](#security-and-privacy)
@@ -28,7 +30,7 @@ It does not turn incomplete evidence into a score or claim that one change cause
 - Agencies that improve how AI describes or recommends their clients, and need before-and-after evidence they can forward to those clients.
 - The people at those agencies who agree the facts with each client, review what the AI said, and fix what they control.
 
-What you get: one read-only, revocable URL per client showing three approved facts, the question asked about each, the exact answer one live AI surface (Gemini API with Google Search grounding) gave, the sources it cited, a human judgment, and the manual weekly re-check with its observed outcome. The operator workflow is described in [the agency record runbook](docs/product/agency-record-v1-runbook.md).
+What you get per client: one read-only, revocable URL showing three approved facts, the question asked about each, the exact answers one live AI surface gave, the sources cited, a human judgment per answer, and the weekly re-check with its observed outcome. The operator workflow is described in [the agency record runbook](docs/product/agency-record-v1-runbook.md).
 
 ## How it works
 
@@ -53,6 +55,30 @@ The flow reads top to bottom, from the smallest input to the broadest result. Ea
 - **Unknown stays unknown.** Missing, failed, or ambiguous evidence is never treated as false.
 - **People make judgments.** Machines collect observations; reviewers decide what those observations mean.
 - **Verification is not causation.** A before-and-after change can be recorded without claiming what caused it.
+
+## The workspace
+
+Every business has the same seven sections, in operational order:
+
+- **Overview** — answers collected, supported share, wrong / partially-correct / needs-review counts, and checks run, each with a trend; verdict share per day; answers by provider; answers by question and by approved fact; citations returned with answers; and the client record's aggregate outcomes.
+- **Prospect assay** — approve a public source for fetching, confirm machine-proposed facts, run repeated observations of one question, and review candidate findings. Nothing unconfirmed takes part in comparisons.
+- **Search** — register the business website, run inspections, and work findings (missing titles, broken canonicals, blocked pages) through proposal, approval, fix, and verification.
+- **Issues** — every claim that disagrees with approved truth, grouped and triaged, with review, re-check, and source verification on each.
+- **Representations** — watched web sources against approved facts: in sync, drifted, or unknown, with latest-check state shown honestly.
+- **Truth** — the approved facts with versions and provenance, including repository-managed facts that can only change through the manifest.
+- **Checks** — the buyer questions, the providers asked, every run with its state, and re-running on demand.
+
+**Clients** (agency section) holds the per-client records and their share links; **All businesses** is the portfolio view with attention, accuracy, and last-checked state per business.
+
+## AI providers
+
+Providers are explicit and never substituted: a check asks exactly the configured provider and model, or it fails visibly.
+
+- **Mock** (default) — deterministic, offline, needs no credentials. Answers are synthetic and labelled as such; they can never produce an observed correction.
+- **9Router** — live multi-model gateway. Requires an endpoint, API key, and comma-separated `NINE_ROUTER_MODELS` allowlist; see [`.env.example`](.env.example). Every check must request one allowlisted direct model.
+- **Gemini API with Google Search grounding** — the client record's live surface only (not a general check provider). Set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`, default `gemini-2.5-flash`) for the worker.
+
+New providers are added as explicit adapters with declared capabilities; absent grounding, citation, or identity metadata is never fabricated into evidence.
 
 ## Quick start
 
@@ -90,7 +116,7 @@ DATABASE_URL="postgres://openrecord:openrecord@localhost:5432/openrecord" pnpm -
 DATABASE_URL="postgres://openrecord:openrecord@localhost:5432/openrecord" pnpm --filter @openrecord/web dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), create an account, and add a client under **Clients**. The client record's live surface is Gemini with Google Search grounding: set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`, default `gemini-2.5-flash`) for the worker. Without a key, record checks fail visibly as unsupported; nothing falls back to another model. For an offline local walkthrough only, start the API with `RECORD_PROVIDER=mock RECORD_ALLOW_FIXTURE=1`: those answers are synthetic, labelled as such, and can never produce an observed correction.
+Open [http://localhost:3000](http://localhost:3000), create an account, and add a client under **Clients**. Without a `GEMINI_API_KEY`, record checks fail visibly as unsupported; nothing falls back to another model. For an offline local walkthrough only, start the API with `RECORD_PROVIDER=mock RECORD_ALLOW_FIXTURE=1`: those answers are synthetic, labelled as such, and can never produce an observed correction.
 
 ### The `openrecord` CLI is a separate, legacy tool
 
