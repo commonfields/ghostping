@@ -152,7 +152,10 @@ suite("Phase 2 deterministic prospect assay gate (TEST reviewer only)", () => {
     expect(await findings(f.businessId)).toEqual([])
     expect(await reviewFact(f.session, f.businessId, f.price.id)).toBe(true)
     const oldSource = await addSource(f, "/old")
-    const group = await enqueue(f, { provider: "9router", model: TEST_ONLY_WEB_SEARCH })
+    // Requested NONE: the registry gates requested modes by declared
+    // capabilities (9router accepts NONE only); the test-only engine reports
+    // the observed mode from requestedModel.
+    const group = await enqueue(f, { provider: "9router", model: TEST_ONLY_WEB_SEARCH, retrievalMode: "NONE" })
     expect(group.n).toBe(5)
     expect((await pool.query("SELECT sample_number FROM check_runs WHERE assay_sample_group_id=$1 ORDER BY sample_number", [group.id])).rows.map(r => r.sample_number)).toEqual([1, 2, 3, 4, 5])
     await drain(f.businessId)
@@ -224,7 +227,7 @@ suite("Phase 2 deterministic prospect assay gate (TEST reviewer only)", () => {
   })
   it("M2 answers collected before the page snapshot are never judged", async () => {
     const f = await fixture()
-    const group = await sample(f, { provider: "9router", model: TEST_ONLY_WEB_SEARCH })
+    const group = await sample(f, { provider: "9router", model: TEST_ONLY_WEB_SEARCH, retrievalMode: "NONE" })
     const later = await addSource(f, "/later")
     const laterFact = (await repo(r => r.facts(f.businessId)) as readonly AssayFactRow[]).find(p => p.source_id === later.id)!
     expect(laterFact.normalized).toMatchObject({ amountMinor: 9900 })
@@ -243,19 +246,19 @@ suite("Phase 2 deterministic prospect assay gate (TEST reviewer only)", () => {
     await addSource(f, "/no-salesforce", { capabilityTerms: ["Salesforce"] })
     const negative = (await repo(r => r.facts(f.businessId)) as readonly AssayFactRow[]).find(p => p.fact_type === "BOOLEAN_CAPABILITY" && (p.normalized as { value: boolean }).value === false)!
     expect(await reviewFact(f.session, f.businessId, negative.id)).toBe(true)
-    await sample(f, { provider: "9router", model: TEST_ONLY_WEB_SEARCH })
+    await sample(f, { provider: "9router", model: TEST_ONLY_WEB_SEARCH, retrievalMode: "NONE" })
     expect(await comparisons(negative.id)).toEqual(["UNCLEAR", "UNCLEAR", "UNCLEAR", "MATCHES", "MATCHES"])
     expect(await findings(f.businessId)).toEqual([])
     const t = await fixture("b1nolonger Does Northstar integrate with Salesforce?")
     expect(await reviewFact(t.session, t.businessId, t.capability.id)).toBe(true)
-    await sample(t, { provider: "9router", model: TEST_ONLY_WEB_SEARCH })
+    await sample(t, { provider: "9router", model: TEST_ONLY_WEB_SEARCH, retrievalMode: "NONE" })
     expect(await comparisons(t.capability.id)).toEqual(Array(5).fill("UNCLEAR"))
     expect(await findings(t.businessId)).toEqual([])
   })
   it("B2 incomparable prices are UNCLEAR end to end and produce no finding", async () => {
     const f = await fixture("b2mix Northstar price")
     await reviewFact(f.session, f.businessId, f.price.id)
-    await sample(f, { provider: "9router", model: TEST_ONLY_WEB_SEARCH })
+    await sample(f, { provider: "9router", model: TEST_ONLY_WEB_SEARCH, retrievalMode: "NONE" })
     expect(await comparisons(f.price.id)).toEqual(Array(5).fill("UNCLEAR"))
     expect(await findings(f.businessId)).toEqual([])
   })
