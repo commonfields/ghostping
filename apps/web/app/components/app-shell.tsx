@@ -228,7 +228,7 @@ function FindButton() {
       {collapsed ? null : (
         <>
           <span className="flex-1 text-left">Find…</span>
-          <kbd className="flex h-4 min-w-4 items-center justify-center rounded border bg-muted/60 px-1 font-sans text-[10px] leading-none text-muted-foreground">F</kbd>
+          <kbd className="shrink-0 whitespace-nowrap font-sans text-[9px] leading-none text-muted-foreground">F</kbd>
         </>
       )}
     </button>

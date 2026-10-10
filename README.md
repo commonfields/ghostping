@@ -28,7 +28,7 @@ It does not turn incomplete evidence into a score or claim that one change cause
 - Agencies that improve how AI describes or recommends their clients, and need before-and-after evidence they can forward to those clients.
 - The people at those agencies who agree the facts with each client, review what the AI said, and fix what they control.
 
-What you get: one read-only, revocable URL per client showing three approved facts, the question asked about each, the exact answer one live AI surface (Gemini with Google Search grounding) gave, the sources it cited, a human judgment, and the weekly re-check with its observed outcome. The operator workflow is described in [docs/product/agency-record-v1.md](docs/product/agency-record-v1.md).
+What you get: one read-only, revocable URL per client showing three approved facts, the question asked about each, the exact answer one live AI surface (Gemini API with Google Search grounding) gave, the sources it cited, a human judgment, and the manual weekly re-check with its observed outcome. The operator workflow is described in [the agency record runbook](docs/product/agency-record-v1-runbook.md).
 
 ## How it works
 
@@ -102,6 +102,11 @@ described above.
 It is frozen and not part of the evidence system. If you are evaluating OpenRecord or contributing to
 the product, use the web app instructions above.
 
+The hosted Effect adapters and environment configuration are the evidence product's execution boundary.
+The Rust `LlmProvider` trait, `openrecord.toml`, per-user CLI configuration, and Tauri app belong to the
+legacy runtime. They are not alternative provider backends for the hosted worker. Shared evidence
+protocol fixtures do not imply shared execution, persistence, or permissions.
+
 On macOS or Linux, the last published CLI release installs with:
 
 ```bash
@@ -147,6 +152,7 @@ Doesn't:
 
 ## Documentation
 
+- [Hosted observation capabilities](docs/engineering/hosted-observation-capabilities-v1.md)
 - [Evidence protocol](docs/protocol/README.md)
 - [Representation graph](docs/representation-graph/README.md)
 - [Truth projection](docs/truth/README.md)

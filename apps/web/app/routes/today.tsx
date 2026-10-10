@@ -10,13 +10,14 @@ import {
   SeriesLogo,
   VerdictBar,
   modelSeries,
-  pivotMentions,
+  pivotAnswers,
   totalClaims,
   type ModelSeries,
 } from "@/components/charts"
 import { EmptyState, PageHeader, Panel, PanelHeader, ShareRow, StatStrip, type Stat } from "@/components/page"
 import { ControlBadge, IssueStateBadge, RepresentationStateBadge } from "@/components/status"
-import { AnalyticsApi, Facts, Issues, Representations, type Analytics, type VerdictCounts } from "@/lib/api"
+import { AnalyticsApi, ApiError, Facts, Issues, Representations, type Analytics, type VerdictCounts } from "@/lib/api"
+import { OUTCOME_LABELS, Records } from "@/lib/record"
 import { groupClaims } from "@/lib/issues"
 import { errorMessage, relativeTime, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
@@ -46,7 +47,7 @@ function useModelStats(a: Analytics | null) {
   return useMemo(() => {
     if (!a) return null
     const series = modelSeries([...a.providers.map((p) => p.provider), ...a.providerDaily.map((d) => d.provider)])
-    const rows = pivotMentions(a.providerDaily, series)
+    const rows = pivotAnswers(a.providerDaily, series)
     const models = series.map((s) => {
       const members = a.providers.filter((p) => s.members.includes(p.provider))
       const counts = sumCounts(members)
@@ -76,14 +77,14 @@ function useModelStats(a: Analytics | null) {
 
 type ModelStats = NonNullable<ReturnType<typeof useModelStats>>
 
-type MetricKey = "mentions" | "accuracy" | "wrong" | "partial" | "unreviewed" | "checks"
+type MetricKey = "answers" | "accuracy" | "wrong" | "partial" | "unreviewed" | "checks"
 
-const metricMeta: Record<MetricKey, { label: string; tone?: Stat["tone"]; goodWhenUp: boolean; percent?: boolean }> = {
-  mentions: { label: "AI mentions", goodWhenUp: true },
-  accuracy: { label: "Accuracy", goodWhenUp: true, percent: true },
+const metricMeta: Record<MetricKey, { label: string; tone?: Stat["tone"]; goodWhenUp?: boolean; percent?: boolean }> = {
+  answers: { label: "Answers collected" },
+  accuracy: { label: "Supported share", goodWhenUp: true, percent: true },
   wrong: { label: "Wrong", tone: "wrong", goodWhenUp: false },
   partial: { label: "Partial", tone: "partial", goodWhenUp: false },
-  unreviewed: { label: "To review", tone: "review", goodWhenUp: false },
+  unreviewed: { label: "Needs review", tone: "review", goodWhenUp: false },
   checks: { label: "Checks run", goodWhenUp: true },
 }
 
@@ -100,7 +101,7 @@ export function Today() {
   const { activeBusiness } = useWorkspace()
   const [params, setParams] = useSearchParams()
   const days: Period = periods.includes(Number(params.get("days")) as Period) ? (Number(params.get("days")) as Period) : 30
-  const metric: MetricKey = (Object.keys(metricMeta) as MetricKey[]).includes(params.get("metric") as MetricKey) ? (params.get("metric") as MetricKey) : "mentions"
+  const metric: MetricKey = (Object.keys(metricMeta) as MetricKey[]).includes(params.get("metric") as MetricKey) ? (params.get("metric") as MetricKey) : "answers"
   const { data, loading, error } = useApi(`analytics:${id}:${days}`, () => AnalyticsApi.get(id, days))
   const a = data?.analytics ?? null
   const stats = useModelStats(a)
@@ -115,7 +116,7 @@ export function Today() {
     <div className="space-y-6 pb-4">
       <PageHeader
         title={activeBusiness?.name ?? "Overview"}
-        description="How often AI models mention you, and whether what they say matches your approved facts."
+        description="Answers collected from configured providers, and human judgments against your approved facts."
         actions={
           <>
             <Select value={String(days)} onValueChange={(v) => setParam("days", v)}>
@@ -150,12 +151,14 @@ export function Today() {
       ) : (
         <>
           <Kpis a={a} stats={stats} loading={loading} metric={metric} onMetric={(m) => setParam("metric", m)} />
-          <HeroChart a={a} stats={stats} loading={loading} metric={metric} days={days} brand={activeBusiness?.name ?? "you"} />
+          <HeroChart a={a} stats={stats} loading={loading} metric={metric} days={days} />
           <div className="grid gap-4 lg:grid-cols-2">
-            <ShareOfVoiceCard stats={stats} loading={loading} days={days} />
+            <AnswerCollectionCard stats={stats} loading={loading} days={days} />
             <AccuracyByModelCard a={a} stats={stats} loading={loading} />
             <NeedsALookCard businessId={id} />
             <QuestionsCard businessId={id} a={a} loading={loading} days={days} />
+            <CitationsCard a={a} loading={loading} days={days} />
+            <RecordOutcomesCard businessId={id} />
           </div>
         </>
       )}
@@ -171,7 +174,7 @@ function Kpis({ a, stats, loading, metric, onMetric }: { a: Analytics | null; st
     const acc = accuracy(a.current)
     const prevAcc = accuracy(a.previous)
     return {
-      mentions: { value: stats.total.toLocaleString(), delta: <Delta now={stats.total} prev={stats.prevTotal} goodWhenUp /> },
+      answers: { value: stats.total.toLocaleString(), delta: <Delta now={stats.total} prev={stats.prevTotal} /> },
       accuracy: {
         value: pct(acc),
         delta: acc !== null && prevAcc !== null ? <PointsDelta pts={Math.round((acc - prevAcc) * 100)} /> : null,
@@ -195,13 +198,13 @@ function Kpis({ a, stats, loading, metric, onMetric }: { a: Analytics | null; st
   return <StatStrip stats={stats_} />
 }
 
-function Delta({ now, prev, goodWhenUp }: { now: number; prev: number; goodWhenUp: boolean }) {
+function Delta({ now, prev, goodWhenUp }: { now: number; prev: number; goodWhenUp?: boolean }) {
   if (!prev) return now ? <span className="text-muted-foreground">New</span> : null
   const change = (now - prev) / prev
   if (Math.abs(change) < 0.005) return <span className="text-muted-foreground">0%</span>
   const good = change > 0 === goodWhenUp
   return (
-    <span className={good ? "text-supported" : "text-wrong"} title="Change vs previous period">
+    <span className={goodWhenUp === undefined ? "text-muted-foreground" : good ? "text-supported" : "text-wrong"} title="Change vs previous period">
       {change > 0 ? "+" : ""}
       {(change * 100).toFixed(Math.abs(change) < 0.1 ? 1 : 0)}%
     </span>
@@ -224,11 +227,11 @@ const verdictShareMeta = {
   accuracy: { key: "supported", label: "Supported share", cssVar: "--chart-supported" },
   wrong: { key: "wrong", label: "Wrong share", cssVar: "--chart-wrong" },
   partial: { key: "partial", label: "Partially correct share", cssVar: "--chart-partial" },
-  unreviewed: { key: "unreviewed", label: "Waiting-for-review share", cssVar: "--chart-unreviewed" },
+  unreviewed: { key: "unreviewed", label: "Share needing review", cssVar: "--chart-unreviewed" },
 } as const
 type VerdictShareMetric = keyof typeof verdictShareMeta
 
-function HeroChart({ a, stats, loading, metric, days, brand }: { a: Analytics | null; stats: ModelStats | null; loading: boolean; metric: MetricKey; days: number; brand: string }) {
+function HeroChart({ a, stats, loading, metric, days }: { a: Analytics | null; stats: ModelStats | null; loading: boolean; metric: MetricKey; days: number }) {
   const [view, setView] = useState<"trend" | "split">("trend")
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
   const [focus, setFocus] = useState<string | null>(null)
@@ -239,7 +242,7 @@ function HeroChart({ a, stats, loading, metric, days, brand }: { a: Analytics | 
   const series = useMemo(() => {
     if (!a || !stats) return []
     const raw: Array<{ date: string; value: number | null }> =
-      metric === "mentions"
+      metric === "answers"
         ? stats.dailyTotals
         : a.daily.map((d) => ({
             date: d.date,
@@ -253,11 +256,11 @@ function HeroChart({ a, stats, loading, metric, days, brand }: { a: Analytics | 
     return trimmed.map((r, i) => ({ date: r.date, value: r.value ?? "", avg: avg[i] ?? "" }))
   }, [a, stats, metric, window])
 
-  const splitLabel = metric === "mentions" ? "By model" : metric === "checks" ? null : "Verdict share"
+  const splitLabel = metric === "answers" ? "By provider" : metric === "checks" ? null : "Verdict share"
   // The split view answers the complementary question: not how many, but
   // what share of the day's verdicts the selected one represents.
   const shareSeries = useMemo(() => {
-    if (!a || metric === "mentions" || metric === "checks") return []
+    if (!a || metric === "answers" || metric === "checks") return []
     const key = verdictShareMeta[metric].key
     const raw = a.daily.slice(1).map((d) => {
       const t = totalClaims(d)
@@ -270,13 +273,13 @@ function HeroChart({ a, stats, loading, metric, days, brand }: { a: Analytics | 
     return raw.map((r, i) => ({ date: r.date, value: r.value ?? "", avg: avg[i] ?? "" }))
   }, [a, metric, window])
   const subtitle =
-    metric === "mentions"
-      ? `How often each AI model mentions ${brand}, per day`
+    metric === "answers"
+      ? "Answers collected per provider, per day"
       : metric === "accuracy"
         ? "Supported ÷ reviewed claims, per day"
         : metric === "checks"
-          ? "Questions sent to AI models, per day"
-          : metric === "unreviewed" ? "Claims waiting for a reviewer's verdict, per day" : `${meta.label === "Partial" ? "Partially correct" : meta.label} claims found in AI answers, per day`
+          ? "Checks queued for configured providers, per day"
+          : metric === "unreviewed" ? "Claims needing a reviewer's verdict, per day" : `${meta.label === "Partial" ? "Partially correct" : meta.label} claims found in AI answers, per day`
 
   return (
     <section className="space-y-3">
@@ -300,8 +303,8 @@ function HeroChart({ a, stats, loading, metric, days, brand }: { a: Analytics | 
       {loading || !a || !stats ? (
         <Skeleton className="h-[280px] rounded-xl" />
       ) : series.every((r) => r.value === "" || r.value === 0) && totalClaims(a.current) === 0 && stats.total === 0 ? (
-        <ChartEmpty days={days} what={metric === "mentions" ? "answers" : "claims"} />
-      ) : view === "split" && metric === "mentions" ? (
+        <ChartEmpty days={days} what={metric === "answers" ? "answers" : "claims"} />
+      ) : view === "split" && metric === "answers" ? (
         <div className="space-y-3">
           <ModelSmallMultiples rows={stats.rows.slice(1)} series={stats.series} hidden={hidden} focus={focus} />
           <ul className="flex flex-wrap gap-1" onMouseLeave={() => setFocus(null)}>
@@ -390,17 +393,22 @@ function HeroChart({ a, stats, loading, metric, days, brand }: { a: Analytics | 
 
 /** One mini trend per model: the same line language as the Trend tab, so no model hides behind another. */
 function ModelSmallMultiples({ rows, series, hidden, focus }: { rows: Array<Record<string, number | string>>; series: readonly ModelSeries[]; hidden: ReadonlySet<string>; focus: string | null }) {
-  const visible = series.filter((s) => !hidden.has(s.key))
+  const [expanded, setExpanded] = useState(false)
+  const ranked = series
+    .filter((s) => !hidden.has(s.key))
+    .map((s) => ({ s, total: rows.reduce((n, r) => n + Number(r[s.key] ?? 0), 0) }))
+    .sort((x, y) => y.total - x.total)
+  const shown = expanded ? ranked : ranked.slice(0, 4)
   return (
+    <div className="space-y-3">
     <div className="grid gap-3 sm:grid-cols-2">
-      {visible.map((s) => {
-        const total = rows.reduce((n, r) => n + Number(r[s.key] ?? 0), 0)
+      {shown.map(({ s, total }) => {
         return (
           <div key={s.key} className={cn("rounded-xl bg-card p-3 shadow-(--card-shadow-raised) transition-opacity", focus !== null && focus !== s.key && "opacity-40")}>
             <div className="flex items-center gap-2 px-1 pb-1">
               <SeriesLogo series={s} className="size-4" />
               <span className="min-w-0 flex-1 truncate text-xs font-medium">{s.label}</span>
-              <span className="text-xs text-muted-foreground tabular-nums">{total.toLocaleString()} mentions</span>
+              <span className="text-xs text-muted-foreground tabular-nums">{total.toLocaleString()} answers</span>
             </div>
             <AreaTrendChart
               data={rows as Array<Record<string, number | string>>}
@@ -415,14 +423,22 @@ function ModelSmallMultiples({ rows, series, hidden, focus }: { rows: Array<Reco
         )
       })}
     </div>
+    {ranked.length > 4 ? (
+      <div className="flex justify-center">
+        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setExpanded((e) => !e)}>
+          {expanded ? "Show fewer providers" : `Show all ${ranked.length} providers`}
+        </Button>
+      </div>
+    ) : null}
+    </div>
   )
 }
 
-function ShareOfVoiceCard({ stats, loading, days }: { stats: ModelStats | null; loading: boolean; days: number }) {
+function AnswerCollectionCard({ stats, loading, days }: { stats: ModelStats | null; loading: boolean; days: number }) {
   const max = stats ? Math.max(0.01, ...stats.ranked.map((m) => (stats.total ? m.answers / stats.total : 0))) : 1
   return (
     <Panel className="shadow-(--card-shadow-raised)">
-      <PanelHeader title="Share of voice" description={stats ? `${stats.total.toLocaleString()} mentions across ${stats.series.length} models` : "Mentions per model"} />
+      <PanelHeader title="Answers by provider" description={stats ? `${stats.total.toLocaleString()} answers collected across ${stats.series.length} providers` : "Collection volume per provider"} />
       <div className="p-2 pt-2">
         {loading || !stats ? (
           <ListSkeleton />
@@ -431,7 +447,7 @@ function ShareOfVoiceCard({ stats, loading, days }: { stats: ModelStats | null; 
         ) : (
           <>
             <div className="flex justify-between px-2 pb-1 text-[11px] text-muted-foreground">
-              <span>Model</span>
+              <span>Provider</span>
               <span>Share · change</span>
             </div>
             <div className="space-y-1">
@@ -446,7 +462,7 @@ function ShareOfVoiceCard({ stats, loading, days }: { stats: ModelStats | null; 
                   value={
                     <span className="flex items-center gap-3">
                       <span>{pct(share, 1)}</span>
-                      <span className={cn("w-10 text-right text-[11px]", pts === null ? "text-muted-foreground" : pts > 0 ? "text-supported" : pts < 0 ? "text-wrong" : "text-muted-foreground")}>
+                      <span className="w-10 text-right text-[11px] text-muted-foreground">
                         {pts === null ? "New" : `${pts > 0 ? "+" : ""}${pts.toFixed(1)}`}
                       </span>
                     </span>
@@ -459,7 +475,7 @@ function ShareOfVoiceCard({ stats, loading, days }: { stats: ModelStats | null; 
               )
             })}
             </div>
-            <p className="px-2 pt-2 text-[11px] text-muted-foreground">Change in share points vs the previous {days} days.</p>
+            <p className="px-2 pt-2 text-[11px] text-muted-foreground">Share of collected answers, not visibility. Change in share points vs the previous {days} days.</p>
           </>
         )}
       </div>
@@ -471,7 +487,7 @@ function AccuracyByModelCard({ a, stats, loading }: { a: Analytics | null; stats
   const byModel = useMemo(() => (stats ? [...stats.models].filter((m) => m.claims > 0).sort((x, y) => (y.accuracy ?? -1) - (x.accuracy ?? -1) || y.claims - x.claims) : []), [stats])
   return (
     <Panel className="shadow-(--card-shadow-raised)">
-      <PanelHeader title="Accuracy by model" description={a ? `${pct(accuracy(a.current))} of ${reviewed(a.current).toLocaleString()} reviewed claims are supported` : "Supported ÷ reviewed claims"} />
+      <PanelHeader title="Supported claims by provider" description={a ? `${pct(accuracy(a.current))} of ${reviewed(a.current).toLocaleString()} reviewed claims are supported` : "Supported ÷ reviewed claims"} />
       <div className="p-2 pt-2">
         {loading || !stats ? (
           <ListSkeleton />
@@ -480,9 +496,9 @@ function AccuracyByModelCard({ a, stats, loading }: { a: Analytics | null; stats
         ) : (
           <>
             <div className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_3rem_3.5rem] gap-3 px-2 pb-1 text-[11px] text-muted-foreground">
-              <span>Model</span>
+              <span>Provider</span>
               <span>Verdicts</span>
-              <span className="text-right">Accurate</span>
+              <span className="text-right">Supported</span>
               <span className="text-right">Wrong</span>
             </div>
             {byModel.map((m) => (
@@ -591,7 +607,7 @@ function QuestionsCard({ businessId, a, loading, days }: { businessId: string; a
   const [tab, setTab] = useState<"questions" | "facts">("questions")
   return (
     <Panel className="shadow-(--card-shadow-raised)">
-      <PanelHeader title="What buyers ask" description="Accuracy per question and per approved fact">
+      <PanelHeader title="What buyers ask" description="Supported share per question and per approved fact">
         <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
           <Link to={`/businesses/${businessId}/${tab === "questions" ? "checks" : "truth"}`}>
             {tab === "questions" ? "Manage questions" : "Approved facts"}
@@ -618,7 +634,7 @@ function QuestionsCard({ businessId, a, loading, days }: { businessId: string; a
               <div className="grid grid-cols-[minmax(0,1fr)_6rem_3rem_3rem] gap-3 px-2 pb-1 text-[11px] text-muted-foreground">
                 <span>Question</span>
                 <span>Verdicts</span>
-                <span className="text-right">Accurate</span>
+                <span className="text-right">Supported</span>
                 <span className="text-right">Checks</span>
               </div>
               {a.questions.map((q) => (
@@ -641,7 +657,7 @@ function QuestionsCard({ businessId, a, loading, days }: { businessId: string; a
             <div className="grid grid-cols-[minmax(0,1fr)_6rem_3rem_3rem] gap-3 px-2 pb-1 text-[11px] text-muted-foreground">
               <span>Approved fact</span>
               <span>Verdicts</span>
-              <span className="text-right">Accurate</span>
+              <span className="text-right">Supported</span>
               <span className="text-right">Wrong</span>
             </div>
             {a.facts.map((f) => (
@@ -659,6 +675,122 @@ function QuestionsCard({ businessId, a, loading, days }: { businessId: string; a
               </div>
             ))}
           </>
+        )}
+      </div>
+    </Panel>
+  )
+}
+
+function CitationsCard({ a, loading, days }: { a: Analytics | null; loading: boolean; days: number }) {
+  const c = a?.citations ?? null
+  const window = days > 7 ? 7 : 3
+  const rows = useMemo(() => {
+    if (!c) return []
+    const raw = c.daily.slice(1).map((d) => ({ date: d.date, value: d.citations }))
+    const avg = trailing(
+      raw.map((r) => r.value),
+      window,
+    )
+    return raw.map((r, i) => ({ date: r.date, value: r.value, avg: avg[i] ?? "" }))
+  }, [c, window])
+  const total = c?.total ?? 0
+  const share = c && c.total ? c.attributed / c.total : null
+  const prevShare = c && c.prevTotal ? c.prevAttributed / c.prevTotal : null
+  return (
+    <Panel className="shadow-(--card-shadow-raised)">
+      <PanelHeader
+        title="Citations"
+        description={c ? `${total.toLocaleString()} returned with answers · ${c.attributed.toLocaleString()} tracked to a source` : "Sources returned with AI answers"}
+      />
+      <div className="p-2 pt-2">
+        {loading || !a || !c ? (
+          <ListSkeleton />
+        ) : total === 0 ? (
+          <p className="px-2 py-8 text-center text-xs text-muted-foreground">No citations in the last {days} days. Some providers answer without returning sources.</p>
+        ) : (
+          <div className="space-y-2">
+            <AreaTrendChart
+              data={rows}
+              dataKey="value"
+              label="Citations"
+              compareKey="avg"
+              compareLabel={`${window}-day average`}
+              height={180}
+              formatDate={shortDate}
+              formatValue={(v) => Math.round(v).toLocaleString()}
+            />
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-2 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <span aria-hidden className="size-2 rounded-full bg-chart-primary" />
+                Citations per day
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span aria-hidden className="w-3 border-t-[1.5px] border-dotted border-chart-compare" />
+                {window}-day average
+              </span>
+              <span className="ml-auto flex items-center gap-1.5">
+                {pct(share, 0)} tracked
+                {share !== null && prevShare !== null ? <PointsDelta pts={Math.round((share - prevShare) * 100)} /> : null}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    </Panel>
+  )
+}
+
+const outcomeToneDot = { supported: "bg-supported", unknown: "bg-unknown", review: "bg-review" } as const
+
+function RecordOutcomesCard({ businessId }: { businessId: string }) {
+  const rec = useApi(`record:${businessId}`, () => Records.get(businessId))
+  const slots = rec.data?.record.slots ?? []
+  const counts = { correction: 0, noChange: 0, indeterminate: 0, awaiting: 0, pending: 0, none: 0 }
+  for (const s of slots) {
+    const cmp = s.comparison
+    if (!cmp) counts.none++
+    else if (cmp.state === "PENDING_CHECK") counts.pending++
+    else if (cmp.state === "AWAITING_REVIEW") counts.awaiting++
+    else if (cmp.outcome === "OBSERVED_CORRECTION") counts.correction++
+    else if (cmp.outcome === "NO_OBSERVED_CHANGE") counts.noChange++
+    else counts.indeterminate++
+  }
+  const rows: Array<{ label: string; value: number; tone?: keyof typeof outcomeToneDot }> = [
+    { label: OUTCOME_LABELS.OBSERVED_CORRECTION, value: counts.correction, tone: "supported" as const },
+    { label: OUTCOME_LABELS.NO_OBSERVED_CHANGE, value: counts.noChange },
+    { label: "Indeterminate", value: counts.indeterminate, tone: "unknown" as const },
+    { label: "Awaiting review", value: counts.awaiting, tone: "review" as const },
+    { label: "Re-check in progress", value: counts.pending },
+    { label: "No comparison yet", value: counts.none },
+  ].filter((r) => r.value > 0)
+  const max = Math.max(1, ...rows.map((r) => r.value))
+  const missing = rec.error instanceof ApiError && rec.error.status === 404
+  return (
+    <Panel className="shadow-(--card-shadow-raised)">
+      <PanelHeader title="Record outcomes" description="Before/after comparisons in this business's client record">
+        <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
+          <Link to={`/clients/${businessId}`}>
+            Open client record
+            <ArrowRightIcon />
+          </Link>
+        </Button>
+      </PanelHeader>
+      <div className="p-2">
+        {rec.loading && !rec.data ? (
+          <ListSkeleton />
+        ) : missing || (!rec.error && slots.length === 0) ? (
+          <p className="px-2 py-8 text-center text-xs text-muted-foreground">This business has no client record yet. Add one to track corrections over time.</p>
+        ) : rec.error ? (
+          <p className="px-2 py-8 text-center text-xs text-muted-foreground">{errorMessage(rec.error)}</p>
+        ) : (
+          <div className="space-y-1">
+            {rows.map((r) => (
+              <ShareRow key={r.label} share={r.value / max} value={r.value.toLocaleString()}>
+                {r.tone ? <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", outcomeToneDot[r.tone])} /> : null}
+                <span className="truncate font-medium">{r.label}</span>
+              </ShareRow>
+            ))}
+          </div>
         )}
       </div>
     </Panel>

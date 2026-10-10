@@ -193,7 +193,7 @@ export function AssayPage() {
     try { await run(); await queue.reload() } catch (e) { setError(errorMessage(e)) } finally { setBusy(null) }
   }
   const terms = (s: string) => s.split(",").map(t => t.trim()).filter(Boolean)
-  const enabledProviders = providers.data?.providers.filter(p => p.enabled && (p.id !== "mock" || providers.data?.assaySyntheticEnabled)) ?? []
+  const enabledProviders = providers.data?.providers.filter(p => p.enabled && p.workflows.includes("assay") && (p.id !== "mock" || providers.data?.assaySyntheticEnabled)) ?? []
   const models = enabledProviders.find(p => p.id === provider)?.models ?? []
   const q = queue.data
   const sources = q?.sources ?? []

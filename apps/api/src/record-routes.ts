@@ -8,6 +8,7 @@ import type { SqlError } from "@effect/sql/SqlError"
 import { Config, Effect, Schema } from "effect"
 import { AuthRepository, BusinessRepository, operatorView, publicRecord, RecordRepository, type RecordRefused, type RowDecodeError, type Session } from "@openrecord/db"
 import { decodeRouteId } from "@openrecord/contracts"
+import { RecordSurfaceConfig } from "@openrecord/config"
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) => HttpServerResponse.json(body, { status, headers })
 const readJson = Effect.flatMap(HttpServerRequest.HttpServerRequest, req => req.json).pipe(Effect.catchAll(() => Effect.succeed(null)))
@@ -42,11 +43,7 @@ const ActionRequest = Schema.Struct({
   note: Text(500), links: Schema.optional(Schema.Array(PublicUrl).pipe(Schema.maxItems(5))), performedAt: Schema.optional(IsoTime),
 })
 
-/** The single live surface the commercial record uses, from configuration. */
-export const RecordSurfaceConfig = Config.all({
-  provider: Config.literal("gemini", "mock")("RECORD_PROVIDER").pipe(Config.withDefault("gemini" as const)),
-  model: Config.string("GEMINI_MODEL").pipe(Config.withDefault("gemini-2.5-flash")),
-})
+export { RecordSurfaceConfig } from "@openrecord/config"
 /** Fixture observations are only for tests and explicit local demos. */
 export const recordFixtureAllowed = () => process.env["NODE_ENV"] === "test" || process.env["RECORD_ALLOW_FIXTURE"] === "1"
 

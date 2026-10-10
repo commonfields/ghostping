@@ -112,7 +112,7 @@ export function Home() {
             stats={[
               { key: "n", label: "Businesses", value: businesses.length, hint: "In this account" },
               { key: "attention", label: "Need attention", value: stat(totals.attention), hint: "Wrong or partial claims", tone: "wrong" },
-              { key: "review", label: "To review", value: stat(totals.unreviewed), hint: "Answers waiting for a verdict", tone: "review" },
+              { key: "review", label: "Needs review", value: stat(totals.unreviewed), hint: "Answers needing a verdict", tone: "review" },
               { key: "never", label: "Never checked", value: stat(totals.never), hint: "Run a first check", tone: "partial" },
             ]}
           />
@@ -129,7 +129,7 @@ export function Home() {
                 </SelectTrigger>
                 <SelectContent align="end">
                   <SelectItem value="attention">Most attention first</SelectItem>
-                  <SelectItem value="accuracy">Lowest accuracy first</SelectItem>
+                  <SelectItem value="accuracy">Lowest supported share first</SelectItem>
                   <SelectItem value="recent">Recently checked</SelectItem>
                   <SelectItem value="name">Name</SelectItem>
                 </SelectContent>
@@ -137,10 +137,10 @@ export function Home() {
             </div>
             <div className="hidden grid-cols-[minmax(0,1.4fr)_7rem_minmax(0,1fr)_6rem_6rem_7rem_1rem] gap-x-4 border-y bg-muted/40 px-4 py-1.5 text-[11px] text-muted-foreground md:grid">
               <span>Business</span>
-              <span>Accuracy, 30 days</span>
-              <span>AI mentions per day</span>
+              <span>Supported, 30 days</span>
+              <span>Answers collected per day</span>
               <span className="text-right">Need attention</span>
-              <span className="text-right">To review</span>
+              <span className="text-right">Needs review</span>
               <span className="text-right">Last checked</span>
               <span />
             </div>
@@ -169,10 +169,10 @@ function PortfolioRow({ row }: { row: Row }) {
   const acc = a ? accuracyOf(a.current) : null
   const prevAcc = a ? accuracyOf(a.previous) : null
   const pts = acc !== null && prevAcc !== null ? Math.round((acc - prevAcc) * 100) : null
-  const mentions = useMemo(() => {
+  const answers = useMemo(() => {
     if (!a) return []
     const byDate = new Map<string, number>()
-    for (const d of a.providerDaily) byDate.set(d.date, (byDate.get(d.date) ?? 0) + d.mentions)
+    for (const d of a.providerDaily) byDate.set(d.date, (byDate.get(d.date) ?? 0) + d.answers)
     return [...byDate.entries()].sort((x, y) => x[0].localeCompare(y[0])).slice(1).map(([, v]) => v)
   }, [a])
   const attention = o ? Number(o.needs_attention) : 0
@@ -205,7 +205,7 @@ function PortfolioRow({ row }: { row: Row }) {
             </>
           )}
         </span>
-        <span>{loading ? <Skeleton className="h-4 w-full" /> : mentions.length > 1 ? <Sparkline values={mentions} cssVar="--chart-primary" className="h-6" /> : <span className="text-[11px] text-muted-foreground">No mentions yet</span>}</span>
+        <span>{loading ? <Skeleton className="h-4 w-full" /> : answers.length > 1 ? <Sparkline values={answers} cssVar="--chart-primary" className="h-6" /> : <span className="text-[11px] text-muted-foreground">No answers collected yet</span>}</span>
         <span className={cn("text-right font-medium tabular-nums", attention > 0 && "text-wrong")}>{loading ? "" : attention.toLocaleString()}</span>
         <span className={cn("text-right font-medium tabular-nums", unreviewed > 0 && "text-review")}>{loading ? "" : unreviewed.toLocaleString()}</span>
         <span className="text-right text-muted-foreground">{loading ? "" : o?.last_checked ? relativeTime(o.last_checked) : "Never"}</span>

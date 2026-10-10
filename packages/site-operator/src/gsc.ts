@@ -6,7 +6,7 @@
 // Distinguish SITE_INDEXABLE (OpenRecord-observed directives) from
 // GOOGLE_REPORTED_INDEXED (what Google reports). They are not interchangeable.
 
-export type GscConnectionStatus = "CONNECTED" | "BLOCKED_MISSING_CREDENTIALS" | "ERROR"
+export type GscConnectionStatus = "CONNECTED" | "BLOCKED_MISSING_CREDENTIALS" | "BLOCKED_NOT_IMPLEMENTED" | "ERROR"
 
 export interface GscProperty {
   readonly propertyUri: string
@@ -48,18 +48,18 @@ export const FixtureSearchConsoleProvider: SearchConsoleProvider = {
   },
 }
 
-/** Live provider stub: fails closed without credentials, never fabricates. */
+/** Live integration is deferred even when credentials are present. */
 export const makeLiveSearchConsoleProvider = (opts: { credentialsPresent: boolean }): SearchConsoleProvider => ({
   name: "google-search-console",
   async status() {
     if (!opts.credentialsPresent) {
       return { status: "BLOCKED_MISSING_CREDENTIALS", detail: "GOOGLE_SEARCH_CONSOLE_BLOCKED: OAuth/application credentials unavailable. Provider contract is implemented; live integration is deferred." }
     }
-    return { status: "CONNECTED", detail: "connected" }
+    return { status: "BLOCKED_NOT_IMPLEMENTED", detail: "Live Search Console integration is not implemented; credentials alone do not establish a connection." }
   },
   async listProperties() {
     if (!opts.credentialsPresent) throw new Error("GOOGLE_SEARCH_CONSOLE_BLOCKED: credentials unavailable")
-    return []
+    throw new Error("GOOGLE_SEARCH_CONSOLE_BLOCKED: live integration is not implemented")
   },
   async inspectUrl() {
     if (!opts.credentialsPresent) throw new Error("GOOGLE_SEARCH_CONSOLE_BLOCKED: credentials unavailable")

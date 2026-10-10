@@ -106,7 +106,8 @@ import {
 } from "./discovery-reads.js"
 import { assayApi, assaySyntheticEnabled } from "./assay-routes.js"
 import { siteApi } from "./site-routes.js"
-import { recordApi } from "./record-routes.js"
+import { recordApi, recordFixtureAllowed } from "./record-routes.js"
+import { loadProviderCatalog } from "./provider-catalog.js"
 
 const json = (status: number, body: unknown, headers?: Record<string, string>) =>
   HttpServerResponse.json(body, { status, headers })
@@ -169,7 +170,7 @@ const verdictCounts = (where: string) => `
   count(*) FILTER (WHERE ${where} AND verdict = 'INSUFFICIENT_EVIDENCE')::int AS unknown,
   count(*) FILTER (WHERE ${where} AND verdict = 'UNREVIEWED')::int AS unreviewed`
 
-const loadAnalytics = (businessId: string, days: number) =>
+export const loadAnalytics = (businessId: string, days: number) =>
   Effect.gen(function*() {
     const sql = yield* SqlClient.SqlClient
     const now = new Date()
@@ -257,25 +258,54 @@ const loadAnalytics = (businessId: string, days: number) =>
        ORDER BY wrong DESC, partial DESC`,
       args.slice(0, 2),
     )) as Array<Record<string, unknown>>
-    // Mentions per provider per day: every collected answer is one model
-    // mentioning the brand. Days with no answers still emit a zero row so
-    // line charts render continuous series.
+    // Collection volume per provider, not brand mentions or visibility.
+    // Zero means no observations were collected, not no model mentioned it.
     const providerDailyRows = (yield* sql.unsafe(
       `WITH day_series AS (SELECT generate_series(($2::timestamptz AT TIME ZONE 'UTC')::date, (now() AT TIME ZONE 'UTC')::date, interval '1 day')::date AS day),
         present AS (SELECT DISTINCT provider FROM observations WHERE business_id = $1 AND collected_at >= $2),
         answers AS (
-          SELECT (collected_at AT TIME ZONE 'UTC')::date AS day, provider, count(*)::int AS mentions
+          SELECT (collected_at AT TIME ZONE 'UTC')::date AS day, provider, count(*)::int AS answers
           FROM observations WHERE business_id = $1 AND collected_at >= $2 GROUP BY 1, 2
         )
-       SELECT to_char(d.day, 'YYYY-MM-DD') AS date, p.provider, COALESCE(o.mentions, 0) AS mentions
+       SELECT to_char(d.day, 'YYYY-MM-DD') AS date, p.provider, COALESCE(o.answers, 0) AS answers
        FROM day_series d CROSS JOIN present p
        LEFT JOIN answers o ON o.day = d.day AND o.provider = p.provider
        ORDER BY d.day, p.provider`,
       args.slice(0, 2),
     )) as Array<Record<string, unknown>>
 
+    // Citations returned with answers: totals plus a daily series so the
+    // frontend can draw citation volume next to verdict volume. Days with no
+    // citations still emit a zero row so trend charts render continuously.
+    const citationTotalRows = (yield* sql.unsafe(
+      `SELECT count(*) FILTER (WHERE o.collected_at >= $2)::int AS citations,
+              count(*) FILTER (WHERE o.collected_at >= $2 AND c.attributed)::int AS attributed,
+              count(*) FILTER (WHERE o.collected_at >= $3 AND o.collected_at < $2)::int AS prev_citations,
+              count(*) FILTER (WHERE o.collected_at >= $3 AND o.collected_at < $2 AND c.attributed)::int AS prev_attributed
+       FROM observation_citations c
+       JOIN observations o ON o.id = c.observation_id
+       WHERE o.business_id = $1 AND o.collected_at >= $3`,
+      args,
+    )) as Array<Record<string, number>>
+    const citationDailyRows = (yield* sql.unsafe(
+      `WITH day_series AS (SELECT generate_series(($2::timestamptz AT TIME ZONE 'UTC')::date, (now() AT TIME ZONE 'UTC')::date, interval '1 day')::date AS day),
+        cites AS (
+          SELECT (o.collected_at AT TIME ZONE 'UTC')::date AS day, count(*)::int AS citations,
+                 count(*) FILTER (WHERE c.attributed)::int AS attributed
+          FROM observation_citations c
+          JOIN observations o ON o.id = c.observation_id
+          WHERE o.business_id = $1 AND o.collected_at >= $2
+          GROUP BY 1
+        )
+       SELECT to_char(d.day, 'YYYY-MM-DD') AS date, COALESCE(c.citations, 0) AS citations, COALESCE(c.attributed, 0) AS attributed
+       FROM day_series d LEFT JOIN cites c ON c.day = d.day
+       ORDER BY d.day`,
+      args.slice(0, 2),
+    )) as Array<Record<string, unknown>>
+
     const rt = runTotalRows[0] as Record<string, number>
     const ct = claimTotalRows[0] as Record<string, number>
+    const cit = citationTotalRows[0] as Record<string, number>
     return {
       range: { days, from: start.toISOString(), to: now.toISOString() },
       current: {
@@ -302,13 +332,24 @@ const loadAnalytics = (businessId: string, days: number) =>
       providerDaily: providerDailyRows.map((r: Record<string, unknown>) => ({
         date: r["date"] as string,
         provider: r["provider"] as string,
-        mentions: Number(r["mentions"] ?? 0),
+        answers: Number(r["answers"] ?? 0),
       })),
       questions: questionRows.map((r: Record<string, unknown>) => ({
         ...r,
         last_checked_at: r["last_checked_at"] ? new Date(r["last_checked_at"] as string).toISOString() : null,
       })),
       facts: factRows,
+      citations: {
+        total: cit["citations"] ?? 0,
+        attributed: cit["attributed"] ?? 0,
+        prevTotal: cit["prev_citations"] ?? 0,
+        prevAttributed: cit["prev_attributed"] ?? 0,
+        daily: citationDailyRows.map((r: Record<string, unknown>) => ({
+          date: r["date"] as string,
+          citations: Number(r["citations"] ?? 0),
+          attributed: Number(r["attributed"] ?? 0),
+        })),
+      },
     }
   })
 
@@ -876,20 +917,7 @@ export const makeRouter = () => {
       Effect.gen(function*() {
         const s = yield* requireSession.pipe(Effect.catchAll(() => Effect.succeed(null)))
         if (!s) return yield* json(401, { _tag: "NotAuthenticated" })
-        const enabled = (process.env["NINE_ROUTER_ENABLED"] ?? "false").toLowerCase() === "true"
-        const rawModels = process.env["NINE_ROUTER_MODELS"] ?? process.env["NINE_ROUTER_MODEL"] ?? ""
-        const models = rawModels
-          .split(",")
-          .map((m) => m.trim())
-          .filter((m) => m.length > 0)
-          .filter((m, i, arr) => arr.indexOf(m) === i)
-        return yield* json(200, {
-          assaySyntheticEnabled: assaySyntheticEnabled(),
-          providers: [
-            { id: "mock", enabled: true, models: [] as string[] },
-            { id: "9router", enabled, models: enabled ? models : ([] as string[]) },
-          ],
-        })
+        return yield* json(200, yield* loadProviderCatalog(assaySyntheticEnabled(), recordFixtureAllowed()))
       }),
     ),
     // Operator-driven source tracking: deliberate user action only.

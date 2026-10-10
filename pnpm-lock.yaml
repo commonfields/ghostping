@@ -392,6 +392,9 @@ importers:
       '@openrecord/config':
         specifier: workspace:*
         version: link:../config
+      '@openrecord/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       effect:
         specifier: 3.22.2
         version: 3.22.2

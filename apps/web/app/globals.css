@@ -69,6 +69,10 @@
   --series-6: #008300;
   --series-7: #4a3aa7;
   --series-8: #e34948;
+  --series-9: #0e7c86;
+  --series-10: #64748b;
+  --series-11: #65a30d;
+  --series-12: #7c3aed;
 
   /* Card: a 1px white edge, a faint warm ring, and three short stacked drops. */
   --card-shadow: 0 0 0 1px oklch(1 0 0), 0 0 0 2px oklch(0.35 0.045 84.6 / 0.065), 0 1px 1px oklch(0.35 0.045 84.6 / 0.03),
@@ -141,6 +145,10 @@
   --series-6: #008300;
   --series-7: #9085e9;
   --series-8: #e66767;
+  --series-9: #2dd4bf;
+  --series-10: #94a3b8;
+  --series-11: #a3e635;
+  --series-12: #a78bfa;
 
   --card-shadow: 0 0 0 1px oklch(1 0 0 / 0.06), 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 8px -4px rgb(0 0 0 / 0.3);
   --card-shadow-raised: 0 0 0 1px oklch(1 0 0 / 0.07), 0 0 10px rgb(0 0 0 / 0.35);

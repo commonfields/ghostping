@@ -186,13 +186,13 @@ export function StackedDailyChart({
 }
 
 // Categorical slots for AI models. Known models keep a fixed slot so a model
-// is the same color on every page and in every period; the order is the
-// validated adjacency order, so stacks and legends follow it too. Unknown
-// providers take the free slots alphabetically; past eight they fold into
-// "Other" instead of generating a ninth hue.
-const SERIES_SLOTS = 8
-const KNOWN_SLOTS = ["openai", "claude", "gemini", "perplexity", "deepseek", "qwen", "googlesearch", "bing"] as const
-const ALIASES: Record<string, string> = { anthropic: "claude", chatgpt: "openai", gpt: "openai", "google-search": "googlesearch", google: "googlesearch", microsoft: "bing" }
+// is the same color on every page and in every period; the first eight slots
+// are in the validated adjacency order, the rest follow the same distinct-hue
+// practice. Unknown providers take the free slots alphabetically; past the
+// last slot they fold into "Other" instead of generating another hue.
+const SERIES_SLOTS = 12
+const KNOWN_SLOTS = ["openai", "claude", "gemini", "perplexity", "deepseek", "qwen", "googlesearch", "bing", "grok", "mistral", "meta", "kimi"] as const
+const ALIASES: Record<string, string> = { anthropic: "claude", chatgpt: "openai", gpt: "openai", "google-search": "googlesearch", google: "googlesearch", microsoft: "bing", xai: "grok", llama: "meta", metaai: "meta", moonshot: "kimi", kimi: "kimi" }
 export const OTHER_KEY = "__other"
 
 export type ModelSeries = { key: string; label: string; cssVar: string; members: string[] }
@@ -220,10 +220,10 @@ export function modelSeries(providers: readonly string[]): ModelSeries[] {
   return series
 }
 
-export type MentionDatum = { date: string; provider: string; mentions: number }
+export type AnswerDatum = { date: string; provider: string; answers: number }
 
 /** Pivot provider-day rows into one row per date keyed by series key. */
-export function pivotMentions(data: readonly MentionDatum[], series: readonly ModelSeries[]): Array<Record<string, number | string>> {
+export function pivotAnswers(data: readonly AnswerDatum[], series: readonly ModelSeries[]): Array<Record<string, number | string>> {
   const owner = new Map<string, string>()
   for (const s of series) for (const m of s.members) owner.set(m, s.key)
   const byDate = new Map<string, Record<string, number | string>>()
@@ -231,7 +231,7 @@ export function pivotMentions(data: readonly MentionDatum[], series: readonly Mo
     const key = owner.get(d.provider)
     if (!key) continue
     const row = byDate.get(d.date) ?? Object.fromEntries([["date", d.date], ...series.map((s) => [s.key, 0])])
-    row[key] = Number(row[key] ?? 0) + d.mentions
+    row[key] = Number(row[key] ?? 0) + d.answers
     byDate.set(d.date, row)
   }
   return [...byDate.keys()].sort().map((date) => byDate.get(date)!)
@@ -252,7 +252,7 @@ export function SeriesLogo({ series, className }: { series: ModelSeries; classNa
 }
 
 /**
- * Mentions per model over time: raw daily counts as thin lines, with whole
+ * Answers collected per provider over time: raw daily counts as thin lines, with whole
  * numbers in the tooltip. A model hovered in the ranking stays full strength
  * while the rest fade, and each line ends in a dot so the latest value is
  * easy to find.
@@ -264,7 +264,7 @@ export function ModelTrendChart({
   focus,
   height = 220,
   formatDate,
-  valueLabel = "mentions",
+  valueLabel = "answers",
 }: {
   rows: Array<Record<string, number | string>>
   series: readonly ModelSeries[]
