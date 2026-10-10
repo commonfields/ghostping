@@ -167,6 +167,31 @@ describe("issue states keep existing reviewer language", () => {
   })
 })
 
+describe("today analytics labels", () => {
+  it("uses reviewer language and honest collection wording", async () => {
+    const fs = await import("node:fs")
+    const today = fs.readFileSync(new URL("../app/routes/today.tsx", import.meta.url), "utf8")
+    for (const s of ["Answers collected", "Needs review", "Share needing review", "Supported share", "Citations", "Record outcomes", "tracked to a source"]) {
+      expect(today).toContain(s)
+    }
+    for (const s of ["AI mentions", "Waiting-for-review share", "To review"]) {
+      expect(today).not.toContain(s)
+    }
+    const home = fs.readFileSync(new URL("../app/routes/home.tsx", import.meta.url), "utf8")
+    expect(home).toContain("Needs review")
+    expect(home).not.toContain("To review")
+  })
+
+  it("analytics carries citation aggregates for the citations card", async () => {
+    const fs = await import("node:fs")
+    const api = fs.readFileSync(new URL("../app/lib/api.ts", import.meta.url), "utf8")
+    expect(api).toContain("prevAttributed")
+    const router = fs.readFileSync(new URL("../../../apps/api/src/router.ts", import.meta.url), "utf8")
+    expect(router).toContain("citationDailyRows")
+    expect(router).toContain("prev_attributed")
+  })
+})
+
 describe("language guards", () => {
   it("rejects score, causality, and unproven-state phrases", async () => {
     const fs = await import("node:fs")

@@ -129,7 +129,7 @@ function SettingsDialog({
           <DialogPrimitive.Description className="sr-only">Change preferences and review your account</DialogPrimitive.Description>
 
           <nav className="flex shrink-0 flex-col gap-4 px-1 pt-2 pb-2 md:w-56 md:px-2 md:pt-3">
-            <div className="px-2 text-sm font-semibold text-foreground">Settings</div>
+            <div className="px-2 text-xs font-semibold text-foreground">Settings</div>
             <div className="flex gap-1 overflow-x-auto md:flex-col md:gap-5 md:overflow-visible">
               {nav.map((g) => (
                 <div key={g.group} className="flex gap-1 md:flex-col md:gap-0.5">
@@ -141,7 +141,7 @@ function SettingsDialog({
                       onClick={() => onSectionChange(item.id)}
                       aria-current={section === item.id ? "page" : undefined}
                       className={cn(
-                        "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2 text-left text-sm whitespace-nowrap outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-[3px] focus-visible:ring-ring [&_svg]:size-4 [&_svg]:shrink-0",
+                        "flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2 text-left text-xs whitespace-nowrap outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-[3px] focus-visible:ring-ring [&_svg]:size-4 [&_svg]:shrink-0",
                         section === item.id
                           ? "bg-sidebar-accent font-medium text-foreground [&_svg]:text-primary"
                           : "text-sidebar-foreground [&_svg]:text-muted-foreground",
@@ -159,8 +159,8 @@ function SettingsDialog({
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-sidebar-border bg-background shadow-(--panel-shadow)">
             <header className="flex shrink-0 items-start justify-between gap-4 px-6 py-4">
               <div className="space-y-0.5">
-                <DialogPrimitive.Title className="text-base font-semibold">{meta.title}</DialogPrimitive.Title>
-                <p className="text-sm text-muted-foreground">{meta.description}</p>
+                <DialogPrimitive.Title className="text-sm font-medium">{meta.title}</DialogPrimitive.Title>
+                <p className="text-xs text-muted-foreground">{meta.description}</p>
               </div>
               <DialogPrimitive.Close asChild>
                 <Button variant="ghost" size="icon-sm" className="-mr-2 text-muted-foreground" aria-label="Close settings">
@@ -190,8 +190,8 @@ function Group({ title, description, children }: { title: string; description?: 
   return (
     <section className="space-y-3">
       <div className="space-y-0.5">
-        <h3 className="text-sm font-medium">{title}</h3>
-        {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+        <h3 className="text-xs font-medium">{title}</h3>
+        {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
       </div>
       <div className="divide-y rounded-xl border">{children}</div>
     </section>
@@ -202,10 +202,10 @@ function Row({ label, description, children, htmlFor }: { label: string; descrip
   return (
     <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
       <div className="min-w-0 space-y-0.5">
-        <label htmlFor={htmlFor} className="block text-sm font-medium">
+        <label htmlFor={htmlFor} className="block text-xs font-medium">
           {label}
         </label>
-        {description ? <div className="text-sm text-muted-foreground">{description}</div> : null}
+        {description ? <div className="text-xs text-muted-foreground">{description}</div> : null}
       </div>
       {children ? <div className="flex shrink-0 items-center gap-2">{children}</div> : null}
     </div>
@@ -254,8 +254,8 @@ function GeneralSection() {
     <>
       <section className="space-y-3">
         <div className="space-y-0.5">
-          <h3 className="text-sm font-medium">Appearance</h3>
-          <p className="text-sm text-muted-foreground">System follows your device and switches automatically.</p>
+          <h3 className="text-xs font-medium">Appearance</h3>
+          <p className="text-xs text-muted-foreground">System follows your device and switches automatically.</p>
         </div>
         <div className="grid grid-cols-3 gap-3">
           {themes.map((t) => {
@@ -280,7 +280,7 @@ function GeneralSection() {
                 ) : (
                   <ThemePreview dark={t.id === "dark"} />
                 )}
-                <div className="mt-2 flex items-center gap-1.5 px-0.5 text-sm">
+                <div className="mt-2 flex items-center gap-1.5 px-0.5 text-xs">
                   <Icon className="size-3.5 text-muted-foreground" />
                   <span className="font-medium">{t.label}</span>
                   {selected ? <CheckIcon className="ml-auto size-4 text-primary" /> : null}
@@ -394,7 +394,7 @@ function ChecksSection() {
         </Select>
       </Row>
       <Row label="Retries" description="Rate limits, timeouts and unavailable providers are retried up to 3 times. Other failures stop right away.">
-        <span className="text-sm text-muted-foreground">Managed by the server</span>
+        <span className="text-xs text-muted-foreground">Managed by the server</span>
       </Row>
     </Group>
   )
@@ -424,7 +424,7 @@ function ShortcutsSection() {
       {groups.map((g) => (
         <Group key={g.title} title={g.title}>
           {g.items.map((i) => (
-            <div key={i.label} className="flex items-center justify-between px-4 py-3 text-sm">
+            <div key={i.label} className="flex items-center justify-between px-4 py-3 text-xs">
               <span>{i.label}</span>
               <span className="flex items-center gap-1">
                 {i.keys.map((k) => (
@@ -483,13 +483,13 @@ function AccountSection({ onDone }: { onDone: () => void }) {
   return (
     <>
       <div className="flex items-center gap-4 rounded-xl border p-4">
-        <span className="flex size-12 items-center justify-center rounded-full bg-primary text-lg font-semibold text-primary-foreground">
+        <span className="flex size-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
           {email ? email.charAt(0).toUpperCase() : <UserRoundIcon className="size-5" />}
         </span>
         <div className="min-w-0">
           <div className="truncate font-medium">{email ?? "Your account"}</div>
-          <div className="text-sm text-muted-foreground">Signed in with email and password</div>
-          {loadError ? <div className="text-sm text-destructive">Could not verify session ({loadError})</div> : null}
+          <div className="text-xs text-muted-foreground">Signed in with email and password</div>
+          {loadError ? <div className="text-xs text-destructive">Could not verify session ({loadError})</div> : null}
         </div>
       </div>
 
@@ -518,8 +518,8 @@ function AccountSection({ onDone }: { onDone: () => void }) {
       </Group>
 
       <Group title="Identifiers" description="Useful when reporting a problem.">
-        <Row label="Account ID">{me ? <CopyValue value={me.accountId} /> : <span className="text-sm text-muted-foreground">Loading</span>}</Row>
-        <Row label="User ID">{me ? <CopyValue value={me.userId} /> : <span className="text-sm text-muted-foreground">Loading</span>}</Row>
+        <Row label="Account ID">{me ? <CopyValue value={me.accountId} /> : <span className="text-xs text-muted-foreground">Loading</span>}</Row>
+        <Row label="User ID">{me ? <CopyValue value={me.userId} /> : <span className="text-xs text-muted-foreground">Loading</span>}</Row>
       </Group>
     </>
   )
@@ -563,7 +563,7 @@ function AboutSection() {
   return (
     <Group title="OpenRecord">
       <Row label="Version" description="Hosted web app">
-        <span className="text-sm text-muted-foreground tabular-nums">0.1.0</span>
+        <span className="text-xs text-muted-foreground tabular-nums">0.1.0</span>
       </Row>
       <Row label="What it does" description="Checks what AI assistants say about your business and compares it with the facts you approve." />
     </Group>

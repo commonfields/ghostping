@@ -98,6 +98,7 @@ const makeRuns = () => {
     claimOne: () => Effect.succeed(null),
     markRunning: () => Effect.void,
     recordAttempt: () => Effect.succeed(1),
+    recoverAbandoned: () => Effect.succeed(0),
     markFinished: () => Effect.void,
   }
   const enqueueRun = (input: { businessId: string; questionId: string; provider: string; requestedModel: string | null }): CheckRunRow => {

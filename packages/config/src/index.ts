@@ -51,24 +51,61 @@ const NineRouterModels = Config.all({
   Option.getOrNull(models), Option.getOrNull(legacyModel),
 )))
 
-const NineRouterConfig = Config.all({
+export const NineRouterEnabled = Config.boolean("NINE_ROUTER_ENABLED").pipe(Config.withDefault(false))
+// Shared non-secret validation for the worker and API catalog. The API does
+// not need a key: deployments may keep credentials exclusively on workers.
+export const NineRouterConnectionConfig = Config.all({
   baseUrl: Config.string("NINE_ROUTER_BASE_URL").pipe(
     Config.withDefault("http://localhost:20128/v1"),
     Config.validate({ message: "invalid provider endpoint (HTTPS or exact loopback required)", validation: validProviderEndpoint }),
     Config.map(Redacted.make),
   ),
-  apiKey: Config.redacted("NINE_ROUTER_API_KEY").pipe(Config.validate({
-    message: "provider key must be nonempty", validation: key => Redacted.value(key).trim().length > 0,
-  })),
   models: NineRouterModels,
   timeoutMs: Config.integer("NINE_ROUTER_TIMEOUT_MS").pipe(Config.withDefault(60_000), Config.validate({
     message: "timeout must be 1..300000 milliseconds", validation: n => n > 0 && n <= 300_000,
   })),
   responseMaxBytes: ProviderResponseMaxBytes,
 })
+const NineRouterConfig = Config.all({
+  connection: NineRouterConnectionConfig,
+  apiKey: Config.redacted("NINE_ROUTER_API_KEY").pipe(Config.validate({
+    message: "provider key must be nonempty", validation: key => Redacted.value(key).trim().length > 0,
+  })),
+}).pipe(Config.map(({ connection, apiKey }) => ({ ...connection, apiKey })))
 export type NineRouterSettingsValue = Config.Config.Success<typeof NineRouterConfig>
 export class NineRouterSettings extends Context.Tag("NineRouterSettings")<NineRouterSettings, NineRouterSettingsValue | null>() {}
 export const NineRouterSettingsLive = Layer.effect(NineRouterSettings, Effect.gen(function*() {
-  const enabled = yield* Config.boolean("NINE_ROUTER_ENABLED").pipe(Config.withDefault(false))
+  const enabled = yield* NineRouterEnabled
   return enabled ? yield* NineRouterConfig : null
+}))
+
+// Gemini with Google Search grounding: the record's single live surface.
+// Absent key = not configured (null); a configured surface needs a key.
+export const GeminiModel = Config.string("GEMINI_MODEL").pipe(Config.withDefault("gemini-2.5-flash"), Config.validate({
+  message: "model must be a plain model id", validation: m => /^[a-z0-9][a-z0-9.\-]*$/.test(m),
+}))
+export const RecordSurfaceConfig = Config.all({
+  provider: Config.literal("gemini", "mock")("RECORD_PROVIDER").pipe(Config.withDefault("gemini" as const)),
+  model: GeminiModel,
+})
+const GeminiConfig = Config.all({
+  baseUrl: Config.string("GEMINI_BASE_URL").pipe(
+    Config.withDefault("https://generativelanguage.googleapis.com/v1beta"),
+    Config.validate({ message: "invalid provider endpoint (HTTPS or exact loopback required)", validation: validProviderEndpoint }),
+    Config.map(Redacted.make),
+  ),
+  apiKey: Config.redacted("GEMINI_API_KEY").pipe(Config.validate({
+    message: "provider key must be nonempty", validation: key => Redacted.value(key).trim().length > 0,
+  })),
+  model: GeminiModel,
+  timeoutMs: Config.integer("GEMINI_TIMEOUT_MS").pipe(Config.withDefault(60_000), Config.validate({
+    message: "timeout must be 1..300000 milliseconds", validation: n => n > 0 && n <= 300_000,
+  })),
+  responseMaxBytes: ProviderResponseMaxBytes,
+})
+export type GeminiSettingsValue = Config.Config.Success<typeof GeminiConfig>
+export class GeminiSettings extends Context.Tag("GeminiSettings")<GeminiSettings, GeminiSettingsValue | null>() {}
+export const GeminiSettingsLive = Layer.effect(GeminiSettings, Effect.gen(function*() {
+  const key = yield* Config.option(Config.string("GEMINI_API_KEY"))
+  return Option.isSome(key) ? yield* GeminiConfig : null
 }))

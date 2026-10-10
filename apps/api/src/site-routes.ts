@@ -10,6 +10,7 @@ import {
   HttpServerResponse,
 } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { hasLiveSearchConsoleCredentials, makeLiveSearchConsoleProvider } from "@openrecord/site-operator"
 import {
   BusinessRepository,
   SiteActiveRunConflict,
@@ -354,14 +355,11 @@ export const siteApi = (withSession: any): HttpRouter.HttpRouter =>
           const biz = yield* BusinessRepository
           if (!(yield* biz.getScoped(session.accountId, businessId))) return yield* json(404, { _tag: "BusinessNotFound" })
           const gsc = yield* SiteGscRepository
-          const live = Boolean(process.env["GOOGLE_SEARCH_CONSOLE_CLIENT_ID"] && process.env["GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET"])
+          const connection = yield* Effect.promise(() => makeLiveSearchConsoleProvider({ credentialsPresent: hasLiveSearchConsoleCredentials() }).status())
           return yield* json(200, {
-            status: live ? "CONNECTED" : "BLOCKED_MISSING_CREDENTIALS",
-            detail: live
-              ? "connected"
-              : "Live Search Console OAuth credentials are not configured. Provider contract is implemented; serving labeled fixtures only. SITE_INDEXABLE and GOOGLE_REPORTED_INDEXED are reported separately and never conflated.",
+            ...connection,
             properties: yield* gsc.listByBusiness(businessId),
-            source: live ? "LIVE" : "FIXTURE",
+            source: "FIXTURE",
           })
         }),
       ).pipe(Effect.catchAll((e) => json((e as { _tag?: string })?._tag === "NotAuthenticated" ? 401 : 500, e as unknown))),

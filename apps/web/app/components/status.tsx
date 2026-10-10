@@ -1,5 +1,7 @@
-import { CircleAlertIcon, CircleCheckIcon, CircleDashedIcon, CircleHelpIcon, CircleXIcon, ClockIcon, LoaderCircleIcon } from "lucide-react"
+import { BuildingIcon, CircleAlertIcon, CircleCheckIcon, CircleDashedIcon, CircleHelpIcon, CircleXIcon, ClockIcon, GlobeIcon, LoaderCircleIcon } from "lucide-react"
+import { ProviderLogo, providerBrand } from "@/components/provider-logo"
 import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 import type { IssueState } from "@/lib/api"
 import { sentenceCase } from "@/lib/format"
 
@@ -86,5 +88,50 @@ export function RepresentationStateBadge({ state }: { state: string }) {
 
 export function ControlBadge({ control }: { control: string }) {
   const label = control === "OWNED" ? "Owned" : control === "THIRD_PARTY" ? "Third party" : "Unknown control"
-  return <Badge variant="secondary">{label}</Badge>
+  const Icon = control === "OWNED" ? BuildingIcon : GlobeIcon
+  return (
+    <Badge variant="outline" className="text-muted-foreground">
+      <Icon />
+      {label}
+    </Badge>
+  )
+}
+
+/** The AI model an answer came from: brand mark, product name, and the reported model id. */
+export function ProviderChip({ provider, model, className }: { provider: string; model?: string | null; className?: string }) {
+  const brand = providerBrand(provider)
+  return (
+    <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>
+      <ProviderLogo provider={provider} className="size-4" />
+      <span className="truncate font-medium text-foreground">{brand.label}</span>
+      {model ? <span className="truncate text-muted-foreground">{model}</span> : null}
+    </span>
+  )
+}
+
+// Reviewer verdicts in the same words the review form uses.
+const verdictLabels: Record<string, string> = {
+  SUPPORTED: "Supported",
+  CONTRADICTED: "Wrong",
+  PARTIAL: "Partially correct",
+  INSUFFICIENT_EVIDENCE: "Not enough information",
+}
+
+export function verdictLabel(verdict: string | null | undefined): string {
+  if (!verdict) return "Needs review"
+  return verdictLabels[verdict] ?? sentenceCase(verdict)
+}
+
+export function VerdictBadge({ verdict }: { verdict: string | null | undefined }) {
+  if (!verdict) return <IssueStateBadge state="NEEDS_REVIEW" />
+  if (verdict === "SUPPORTED") {
+    return (
+      <Badge variant="supported">
+        <CircleCheckIcon />
+        Supported
+      </Badge>
+    )
+  }
+  const state = verdict === "CONTRADICTED" ? "WRONG" : verdict === "PARTIAL" ? "PARTIAL" : "UNKNOWN"
+  return <IssueStateBadge state={state} />
 }

@@ -1,6 +1,7 @@
 // Typed API client shared with the backend contract (packages/contracts).
 // Most server state comes from these calls; ordinary React state covers UI-local interaction.
 import { AssayRoutes, type AssayQueue, type RegisterAssaySourceRequest, type RunAssayRequest, type ReviewAssayFactRequest, type ReviewAssayFindingRequest, Routes } from "@openrecord/contracts"
+import type { ProviderInfo, ProviderCatalogResponse, ProviderDailyAnswer } from "@openrecord/contracts"
 export class ApiError extends Error {
   readonly status: number
   readonly tag: string
@@ -218,10 +219,10 @@ export const Checks = {
     }),
 }
 
-export type ProviderInfo = { id: string; enabled: boolean; models: string[] }
+export type { ProviderInfo }
 
 export const Providers = {
-  list: () => api<{ providers: ProviderInfo[]; assaySyntheticEnabled: boolean }>("/api/providers"),
+  list: () => api<ProviderCatalogResponse>(Routes.listProviders.path),
 }
 
 export const Packets = {
@@ -498,9 +499,11 @@ export type Analytics = {
   current: VerdictCounts & { checks: number; answers: number; failed: number }
   previous: VerdictCounts & { checks: number; answers: number }
   daily: Array<VerdictCounts & { date: string; checks: number; failed: number }>
-  providers: Array<VerdictCounts & { provider: string; answers: number }>
+  providers: Array<VerdictCounts & { provider: string; answers: number; prev_answers: number }>
+  providerDaily: Array<ProviderDailyAnswer>
   questions: Array<VerdictCounts & { id: string; prompt: string; label: string | null; checks: number; last_checked_at: string | null }>
   facts: Array<VerdictCounts & { id: string; predicate: string; value_text: string; status: string }>
+  citations: { total: number; attributed: number; prevTotal: number; prevAttributed: number; daily: Array<{ date: string; citations: number; attributed: number }> }
 }
 
 export const AnalyticsApi = {

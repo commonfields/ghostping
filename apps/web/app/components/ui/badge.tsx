@@ -3,19 +3,21 @@ import { Slot } from "radix-ui"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
+// Pills: fully rounded, a hairline ring in the status hue and a soft drop
+// shadow so verdicts read as objects sitting on the surface, not flat text.
 const badgeVariants = cva(
-  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap [&>svg]:pointer-events-none [&>svg]:size-3",
+  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border px-1.5 py-px text-[11px] leading-4 font-medium whitespace-nowrap shadow-(--badge-shadow) [&>svg]:pointer-events-none [&>svg]:size-3",
   {
     variants: {
       variant: {
         default: "border-transparent bg-primary text-primary-foreground",
-        secondary: "border-transparent bg-secondary text-secondary-foreground",
-        outline: "text-foreground",
-        wrong: "border-transparent bg-wrong-soft text-wrong",
-        partial: "border-transparent bg-partial-soft text-partial",
-        unknown: "border-transparent bg-unknown-soft text-unknown",
-        review: "border-transparent bg-review-soft text-review",
-        supported: "border-transparent bg-supported-soft text-supported",
+        secondary: "border-border bg-secondary text-secondary-foreground",
+        outline: "border-border bg-background text-foreground",
+        wrong: "border-wrong/20 bg-wrong-soft text-wrong",
+        partial: "border-partial/25 bg-partial-soft text-partial",
+        unknown: "border-unknown/20 bg-unknown-soft text-unknown",
+        review: "border-review/20 bg-review-soft text-review",
+        supported: "border-supported/20 bg-supported-soft text-supported",
       },
     },
     defaultVariants: { variant: "default" },

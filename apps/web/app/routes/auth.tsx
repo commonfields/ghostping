@@ -14,9 +14,9 @@ function AuthLayout({ title, description, children, footer }: { title: string; d
   return (
     <div className="flex min-h-svh flex-col items-center justify-center bg-sidebar px-4 py-12">
       <div className="w-full max-w-sm">
-        <div className="rounded-xl border bg-card p-6 shadow-xs sm:p-8">
+        <div className="rounded-2xl bg-card p-6 shadow-(--float-shadow-strong) sm:p-8">
           <div className="mb-6 space-y-1.5">
-            <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+            <h1 className="text-sm font-semibold tracking-tight">{title}</h1>
             <p className="text-sm text-muted-foreground">{description}</p>
           </div>
           {children}
@@ -88,7 +88,8 @@ function CredentialsForm({ mode }: { mode: "signin" | "signup" }) {
         {pending ? <Spinner /> : null}
         {mode === "signin" ? "Sign in" : "Create account"}
       </Button>
-      {mode === "signin" ? (
+      {/* Seeded demo login: local development only, never in a production build. */}
+      {mode === "signin" && import.meta.env.DEV ? (
         <Button
           type="button"
           variant="ghost"

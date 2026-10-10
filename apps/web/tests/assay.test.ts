@@ -15,7 +15,7 @@ describe("assay operator surface", () => {
   })
   it("shows the limitation for every non-retrieval class, the snapshot rule, redirects, and hides mock unless enabled", () => {
     const page = readFileSync(new URL("../app/routes/assay.tsx", import.meta.url), "utf8")
-    expect(page).toContain('finding.retrieval_class !== "RETRIEVAL_ENABLED" ? <p className="text-sm text-muted-foreground">{ASSAY_RETRIEVAL_LIMITATION}</p>')
+    expect(page).toContain('finding.retrieval_class !== "RETRIEVAL_ENABLED" ? <p className="text-xs text-muted-foreground">{ASSAY_RETRIEVAL_LIMITATION}</p>')
     for (const text of ["Answers collected before the page snapshot are not compared.", "Page snapshot:", "fact.final_url ?? fact.source_url", "(cross-origin redirect)", "providers.data?.assaySyntheticEnabled", "Mock observations are synthetic fixtures."]) expect(page).toContain(text)
   })
 })

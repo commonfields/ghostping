@@ -25,11 +25,11 @@ function SheetContent({ className, children, ...props }: React.ComponentProps<ty
 }
 
 function SheetTitle({ className, ...props }: React.ComponentProps<typeof SheetPrimitive.Title>) {
-  return <SheetPrimitive.Title className={cn("font-semibold", className)} {...props} />
+  return <SheetPrimitive.Title className={cn("text-xs font-medium", className)} {...props} />
 }
 
 function SheetDescription({ className, ...props }: React.ComponentProps<typeof SheetPrimitive.Description>) {
-  return <SheetPrimitive.Description className={cn("text-sm text-muted-foreground", className)} {...props} />
+  return <SheetPrimitive.Description className={cn("text-xs text-muted-foreground", className)} {...props} />
 }
 
 export { Sheet, SheetContent, SheetDescription, SheetTitle }

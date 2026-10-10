@@ -114,7 +114,7 @@ export function SiteFindingPage() {
             <CardContent className="space-y-4">
               <div>
                 <p className="text-xs font-medium text-muted-foreground">Affected URL</p>
-                <p className="mt-1 break-all font-mono text-sm">{f.url}</p>
+                <p className="mt-1 break-all font-mono text-xs">{f.url}</p>
               </div>
               <div>
                 <p className="text-xs font-medium text-muted-foreground">Observed evidence</p>
@@ -123,11 +123,11 @@ export function SiteFindingPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Why it matters</p>
-                  <p className="mt-1 text-sm">{f.diagnosis}</p>
+                  <p className="mt-1 text-xs">{f.diagnosis}</p>
                 </div>
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Recommended fix</p>
-                  <p className="mt-1 text-sm">{f.recommendedAction}</p>
+                  <p className="mt-1 text-xs">{f.recommendedAction}</p>
                 </div>
               </div>
             </CardContent>
@@ -147,8 +147,8 @@ export function SiteFindingPage() {
                 <EmptyState icon={<ClockIcon />} title="Manual change required" description="OpenRecord cannot safely derive this correction. Apply it by hand, then run verification." className="py-8" />
               ) : (
                 <>
-                  <p className="text-sm text-muted-foreground">{activeProposal.rationale}</p>
-                  <p className="text-sm text-muted-foreground">Risk: {activeProposal.risk}</p>
+                  <p className="text-xs text-muted-foreground">{activeProposal.rationale}</p>
+                  <p className="text-xs text-muted-foreground">Risk: {activeProposal.risk}</p>
                   {activeProposal.patch || activeProposal.beforeText ? (
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div>
@@ -206,11 +206,11 @@ export function SiteFindingPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               {mutations.length === 0 && verifications.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No changes or verifications recorded yet.</p>
+                <p className="text-xs text-muted-foreground">No changes or verifications recorded yet.</p>
               ) : (
                 <>
                   {mutations.map((m: SiteMutation) => (
-                    <div key={m.id} className="rounded-lg border p-3 text-sm">
+                    <div key={m.id} className="rounded-lg border p-3 text-xs">
                       <p className="font-medium">Change {m.state.toLowerCase().replace(/_/g, " ")}</p>
                       {m.branch ? <p className="text-muted-foreground">Branch: <span className="font-mono">{m.branch}</span></p> : null}
                       {m.commitSha ? <p className="text-muted-foreground">Commit: <span className="font-mono">{m.commitSha.slice(0, 12)}</span></p> : null}
@@ -219,7 +219,7 @@ export function SiteFindingPage() {
                     </div>
                   ))}
                   {verifications.map((v: SiteVerification) => (
-                    <div key={v.id} className="rounded-lg border p-3 text-sm">
+                    <div key={v.id} className="rounded-lg border p-3 text-xs">
                       <p className="font-medium">
                         {v.result === "VERIFIED_FIXED" ? "OpenRecord verified the fix on the live site." : v.result === "VERIFIED_NOT_FIXED" ? "The live site still shows the problem." : "Verification pending."}
                       </p>
@@ -228,7 +228,7 @@ export function SiteFindingPage() {
                     </div>
                   ))}
                   {latestVerification?.result === "VERIFIED_FIXED" ? (
-                    <p className="text-sm text-muted-foreground">Before → change → after is preserved in the history below.</p>
+                    <p className="text-xs text-muted-foreground">Before → change → after is preserved in the history below.</p>
                   ) : null}
                 </>
               )}
@@ -241,7 +241,7 @@ export function SiteFindingPage() {
               <CardDescription>Every status change is preserved; nothing is silently overwritten.</CardDescription>
             </CardHeader>
             <CardContent>
-              <ul className="space-y-2 text-sm">
+              <ul className="space-y-2 text-xs">
                 {(detail.data?.history ?? []).map((h) => (
                   <li key={h.id} className="flex flex-wrap items-center gap-2 text-muted-foreground">
                     <span className="font-mono text-xs">{formatDateTime(h.createdAt)}</span>

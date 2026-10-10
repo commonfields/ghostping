@@ -64,7 +64,7 @@ export function SiteRunPage() {
             <CardContent>
               <ul className="divide-y rounded-lg border">
                 {observations.map((o) => (
-                  <li key={String(o["id"])} className="px-4 py-3 text-sm">
+                  <li key={String(o["id"])} className="px-4 py-3 text-xs">
                     <p className="break-all font-medium">{String(o["finalUrl"] ?? o["url"])}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       Status {String(o["httpStatus"] ?? "—")} · {String(o["indexability"] ?? "UNKNOWN")} · {String(o["collectionState"] ?? "")}
@@ -81,7 +81,7 @@ export function SiteRunPage() {
               <CardDescription>Structured run history without secrets or page bodies.</CardDescription>
             </CardHeader>
             <CardContent>
-              <ul className="space-y-1 text-sm text-muted-foreground">
+              <ul className="space-y-1 text-xs text-muted-foreground">
                 {events.map((e, i) => (
                   <li key={i} className="font-mono text-xs">{e.kind}</li>
                 ))}

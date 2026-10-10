@@ -33,8 +33,8 @@ import { AssayRunner, AssayRunnerLive } from "./assay-runner.js"
 import { CheckRunner, CheckRunnerLive } from "./check-runner.js"
 import { DiscoveryRunner, DiscoveryRunnerLive } from "./discovery-runner.js"
 import { SiteInspectionRunner, SiteInspectionRunnerLive } from "./site-inspection-runner.js"
-import { NineRouterSettingsLive } from "@openrecord/config"
-import { MockProviderLive, NineRouterProviderLive, ProviderRegistryLive } from "@openrecord/providers"
+import { GeminiSettingsLive, NineRouterSettingsLive } from "@openrecord/config"
+import { GeminiProviderLive, MockProviderLive, NineRouterProviderLive, ProviderRegistryLive } from "@openrecord/providers"
 import { NodeHttpClient } from "@effect/platform-node"
 
 // Worker configuration comes from the Effect ConfigProvider (process env by
@@ -62,7 +62,8 @@ const buildRunnerLive = (databaseUrl: Redacted.Redacted<string>) => {
     ProductReadRepositoryLive,
   )
   const GatewayLive = NineRouterProviderLive.pipe(Layer.provide(NineRouterSettingsLive), Layer.provide(NodeHttpClient.layer))
-  const ProvidersLive = ProviderRegistryLive.pipe(Layer.provide(Layer.merge(MockProviderLive, GatewayLive)))
+  const GeminiLive = GeminiProviderLive.pipe(Layer.provide(GeminiSettingsLive), Layer.provide(NodeHttpClient.layer))
+  const ProvidersLive = ProviderRegistryLive.pipe(Layer.provide(Layer.mergeAll(MockProviderLive, GatewayLive, GeminiLive)))
   const CheckLive = CheckRunnerLive.pipe(Layer.provide(ProvidersLive), Layer.provide(Repos), Layer.provide(PgLive))
   const DiscoveryLive = DiscoveryRunnerLive.pipe(Layer.provide(Repos), Layer.provide(PgLive))
   const SiteLive = SiteInspectionRunnerLive.pipe(

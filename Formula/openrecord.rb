@@ -1,5 +1,5 @@
 class Openrecord < Formula
-  desc "Local-first GEO agent: track, generate, and optimize your brand's visibility in LLMs"
+  desc "Legacy local-first GEO CLI: track, generate, and optimize your brand's visibility in LLMs"
   homepage "https://github.com/commonfields/openrecord"
   version "0.3.0"
   license "MIT"

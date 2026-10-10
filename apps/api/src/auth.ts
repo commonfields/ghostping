@@ -22,7 +22,7 @@ export const verifyPassword = (password: string, stored: string): boolean => {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
-export const SESSION_COOKIE = "gp_session"
+export const SESSION_COOKIE = "or_session"
 
 export const parseCookies = (header: string | null): Record<string, string> => {
   const out: Record<string, string> = {}

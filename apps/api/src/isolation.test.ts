@@ -11,8 +11,8 @@ describe("auth", () => {
   })
 
   it("parses session cookies", () => {
-    expect(parseCookies("gp_session=abc; other=1")["gp_session"]).toBe("abc")
-    expect(parseCookies(null)["gp_session"]).toBeUndefined()
+    expect(parseCookies("or_session=abc; other=1")["or_session"]).toBe("abc")
+    expect(parseCookies(null)["or_session"]).toBeUndefined()
   })
 })
 
