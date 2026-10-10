@@ -67,7 +67,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
     <PaletteContext.Provider value={ctx}>
       {children}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="top-[14%] max-w-2xl translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-2xl [&>button:last-child]:hidden">
+        <DialogContent className="top-[12%] max-w-3xl translate-y-0 gap-0 overflow-hidden border-sidebar-border bg-sidebar p-0 text-sidebar-foreground shadow-(--float-shadow-strong) sm:max-w-3xl [&>button:last-child]:hidden">
           <DialogTitle className="sr-only">Find in OpenRecord</DialogTitle>
           <DialogDescription className="sr-only">Jump to a page, a business, a claim, or a fact.</DialogDescription>
           {open ? <Palette close={() => setOpen(false)} /> : null}
@@ -214,7 +214,7 @@ function Palette({ close }: { close: () => void }) {
         }
       }}
     >
-      <div className="flex items-center gap-2.5 border-b px-4">
+      <div className="flex items-center gap-2.5 border-b border-sidebar-border px-4">
         <SearchIcon className="size-4 text-muted-foreground" />
         <input
           autoFocus
@@ -226,13 +226,13 @@ function Palette({ close }: { close: () => void }) {
         />
         <Kbd>Esc</Kbd>
       </div>
-      <div ref={listRef} className="max-h-[min(26rem,60vh)] overflow-y-auto p-1.5">
+      <div ref={listRef} className="max-h-[min(32rem,70vh)] overflow-y-auto p-1.5">
         {filtered.length === 0 ? (
           <p className="px-3 py-8 text-center text-xs text-muted-foreground">Nothing matches &ldquo;{q}&rdquo;.</p>
         ) : (
           groups.map(([group, list]) => (
             <div key={group} className="pb-1">
-              <div className="px-2.5 pt-2 pb-1 text-[11px] font-medium text-muted-foreground">{group}</div>
+              <div className="px-2.5 pt-2 pb-1 text-[10px] font-medium text-muted-foreground">{group}</div>
               {list.map((item) => (
                 <button
                   key={item.id}
@@ -241,8 +241,8 @@ function Palette({ close }: { close: () => void }) {
                   onMouseMove={() => setIndex(item.i)}
                   onClick={item.run}
                   className={cn(
-                    "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-xs outline-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
-                    index === item.i && "bg-accent",
+                    "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-xs outline-none transition-colors hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
+                    index === item.i && "bg-sidebar-accent/70 text-sidebar-accent-foreground",
                   )}
                 >
                   {item.icon}
@@ -256,7 +256,7 @@ function Palette({ close }: { close: () => void }) {
           ))
         )}
       </div>
-      <div className="flex items-center gap-3 border-t bg-muted/40 px-4 py-2 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-3 border-t border-sidebar-border bg-sidebar-accent/40 px-4 py-2 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1">
           <Kbd>↑</Kbd>
           <Kbd>↓</Kbd> move

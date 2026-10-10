@@ -5,8 +5,10 @@ export const HostedProviderId = Schema.Literal(...HOSTED_PROVIDER_IDS)
 export const CapabilitySupport = Schema.Literal("SUPPORTED", "UNSUPPORTED", "UNKNOWN")
 export const RetrievalRequestMode = Schema.Literal("NONE", "WEB_SEARCH", "PROVIDER_GROUNDING", "MANUAL_CAPTURE")
 
-/** Describes the implemented adapter, not upstream model features or a
- * guarantee that a response will contain grounding, citations, or identity. */
+/** Describes the implemented adapter, not upstream model features.
+ * SUPPORTED means the adapter can report this field when the provider
+ * supplies it, not that every response will contain it. Absent grounding,
+ * citation, or identity metadata never becomes fabricated evidence. */
 export const AnswerSurfaceCapabilitiesV1 = Schema.Struct({
   schemaVersion: Schema.Literal(1),
   surfaceKind: Schema.Literal("MOCK", "ROUTER_API", "SEARCH_GROUNDED_API"),

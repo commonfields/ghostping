@@ -1,7 +1,9 @@
 // Gemini API with Google Search grounding (generateContent + google_search
 // tool). Requested retrieval is not observed retrieval: an answer counts as
 // retrieval-backed only when the response carries grounding metadata with
-// search queries or grounding sources. Otherwise it is stored as NONE.
+// search queries or grounding sources. Otherwise it is stored as NONE meaning
+// no usable grounding evidence in this response, not proof search did not
+// occur; the record treats it as no observed retrieval (INDETERMINATE).
 // Failures never fall back to another model or provider.
 import { HttpClient, HttpClientRequest } from "@effect/platform"
 import { Effect, Layer, Redacted, Schema, Stream } from "effect"
