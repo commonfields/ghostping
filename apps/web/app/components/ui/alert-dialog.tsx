@@ -36,11 +36,11 @@ function AlertDialogFooter({ className, ...props }: React.ComponentProps<"div">)
 }
 
 function AlertDialogTitle({ className, ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Title>) {
-  return <AlertDialogPrimitive.Title className={cn("text-lg font-semibold", className)} {...props} />
+  return <AlertDialogPrimitive.Title className={cn("text-xs font-medium", className)} {...props} />
 }
 
 function AlertDialogDescription({ className, ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Description>) {
-  return <AlertDialogPrimitive.Description className={cn("text-sm text-muted-foreground", className)} {...props} />
+  return <AlertDialogPrimitive.Description className={cn("text-xs text-muted-foreground", className)} {...props} />
 }
 
 function AlertDialogAction({ className, ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Action>) {

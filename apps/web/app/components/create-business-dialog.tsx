@@ -54,7 +54,7 @@ export function CreateBusinessDialog({ open, onOpenChange }: { open: boolean; on
           <div className="grid gap-2">
             <Label htmlFor="business-name">Business name</Label>
             <Input id="business-name" autoFocus value={name} onChange={(e) => setName(e.currentTarget.value)} placeholder="Northstar Software" />
-            {error ? <p className="text-sm text-wrong">{error}</p> : null}
+            {error ? <p className="text-xs text-wrong">{error}</p> : null}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

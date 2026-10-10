@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useParams } from "react-router"
+import { Link, useParams } from "react-router"
 import { toast } from "sonner"
 import { ArchiveIcon, BookCheckIcon, EllipsisIcon, GitBranchPlusIcon, HistoryIcon, KeyIcon, PlusIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -15,16 +15,14 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { EmptyState, PageHeader } from "@/components/page"
-import { FactStatusBadge } from "@/components/status"
-import { Facts, type Fact } from "@/lib/api"
+import { EmptyState, PageHeader, Panel, StatStrip, domainOf } from "@/components/page"
+import { FactStatusBadge, RepresentationStateBadge } from "@/components/status"
+import { VerdictBar } from "@/components/charts"
+import { AnalyticsApi, Facts, Issues, Representations, type Fact, type FactProvenance, type RepresentationRow, type VerdictCounts } from "@/lib/api"
 import { errorMessage, formatDate, formatDateTime, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
 import { cn } from "@/lib/utils"
@@ -49,15 +47,39 @@ export function TruthPage() {
   const activeCount = facts.filter((f) => f.status === "ACTIVE").length
   const visible = view === "active" ? facts.filter((f) => f.status === "ACTIVE") : facts
   const provenanceOf = (factId: string) => data?.provenance?.[factId] ?? null
+  const issues = useApi(`issues:${id}`, () => Issues.list(id))
+  const reps = useApi(`representations:${id}`, () => Representations.list(id))
+  // How each fact is doing elsewhere in the product: open issues citing it and sources watching it.
+  const analytics = useApi(`analytics:${id}:30`, () => AnalyticsApi.get(id, 30))
+  const verdictsByFact = useMemo(() => new Map((analytics.data?.analytics.facts ?? []).map((f) => [f.id, f])), [analytics.data])
+  const sourcesByFact = useMemo(() => {
+    const m = new Map<string, RepresentationRow[]>()
+    for (const r of reps.data?.representations ?? []) m.set(r.fact.id, [...(m.get(r.fact.id) ?? []), r])
+    return m
+  }, [reps.data])
+  const usage = useMemo(() => {
+    const m = new Map<string, { issues: number; wrong: number; sources: number; drift: number }>()
+    const get = (k: string) => m.get(k) ?? { issues: 0, wrong: 0, sources: 0, drift: 0 }
+    for (const i of issues.data?.issues ?? [])
+      for (const f of i.facts) {
+        const u = get(f.predicate)
+        m.set(f.predicate, { ...u, issues: u.issues + 1, wrong: u.wrong + (i.state === "WRONG" ? 1 : 0) })
+      }
+    for (const r of reps.data?.representations ?? []) {
+      const u = get(r.fact.predicate)
+      m.set(r.fact.predicate, { ...u, sources: u.sources + 1, drift: u.drift + (r.finding.state === "DRIFT" ? 1 : 0) })
+    }
+    return m
+  }, [issues.data, reps.data])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-4">
       <PageHeader
         title="Truth"
         description="The facts this business stands behind. OpenRecord compares source and AI representations against these versions."
         actions={
           repositoryManaged ? null : (
-            <Button onClick={() => setAddOpen(true)}>
+            <Button size="sm" onClick={() => setAddOpen(true)}>
               <PlusIcon />
               Add fact
             </Button>
@@ -65,19 +87,15 @@ export function TruthPage() {
         }
       />
 
-      <Card className="gap-0 py-0">
-        <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-4">
-          <span className="text-sm font-medium">Authority</span>
-          {repositoryManaged ? (
-            <Badge variant="secondary">Managed by repository manifest</Badge>
-          ) : (
-            <Badge variant="supported">Managed in OpenRecord</Badge>
-          )}
-          <span className="text-sm text-muted-foreground tabular-nums">
-            {activeCount} active {activeCount === 1 ? "fact" : "facts"}
-          </span>
-        </CardContent>
-      </Card>
+      <StatStrip
+        stats={[
+          { key: "active", label: "Active facts", value: loading ? <Skeleton className="h-5 w-8" /> : activeCount, hint: "Used for new reviews", tone: "supported", active: view === "active", onSelect: () => setView("active") },
+          { key: "all", label: "All versions", value: loading ? <Skeleton className="h-5 w-8" /> : facts.length, hint: "Including superseded and retired", active: view === "all", onSelect: () => setView("all") },
+          { key: "conflicts", label: "Conflicts", value: loading ? <Skeleton className="h-5 w-8" /> : conflicts.length, hint: conflicts.length ? "Two active facts overlap" : "No overlapping facts", tone: "wrong" },
+          { key: "authority", label: "Authority", value: <span className="text-xs">{repositoryManaged ? "Managed by repository manifest" : "Managed in OpenRecord"}</span>, hint: repositoryManaged ? "Edit in the manifest, then sync" : "Edit here; every change is versioned" },
+        ]}
+      />
+
 
       {repositoryManaged ? (
         <Alert>
@@ -100,18 +118,6 @@ export function TruthPage() {
         </Alert>
       ) : null}
 
-      <Tabs value={view} onValueChange={(v) => setView(v as "active" | "all")}>
-        <TabsList>
-          <TabsTrigger value="active">
-            Active
-            <span className="rounded bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{activeCount}</span>
-          </TabsTrigger>
-          <TabsTrigger value="all">
-            All versions
-            <span className="rounded bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{facts.length}</span>
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
 
       {loading ? (
         <Skeleton className="h-64 rounded-xl" />
@@ -130,94 +136,134 @@ export function TruthPage() {
           }
         />
       ) : (
-        <Card className="py-0">
-          <CardContent className="px-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="pl-5">Fact</TableHead>
-                  <TableHead>Value</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Provenance</TableHead>
-                  <TableHead className="w-12 pr-5">
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {visible.map((f) => {
-                  const conflict = conflictIds.has(f.id)
-                  const prov = provenanceOf(f.id)
-                  return (
-                    <TableRow key={f.id} className={cn(conflict && "bg-wrong-soft/70 hover:bg-wrong-soft")}>
-                      <TableCell className="pl-5">
-                        <div className="font-medium">{sentenceCase(f.predicate)}</div>
-                        <div className="text-xs text-muted-foreground">{f.subject}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{f.valueText}</span>
-                          {conflict ? (
-                            <Badge variant="wrong">
-                              <TriangleAlertIcon />
-                              Conflict
-                            </Badge>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{sentenceCase(f.valueType)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <FactStatusBadge status={f.status} />
-                          <span className="text-xs text-muted-foreground tabular-nums">v{f.version}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {prov ? (
-                          <span>
-                            Manifest key <span className="font-medium text-foreground">{prov.manifestKey}</span>
-                          </span>
-                        ) : (
-                          <span>Entered by hand</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="pr-5 text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${sentenceCase(f.predicate)}`}>
-                              <EllipsisIcon />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-48">
-                            <DropdownMenuItem onSelect={() => setHistoryOf(f)}>
-                              <HistoryIcon />
-                              View history
+        view === "active" ? (
+          <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {visible.map((f) => (
+              <li key={f.id}>
+                <FactCard
+                  businessId={id}
+                  fact={f}
+                  conflict={conflictIds.has(f.id)}
+                  provenance={provenanceOf(f.id)}
+                  verdicts={verdictsByFact.get(f.id) ?? null}
+                  sources={sourcesByFact.get(f.id) ?? []}
+                  repositoryManaged={repositoryManaged}
+                  onHistory={() => setHistoryOf(f)}
+                  onSupersede={() => setSuperseding(f)}
+                  onRetire={() => setRetiring(f)}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : (
+        <Panel>
+          <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_7rem_7.5rem_7.5rem_minmax(0,9rem)_2rem] gap-x-4 border-b bg-muted/40 px-4 py-2 text-[11px] text-muted-foreground lg:grid">
+            <span>Fact</span>
+            <span>Value</span>
+            <span>Status</span>
+            <span>Open issues</span>
+            <span>Watched at</span>
+            <span>Provenance</span>
+            <span className="sr-only">Actions</span>
+          </div>
+          <ul className="divide-y">
+            {visible.map((f) => {
+              const conflict = conflictIds.has(f.id)
+              const prov = provenanceOf(f.id)
+              const u = usage.get(f.predicate)
+              return (
+                <li
+                  key={f.id}
+                  className={cn(
+                    "grid items-center gap-x-4 gap-y-1.5 px-4 py-2.5 text-xs transition-colors hover:bg-muted/30 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_7rem_7.5rem_7.5rem_minmax(0,9rem)_2rem]",
+                    conflict && "bg-wrong-soft/60 hover:bg-wrong-soft",
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{sentenceCase(f.predicate)}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">
+                      {f.subject} · {sentenceCase(f.valueType)}
+                    </span>
+                  </span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-semibold">{f.valueText}</span>
+                    {conflict ? (
+                      <Badge variant="wrong">
+                        <TriangleAlertIcon />
+                        Conflict
+                      </Badge>
+                    ) : null}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <FactStatusBadge status={f.status} />
+                    <span className="text-[11px] text-muted-foreground tabular-nums">v{f.version}</span>
+                  </span>
+                  <span>
+                    {u?.issues ? (
+                      <Link to={`/businesses/${id}/issues?view=answers&fact=${encodeURIComponent(f.predicate)}`} className="hover:underline">
+                        <span className="font-medium tabular-nums">{u.issues}</span>
+                        {u.wrong ? <span className="text-wrong"> · {u.wrong} wrong</span> : null}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">None</span>
+                    )}
+                  </span>
+                  <span>
+                    {u?.sources ? (
+                      <Link to={`/businesses/${id}/representations`} className="hover:underline">
+                        <span className="font-medium tabular-nums">
+                          {u.sources} source{u.sources === 1 ? "" : "s"}
+                        </span>
+                        {u.drift ? <span className="text-wrong"> · {u.drift} drift</span> : null}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">Not watched</span>
+                    )}
+                  </span>
+                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                    {prov ? (
+                      <>
+                        Manifest key <span className="font-medium text-foreground">{prov.manifestKey}</span>
+                      </>
+                    ) : (
+                      "Entered by hand"
+                    )}
+                  </span>
+                  <span className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon-sm" className="size-7" aria-label={`Actions for ${sentenceCase(f.predicate)}`}>
+                          <EllipsisIcon />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem onSelect={() => setHistoryOf(f)}>
+                          <HistoryIcon />
+                          View history
+                        </DropdownMenuItem>
+                        {f.status === "ACTIVE" && !repositoryManaged ? (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={() => setSuperseding(f)}>
+                              <GitBranchPlusIcon />
+                              New version
                             </DropdownMenuItem>
-                            {f.status === "ACTIVE" && !repositoryManaged ? (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onSelect={() => setSuperseding(f)}>
-                                  <GitBranchPlusIcon />
-                                  New version
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem variant="destructive" onSelect={() => setRetiring(f)}>
-                                  <ArchiveIcon className="text-destructive" />
-                                  Retire fact
-                                </DropdownMenuItem>
-                              </>
-                            ) : null}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem variant="destructive" onSelect={() => setRetiring(f)}>
+                              <ArchiveIcon className="text-destructive" />
+                              Retire fact
+                            </DropdownMenuItem>
+                          </>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </Panel>
+        )
       )}
 
       <FactDialog businessId={id} open={addOpen} onOpenChange={setAddOpen} onSaved={() => void reload()} />
@@ -262,6 +308,144 @@ export function TruthPage() {
   )
 }
 
+function FactCard({
+  businessId,
+  fact: f,
+  conflict,
+  provenance,
+  verdicts,
+  sources,
+  repositoryManaged,
+  onHistory,
+  onSupersede,
+  onRetire,
+}: {
+  businessId: string
+  fact: Fact
+  conflict: boolean
+  provenance: FactProvenance
+  verdicts: (VerdictCounts & { id: string }) | null
+  sources: RepresentationRow[]
+  repositoryManaged: boolean
+  onHistory: () => void
+  onSupersede: () => void
+  onRetire: () => void
+}) {
+  const reviewed = verdicts ? verdicts.supported + verdicts.wrong + verdicts.partial + verdicts.unknown : 0
+  const total = verdicts ? reviewed + verdicts.unreviewed : 0
+  const drift = sources.filter((r) => r.finding.state === "DRIFT").length
+  return (
+    <Panel className={cn("flex h-full flex-col", conflict && "ring-1 ring-wrong/40")}>
+      <div className="flex items-start gap-2 px-4 pt-3.5">
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-xs text-muted-foreground">{sentenceCase(f.predicate)}</h3>
+          <p className="mt-0.5 truncate text-sm font-semibold">{f.valueText}</p>
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon-sm" className="-mr-1.5 size-7" aria-label={`Actions for ${sentenceCase(f.predicate)}`}>
+              <EllipsisIcon />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem onSelect={onHistory}>
+              <HistoryIcon />
+              View history
+            </DropdownMenuItem>
+            {!repositoryManaged ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={onSupersede}>
+                  <GitBranchPlusIcon />
+                  New version
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={onRetire}>
+                  <ArchiveIcon className="text-destructive" />
+                  Retire fact
+                </DropdownMenuItem>
+              </>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5 px-4 pt-2">
+        <FactStatusBadge status={f.status} />
+        <Badge variant="outline">v{f.version}</Badge>
+        <Badge variant="outline">{sentenceCase(f.valueType)}</Badge>
+        {conflict ? (
+          <Badge variant="wrong">
+            <TriangleAlertIcon />
+            Conflict
+          </Badge>
+        ) : null}
+      </div>
+
+      <div className="mt-3 space-y-3 border-t px-4 py-3">
+        <div className="space-y-1.5">
+          <div className="flex items-baseline justify-between text-[11px]">
+            <span className="text-muted-foreground">In AI answers, 30 days</span>
+            {total ? (
+              <span className="font-medium tabular-nums">
+                {reviewed ? `${Math.round(((verdicts?.supported ?? 0) / reviewed) * 100)}% accurate` : "Not reviewed yet"}
+              </span>
+            ) : null}
+          </div>
+          {verdicts && total ? (
+            <>
+              <VerdictBar counts={verdicts} className="h-1.5" />
+              <Link to={`/businesses/${businessId}/issues?view=answers&fact=${encodeURIComponent(f.predicate)}`} className="block text-[11px] text-muted-foreground hover:text-foreground hover:underline">
+                {total} claim{total === 1 ? "" : "s"}
+                {verdicts.wrong ? <span className="text-wrong"> · {verdicts.wrong} wrong</span> : null}
+                {verdicts.partial ? <span className="text-partial"> · {verdicts.partial} partial</span> : null}
+              </Link>
+            </>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">No reviewed claim has cited this fact yet.</p>
+          )}
+        </div>
+
+        <div className="space-y-1">
+          <div className="flex items-baseline justify-between text-[11px]">
+            <span className="text-muted-foreground">Published at</span>
+            {sources.length ? (
+              <Link to={`/businesses/${businessId}/representations`} className={cn("font-medium hover:underline", drift && "text-wrong")}>
+                {drift ? `${drift} drift` : "In sync"}
+              </Link>
+            ) : null}
+          </div>
+          {sources.length ? (
+            <ul className="space-y-0.5">
+              {sources.slice(0, 3).map((r) => (
+                <li key={r.binding_id}>
+                  <Link to={`/businesses/${businessId}/representations/${r.binding_id}`} className="flex items-center gap-2 rounded-md text-[11px] hover:underline">
+                    <span className="min-w-0 flex-1 truncate">{domainOf(r.source.url)}</span>
+                    <RepresentationStateBadge state={r.finding.state} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Link to={`/businesses/${businessId}/representations/discovery`} className="text-[11px] text-muted-foreground hover:text-foreground hover:underline">
+              Not watched anywhere. Find pages that publish it
+            </Link>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-auto border-t px-4 py-2 text-[11px] text-muted-foreground">
+        {provenance ? (
+          <>
+            Manifest key <span className="font-medium text-foreground">{provenance.manifestKey}</span>
+          </>
+        ) : (
+          <>Entered by hand · valid from {formatDate(f.validFrom)}</>
+        )}
+      </div>
+    </Panel>
+  )
+}
+
 function HistoryDialog({ businessId, fact, onOpenChange }: { businessId: string; fact: Fact | null; onOpenChange: (open: boolean) => void }) {
   const { data, loading } = useApi(fact ? `fact-history:${fact.id}` : null, () => (fact ? Facts.history(businessId, fact.id) : Promise.reject(new Error("no fact"))))
   const history = useMemo(() => data?.history ?? [], [data])
@@ -280,7 +464,7 @@ function HistoryDialog({ businessId, fact, onOpenChange }: { businessId: string;
               <li key={h.id} className="space-y-2 rounded-lg border px-4 py-3">
                 <div className="flex flex-wrap items-baseline gap-x-3">
                   <FactStatusBadge status={h.status} />
-                  <span className="text-sm font-medium">{h.valueText}</span>
+                  <span className="text-xs font-medium">{h.valueText}</span>
                   <span className="text-xs text-muted-foreground tabular-nums">v{h.version}</span>
                   <span className="w-full text-xs text-muted-foreground">
                     {formatDate(h.validFrom)}
@@ -309,7 +493,7 @@ function factsTitleSuffix(fact: Fact | null) {
 
 export function ManifestProvenance({ provenance }: { provenance: { manifestKey: string; manifestDigest: string; sourceRevision: string | null; syncedAt: string; sourceUrl: string | null } }) {
   return (
-    <dl className="grid gap-2 text-sm sm:grid-cols-2">
+    <dl className="grid gap-2 text-xs sm:grid-cols-2">
       <div>
         <dt className="text-xs text-muted-foreground">Manifest key</dt>
         <dd className="font-medium">{provenance.manifestKey}</dd>

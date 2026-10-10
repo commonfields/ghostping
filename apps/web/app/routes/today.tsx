@@ -1,15 +1,23 @@
-import { useMemo } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { Link, useParams, useSearchParams } from "react-router"
-import { ArrowDownRightIcon, ArrowRightIcon, ArrowUpRightIcon, BarChart3Icon, DownloadIcon, MinusIcon, RadarIcon } from "lucide-react"
+import { ArrowRightIcon, BarChart3Icon, CalendarIcon, DownloadIcon, RadarIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Legend, StackedDailyChart, Swatch, VerdictBar, totalClaims, verdictSeries } from "@/components/charts"
-import { EmptyState } from "@/components/page"
+import {
+  AreaTrendChart,
+  SeriesLogo,
+  VerdictBar,
+  modelSeries,
+  pivotMentions,
+  totalClaims,
+  type ModelSeries,
+} from "@/components/charts"
+import { EmptyState, PageHeader, Panel, PanelHeader, ShareRow, StatStrip, type Stat } from "@/components/page"
 import { ControlBadge, IssueStateBadge, RepresentationStateBadge } from "@/components/status"
 import { AnalyticsApi, Facts, Issues, Representations, type Analytics, type VerdictCounts } from "@/lib/api"
+import { groupClaims } from "@/lib/issues"
 import { errorMessage, relativeTime, sentenceCase } from "@/lib/format"
 import { useApi } from "@/lib/use-api"
 import { cn } from "@/lib/utils"
@@ -18,12 +26,73 @@ import { useWorkspace } from "@/lib/workspace"
 const periods = [7, 30, 90] as const
 type Period = (typeof periods)[number]
 
-const providerName = (p: string) => (p === "9router" ? "9Router" : sentenceCase(p))
-
 function shortDate(iso: string): string {
   // Day buckets are UTC dates (YYYY-MM-DD); render them without shifting.
   const [y, m, d] = iso.split("-").map(Number)
   return new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1)).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })
+}
+
+const reviewed = (c: VerdictCounts) => c.supported + c.wrong + c.partial + c.unknown
+const accuracy = (c: VerdictCounts) => (reviewed(c) ? c.supported / reviewed(c) : null)
+const pct = (n: number | null, digits = 0) => (n === null ? "—" : `${(n * 100).toFixed(digits)}%`)
+const sumCounts = (rows: VerdictCounts[]): VerdictCounts =>
+  rows.reduce(
+    (t, r) => ({ supported: t.supported + r.supported, wrong: t.wrong + r.wrong, partial: t.partial + r.partial, unknown: t.unknown + r.unknown, unreviewed: t.unreviewed + r.unreviewed }),
+    { supported: 0, wrong: 0, partial: 0, unknown: 0, unreviewed: 0 },
+  )
+
+/** Everything the page derives from one analytics payload, grouped per model series. */
+function useModelStats(a: Analytics | null) {
+  return useMemo(() => {
+    if (!a) return null
+    const series = modelSeries([...a.providers.map((p) => p.provider), ...a.providerDaily.map((d) => d.provider)])
+    const rows = pivotMentions(a.providerDaily, series)
+    const models = series.map((s) => {
+      const members = a.providers.filter((p) => s.members.includes(p.provider))
+      const counts = sumCounts(members)
+      return {
+        series: s,
+        answers: members.reduce((n, p) => n + p.answers, 0),
+        prev: members.reduce((n, p) => n + (p.prev_answers ?? 0), 0),
+        counts,
+        claims: totalClaims(counts),
+        accuracy: accuracy(counts),
+      }
+    })
+    const total = models.reduce((n, m) => n + m.answers, 0)
+    const prevTotal = models.reduce((n, m) => n + m.prev, 0)
+    const dailyTotals = rows.map((r) => ({ date: String(r.date), value: series.reduce((n, s) => n + Number(r[s.key] ?? 0), 0) }))
+    return {
+      series,
+      rows,
+      models,
+      ranked: [...models].sort((x, y) => y.answers - x.answers),
+      total,
+      prevTotal,
+      dailyTotals,
+    }
+  }, [a])
+}
+
+type ModelStats = NonNullable<ReturnType<typeof useModelStats>>
+
+type MetricKey = "mentions" | "accuracy" | "wrong" | "partial" | "unreviewed" | "checks"
+
+const metricMeta: Record<MetricKey, { label: string; tone?: Stat["tone"]; goodWhenUp: boolean; percent?: boolean }> = {
+  mentions: { label: "AI mentions", goodWhenUp: true },
+  accuracy: { label: "Accuracy", goodWhenUp: true, percent: true },
+  wrong: { label: "Wrong", tone: "wrong", goodWhenUp: false },
+  partial: { label: "Partial", tone: "partial", goodWhenUp: false },
+  unreviewed: { label: "To review", tone: "review", goodWhenUp: false },
+  checks: { label: "Checks run", goodWhenUp: true },
+}
+
+/** Trailing moving average; the comparison line under each trend. */
+function trailing(values: Array<number | null>, window: number): Array<number | null> {
+  return values.map((_, i) => {
+    const slice = values.slice(Math.max(0, i - window + 1), i + 1).filter((v): v is number => v !== null)
+    return slice.length ? Math.round((slice.reduce((n, v) => n + v, 0) / slice.length) * 1000) / 1000 : null
+  })
 }
 
 export function Today() {
@@ -31,525 +100,588 @@ export function Today() {
   const { activeBusiness } = useWorkspace()
   const [params, setParams] = useSearchParams()
   const days: Period = periods.includes(Number(params.get("days")) as Period) ? (Number(params.get("days")) as Period) : 30
+  const metric: MetricKey = (Object.keys(metricMeta) as MetricKey[]).includes(params.get("metric") as MetricKey) ? (params.get("metric") as MetricKey) : "mentions"
   const { data, loading, error } = useApi(`analytics:${id}:${days}`, () => AnalyticsApi.get(id, days))
   const a = data?.analytics ?? null
+  const stats = useModelStats(a)
 
-  const setDays = (d: string) => {
+  const setParam = (k: string, v: string) => {
     const next = new URLSearchParams(params)
-    next.set("days", d)
+    next.set(k, v)
     setParams(next, { replace: true })
   }
 
   return (
     <div className="space-y-6 pb-4">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">{activeBusiness?.name ?? "Overview"}</h1>
-          <p className="max-w-prose text-sm text-muted-foreground">
-            Review what AI and tracked sources currently say, and where they disagree with approved truth.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Tabs value={String(days)} onValueChange={setDays}>
-            <TabsList>
-              {periods.map((p) => (
-                <TabsTrigger key={p} value={String(p)}>
-                  {p} days
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-          <Button variant="outline" disabled={!a} onClick={() => a && downloadCsv(a, activeBusiness?.name ?? "business")}>
-            <DownloadIcon />
-            Export CSV
-          </Button>
-          <Button asChild>
-            <Link to={`/businesses/${id}/checks`}>
-              <RadarIcon />
-              Run a check
-            </Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title={activeBusiness?.name ?? "Overview"}
+        description="How often AI models mention you, and whether what they say matches your approved facts."
+        actions={
+          <>
+            <Select value={String(days)} onValueChange={(v) => setParam("days", v)}>
+              <SelectTrigger className="h-8 w-[9.5rem] text-xs" aria-label="Time range">
+                <CalendarIcon className="size-3.5 text-muted-foreground" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                {periods.map((p) => (
+                  <SelectItem key={p} value={String(p)}>
+                    Last {p} days
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" className="h-8 text-xs" disabled={!a} onClick={() => a && downloadCsv(a, activeBusiness?.name ?? "business")}>
+              <DownloadIcon />
+              Export
+            </Button>
+            <Button asChild size="sm" className="h-8 text-xs">
+              <Link to={`/businesses/${id}/checks`}>
+                <RadarIcon />
+                Run a check
+              </Link>
+            </Button>
+          </>
+        }
+      />
 
       {error && !a ? (
         <EmptyState icon={<BarChart3Icon />} title="Analytics could not load" description={errorMessage(error)} />
       ) : (
         <>
-          <OperationalSummary businessId={id} />
-          <KpiStrip a={a} loading={loading} />
-
-          <div className="grid gap-6 lg:grid-cols-3">
-            <Card className="shadow-(--float-shadow) lg:col-span-2">
-              <CardHeader>
-                <CardTitle>Claims by day</CardTitle>
-                <CardDescription>Statements transcribed from AI answers, by the verdict they received.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {loading || !a ? (
-                  <Skeleton className="h-[260px]" />
-                ) : totalClaims(a.current) === 0 ? (
-                  <ChartEmpty days={days} what="claims" />
-                ) : (
-                  <>
-                    <Legend items={verdictSeries.map((s) => ({ label: s.label, cssVar: s.cssVar }))} />
-                    <StackedDailyChart data={a.daily} series={verdictSeries} formatDate={shortDate} height={240} />
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-(--float-shadow)">
-              <CardHeader>
-                <CardTitle>Verdict mix</CardTitle>
-                <CardDescription>All claims from the last {days} days.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {loading || !a ? <Skeleton className="h-[260px]" /> : <VerdictMix counts={a.current} />}
-              </CardContent>
-            </Card>
+          <Kpis a={a} stats={stats} loading={loading} metric={metric} onMetric={(m) => setParam("metric", m)} />
+          <HeroChart a={a} stats={stats} loading={loading} metric={metric} days={days} brand={activeBusiness?.name ?? "you"} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ShareOfVoiceCard stats={stats} loading={loading} days={days} />
+            <AccuracyByModelCard a={a} stats={stats} loading={loading} />
+            <NeedsALookCard businessId={id} />
+            <QuestionsCard businessId={id} a={a} loading={loading} days={days} />
           </div>
-
-          <div className="grid gap-6 lg:grid-cols-3">
-            <Card className="shadow-(--float-shadow) lg:col-span-2">
-              <CardHeader>
-                <CardTitle>By AI provider</CardTitle>
-                <CardDescription>Where answers came from and how their claims were judged.</CardDescription>
-              </CardHeader>
-              <CardContent className="px-0">
-                {loading || !a ? (
-                  <div className="px-5">
-                    <Skeleton className="h-32" />
-                  </div>
-                ) : a.providers.length === 0 ? (
-                  <div className="px-5">
-                    <ChartEmpty days={days} what="answers" />
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="hover:bg-transparent">
-                        <TableHead className="pl-5">Provider</TableHead>
-                        <TableHead className="text-right">Answers</TableHead>
-                        <TableHead className="text-right">Claims</TableHead>
-                        <TableHead className="w-[32%]">Mix</TableHead>
-                        <TableHead className="text-right">Wrong</TableHead>
-                        <TableHead className="pr-5 text-right">Partial</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {a.providers.map((p) => (
-                        <TableRow key={p.provider}>
-                          <TableCell className="pl-5 font-medium">{providerName(p.provider)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{p.answers}</TableCell>
-                          <TableCell className="text-right tabular-nums">{totalClaims(p)}</TableCell>
-                          <TableCell>
-                            <VerdictBar counts={p} />
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">{p.wrong}</TableCell>
-                          <TableCell className="pr-5 text-right tabular-nums">{p.partial}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-(--float-shadow)">
-              <CardHeader>
-                <CardTitle>Checks per day</CardTitle>
-                <CardDescription>
-                  {a ? `${a.current.checks} run, ${a.current.failed} failed` : "Runs sent to AI providers"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {loading || !a ? (
-                  <Skeleton className="h-[180px]" />
-                ) : a.current.checks === 0 ? (
-                  <ChartEmpty days={days} what="checks" />
-                ) : (
-                  <>
-                    <Legend
-                      items={[
-                        { label: "Failed", cssVar: "--chart-wrong" },
-                        { label: "Answered", cssVar: "--chart-checks" },
-                      ]}
-                    />
-                    <StackedDailyChart
-                      data={a.daily.map((d) => ({ date: d.date, failed: d.failed, answered: d.checks - d.failed }))}
-                      series={[
-                        { key: "failed", label: "Failed", cssVar: "--chart-wrong" },
-                        { key: "answered", label: "Answered", cssVar: "--chart-checks" },
-                      ]}
-                      formatDate={shortDate}
-                      height={170}
-                    />
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card className="shadow-(--float-shadow)">
-            <CardHeader>
-              <CardTitle>Buyer questions</CardTitle>
-              <CardDescription>Which questions lead AI assistants to say something wrong about you. Sorted by wrong claims.</CardDescription>
-              <CardAction>
-                <Button asChild variant="outline" size="sm">
-                  <Link to={`/businesses/${id}/checks`}>
-                    Manage questions
-                    <ArrowRightIcon />
-                  </Link>
-                </Button>
-              </CardAction>
-            </CardHeader>
-            <CardContent className="px-0">
-              {loading || !a ? (
-                <div className="px-5">
-                  <Skeleton className="h-32" />
-                </div>
-              ) : a.questions.length === 0 ? (
-                <div className="px-5">
-                  <EmptyState
-                    icon={<RadarIcon />}
-                    title="No buyer questions yet"
-                    description="Add the questions prospects ask, then run checks to see how AI assistants answer them."
-                    className="py-10"
-                  />
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead className="pl-5">Question</TableHead>
-                      <TableHead className="text-right">Checks</TableHead>
-                      <TableHead>Last answer</TableHead>
-                      <TableHead className="w-[22%]">Mix</TableHead>
-                      <TableHead className="text-right">Wrong</TableHead>
-                      <TableHead className="text-right">Partial</TableHead>
-                      <TableHead className="pr-5 text-right">Waiting</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {a.questions.map((q) => (
-                      <TableRow key={q.id}>
-                        <TableCell className="max-w-[26rem] pl-5">
-                          <div className="truncate font-medium">{q.label || q.prompt}</div>
-                          {q.label ? <div className="truncate text-xs text-muted-foreground">{q.prompt}</div> : null}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">{q.checks}</TableCell>
-                        <TableCell className="whitespace-nowrap text-muted-foreground">{q.last_checked_at ? relativeTime(q.last_checked_at) : "Never"}</TableCell>
-                        <TableCell>
-                          <VerdictBar counts={q} />
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">{q.wrong}</TableCell>
-                        <TableCell className="text-right tabular-nums">{q.partial}</TableCell>
-                        <TableCell className="pr-5 text-right tabular-nums">{q.unreviewed}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-(--float-shadow)">
-            <CardHeader>
-              <CardTitle>Facts AI gets wrong</CardTitle>
-              <CardDescription>Approved facts linked to reviewed claims. Start corrections and content updates here.</CardDescription>
-              <CardAction>
-                <Button asChild variant="outline" size="sm">
-                  <Link to={`/businesses/${id}/facts`}>
-                    Approved facts
-                    <ArrowRightIcon />
-                  </Link>
-                </Button>
-              </CardAction>
-            </CardHeader>
-            <CardContent>
-              {loading || !a ? (
-                <Skeleton className="h-24" />
-              ) : a.facts.length === 0 ? (
-                <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                  No reviewed claims were linked to an approved fact in the last {days} days. Link facts when you record a verdict to see them here.
-                </p>
-              ) : (
-                <ul className="divide-y rounded-lg border">
-                  {a.facts.map((f) => (
-                    <li key={f.id} className="grid items-center gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)_auto]">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{sentenceCase(f.predicate)}</div>
-                        <div className="truncate text-xs text-muted-foreground">
-                          Approved value {f.value_text}
-                          {f.status !== "ACTIVE" ? `, ${sentenceCase(f.status).toLowerCase()}` : ""}
-                        </div>
-                      </div>
-                      <VerdictBar counts={f} />
-                      <div className="flex gap-4 text-sm tabular-nums sm:justify-end">
-                        <span>
-                          <span className="font-medium">{f.wrong}</span> <span className="text-muted-foreground">wrong</span>
-                        </span>
-                        <span>
-                          <span className="font-medium">{f.partial}</span> <span className="text-muted-foreground">partial</span>
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
         </>
       )}
     </div>
   )
 }
 
-function OperationalSummary({ businessId }: { businessId: string }) {
+/* ------------------------------------------------------------------ KPIs */
+
+function Kpis({ a, stats, loading, metric, onMetric }: { a: Analytics | null; stats: ModelStats | null; loading: boolean; metric: MetricKey; onMetric: (m: MetricKey) => void }) {
+  const values: Record<MetricKey, { value: ReactNode; delta: ReactNode }> | null = useMemo(() => {
+    if (!a || !stats) return null
+    const acc = accuracy(a.current)
+    const prevAcc = accuracy(a.previous)
+    return {
+      mentions: { value: stats.total.toLocaleString(), delta: <Delta now={stats.total} prev={stats.prevTotal} goodWhenUp /> },
+      accuracy: {
+        value: pct(acc),
+        delta: acc !== null && prevAcc !== null ? <PointsDelta pts={Math.round((acc - prevAcc) * 100)} /> : null,
+      },
+      wrong: { value: a.current.wrong.toLocaleString(), delta: <Delta now={a.current.wrong} prev={a.previous.wrong} goodWhenUp={false} /> },
+      partial: { value: a.current.partial.toLocaleString(), delta: <Delta now={a.current.partial} prev={a.previous.partial} goodWhenUp={false} /> },
+      unreviewed: { value: a.current.unreviewed.toLocaleString(), delta: <Delta now={a.current.unreviewed} prev={a.previous.unreviewed} goodWhenUp={false} /> },
+      checks: { value: a.current.checks.toLocaleString(), delta: <Delta now={a.current.checks} prev={a.previous.checks} goodWhenUp /> },
+    }
+  }, [a, stats])
+
+  const stats_: Stat[] = (Object.keys(metricMeta) as MetricKey[]).map((k) => ({
+    key: k,
+    label: metricMeta[k].label,
+    value: loading || !values ? <Skeleton className="h-5 w-14" /> : values[k].value,
+    delta: loading || !values ? null : values[k].delta,
+    ...(metricMeta[k].tone ? { tone: metricMeta[k].tone } : {}),
+    active: metric === k,
+    onSelect: () => onMetric(k),
+  }))
+  return <StatStrip stats={stats_} />
+}
+
+function Delta({ now, prev, goodWhenUp }: { now: number; prev: number; goodWhenUp: boolean }) {
+  if (!prev) return now ? <span className="text-muted-foreground">New</span> : null
+  const change = (now - prev) / prev
+  if (Math.abs(change) < 0.005) return <span className="text-muted-foreground">0%</span>
+  const good = change > 0 === goodWhenUp
+  return (
+    <span className={good ? "text-supported" : "text-wrong"} title="Change vs previous period">
+      {change > 0 ? "+" : ""}
+      {(change * 100).toFixed(Math.abs(change) < 0.1 ? 1 : 0)}%
+    </span>
+  )
+}
+
+function PointsDelta({ pts }: { pts: number }) {
+  if (pts === 0) return <span className="text-muted-foreground">0 pts</span>
+  return (
+    <span className={pts > 0 ? "text-supported" : "text-wrong"} title="Change vs previous period, in percentage points">
+      {pts > 0 ? "+" : ""}
+      {pts} pts
+    </span>
+  )
+}
+
+/* ----------------------------------------------------------- Hero chart */
+
+const verdictShareMeta = {
+  accuracy: { key: "supported", label: "Supported share", cssVar: "--chart-supported" },
+  wrong: { key: "wrong", label: "Wrong share", cssVar: "--chart-wrong" },
+  partial: { key: "partial", label: "Partially correct share", cssVar: "--chart-partial" },
+  unreviewed: { key: "unreviewed", label: "Waiting-for-review share", cssVar: "--chart-unreviewed" },
+} as const
+type VerdictShareMetric = keyof typeof verdictShareMeta
+
+function HeroChart({ a, stats, loading, metric, days, brand }: { a: Analytics | null; stats: ModelStats | null; loading: boolean; metric: MetricKey; days: number; brand: string }) {
+  const [view, setView] = useState<"trend" | "split">("trend")
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
+  const [focus, setFocus] = useState<string | null>(null)
+  const meta = metricMeta[metric]
+  const window = days > 7 ? 7 : 3
+
+  // The first bucket covers only part of a day, so it stays out of every trend.
+  const series = useMemo(() => {
+    if (!a || !stats) return []
+    const raw: Array<{ date: string; value: number | null }> =
+      metric === "mentions"
+        ? stats.dailyTotals
+        : a.daily.map((d) => ({
+            date: d.date,
+            value: metric === "accuracy" ? (accuracy(d) === null ? null : Math.round(accuracy(d)! * 1000) / 10) : metric === "checks" ? d.checks : d[metric],
+          }))
+    const trimmed = raw.slice(1)
+    const avg = trailing(
+      trimmed.map((r) => r.value),
+      window,
+    )
+    return trimmed.map((r, i) => ({ date: r.date, value: r.value ?? "", avg: avg[i] ?? "" }))
+  }, [a, stats, metric, window])
+
+  const splitLabel = metric === "mentions" ? "By model" : metric === "checks" ? null : "Verdict share"
+  // The split view answers the complementary question: not how many, but
+  // what share of the day's verdicts the selected one represents.
+  const shareSeries = useMemo(() => {
+    if (!a || metric === "mentions" || metric === "checks") return []
+    const key = verdictShareMeta[metric].key
+    const raw = a.daily.slice(1).map((d) => {
+      const t = totalClaims(d)
+      return { date: d.date, value: t ? Math.round(((d[key] ?? 0) / t) * 1000) / 10 : null }
+    })
+    const avg = trailing(
+      raw.map((r) => r.value),
+      window,
+    )
+    return raw.map((r, i) => ({ date: r.date, value: r.value ?? "", avg: avg[i] ?? "" }))
+  }, [a, metric, window])
+  const subtitle =
+    metric === "mentions"
+      ? `How often each AI model mentions ${brand}, per day`
+      : metric === "accuracy"
+        ? "Supported ÷ reviewed claims, per day"
+        : metric === "checks"
+          ? "Questions sent to AI models, per day"
+          : metric === "unreviewed" ? "Claims waiting for a reviewer's verdict, per day" : `${meta.label === "Partial" ? "Partially correct" : meta.label} claims found in AI answers, per day`
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-xs leading-tight font-medium">{meta.label} over time</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {subtitle} · last {days} days
+          </p>
+        </div>
+        {splitLabel ? (
+          <Tabs value={view} onValueChange={(v) => setView(v as "trend" | "split")}>
+            <TabsList>
+              <TabsTrigger value="trend">Trend</TabsTrigger>
+              <TabsTrigger value="split">{splitLabel}</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        ) : null}
+      </div>
+
+      {loading || !a || !stats ? (
+        <Skeleton className="h-[280px] rounded-xl" />
+      ) : series.every((r) => r.value === "" || r.value === 0) && totalClaims(a.current) === 0 && stats.total === 0 ? (
+        <ChartEmpty days={days} what={metric === "mentions" ? "answers" : "claims"} />
+      ) : view === "split" && metric === "mentions" ? (
+        <div className="space-y-3">
+          <ModelSmallMultiples rows={stats.rows.slice(1)} series={stats.series} hidden={hidden} focus={focus} />
+          <ul className="flex flex-wrap gap-1" onMouseLeave={() => setFocus(null)}>
+            {stats.ranked.map((m) => {
+              const off = hidden.has(m.series.key)
+              return (
+                <li key={m.series.key}>
+                  <button
+                    type="button"
+                    aria-pressed={!off}
+                    onMouseEnter={() => !off && setFocus(m.series.key)}
+                    onClick={() =>
+                      setHidden((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(m.series.key)) next.delete(m.series.key)
+                        else next.add(m.series.key)
+                        return next.size >= stats.series.length ? new Set() : next
+                      })
+                    }
+                    className={cn("flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-foreground/[0.05]", off && "opacity-40")}
+                  >
+                    <span aria-hidden className="size-2 rounded-full" style={{ background: `var(${m.series.cssVar})` }} />
+                    {m.series.label}
+                    <span className="text-muted-foreground tabular-nums">{m.answers}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ) : view === "split" && metric !== "checks" ? (
+        <div className="space-y-2">
+          <AreaTrendChart
+            data={shareSeries}
+            dataKey="value"
+            label={verdictShareMeta[metric as VerdictShareMetric].label}
+            compareKey="avg"
+            compareLabel={`${window}-day average`}
+            height={280}
+            formatDate={shortDate}
+            formatValue={(v) => `${Math.round(v)}%`}
+            domain={[0, 100]}
+            cssVar={verdictShareMeta[metric as VerdictShareMetric].cssVar}
+          />
+          <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span aria-hidden className="size-2 rounded-full" style={{ background: `var(${verdictShareMeta[metric as VerdictShareMetric].cssVar})` }} />
+              {verdictShareMeta[metric as VerdictShareMetric].label}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span aria-hidden className="w-3 border-t-[1.5px] border-dotted border-chart-compare" />
+              {window}-day average
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <AreaTrendChart
+            data={series}
+            dataKey="value"
+            label={meta.label}
+            compareKey="avg"
+            compareLabel={`${window}-day average`}
+            height={280}
+            formatDate={shortDate}
+            formatValue={meta.percent ? (v) => `${Math.round(v)}%` : (v) => (Math.round(v * 10) / 10).toLocaleString()}
+            {...(meta.percent ? { domain: [0, 100] as [number, number] } : {})}
+          />
+          <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span aria-hidden className="size-2 rounded-full bg-chart-primary" />
+              {meta.label}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span aria-hidden className="w-3 border-t-[1.5px] border-dotted border-chart-compare" />
+              {window}-day average
+            </span>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+/* --------------------------------------------------------------- Cards */
+
+/** One mini trend per model: the same line language as the Trend tab, so no model hides behind another. */
+function ModelSmallMultiples({ rows, series, hidden, focus }: { rows: Array<Record<string, number | string>>; series: readonly ModelSeries[]; hidden: ReadonlySet<string>; focus: string | null }) {
+  const visible = series.filter((s) => !hidden.has(s.key))
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {visible.map((s) => {
+        const total = rows.reduce((n, r) => n + Number(r[s.key] ?? 0), 0)
+        return (
+          <div key={s.key} className={cn("rounded-xl bg-card p-3 shadow-(--card-shadow-raised) transition-opacity", focus !== null && focus !== s.key && "opacity-40")}>
+            <div className="flex items-center gap-2 px-1 pb-1">
+              <SeriesLogo series={s} className="size-4" />
+              <span className="min-w-0 flex-1 truncate text-xs font-medium">{s.label}</span>
+              <span className="text-xs text-muted-foreground tabular-nums">{total.toLocaleString()} mentions</span>
+            </div>
+            <AreaTrendChart
+              data={rows as Array<Record<string, number | string>>}
+              dataKey={s.key}
+              label={s.label}
+              height={110}
+              formatDate={shortDate}
+              formatValue={(v) => Math.round(v).toLocaleString()}
+              cssVar={s.cssVar}
+            />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ShareOfVoiceCard({ stats, loading, days }: { stats: ModelStats | null; loading: boolean; days: number }) {
+  const max = stats ? Math.max(0.01, ...stats.ranked.map((m) => (stats.total ? m.answers / stats.total : 0))) : 1
+  return (
+    <Panel className="shadow-(--card-shadow-raised)">
+      <PanelHeader title="Share of voice" description={stats ? `${stats.total.toLocaleString()} mentions across ${stats.series.length} models` : "Mentions per model"} />
+      <div className="p-2 pt-2">
+        {loading || !stats ? (
+          <ListSkeleton />
+        ) : stats.total === 0 ? (
+          <p className="px-2 py-8 text-center text-xs text-muted-foreground">No answers in the last {days} days.</p>
+        ) : (
+          <>
+            <div className="flex justify-between px-2 pb-1 text-[11px] text-muted-foreground">
+              <span>Model</span>
+              <span>Share · change</span>
+            </div>
+            <div className="space-y-1">
+            {stats.ranked.map((m) => {
+              const share = stats.total ? m.answers / stats.total : 0
+              const prevShare = stats.prevTotal ? m.prev / stats.prevTotal : null
+              const pts = prevShare === null ? null : Math.round((share - prevShare) * 1000) / 10
+              return (
+                <ShareRow
+                  key={m.series.key}
+                  share={share / max}
+                  value={
+                    <span className="flex items-center gap-3">
+                      <span>{pct(share, 1)}</span>
+                      <span className={cn("w-10 text-right text-[11px]", pts === null ? "text-muted-foreground" : pts > 0 ? "text-supported" : pts < 0 ? "text-wrong" : "text-muted-foreground")}>
+                        {pts === null ? "New" : `${pts > 0 ? "+" : ""}${pts.toFixed(1)}`}
+                      </span>
+                    </span>
+                  }
+                >
+                  <SeriesLogo series={m.series} className="size-4" />
+                  <span className="truncate font-medium">{m.series.label}</span>
+                  <span className="text-muted-foreground tabular-nums">{m.answers.toLocaleString()}</span>
+                </ShareRow>
+              )
+            })}
+            </div>
+            <p className="px-2 pt-2 text-[11px] text-muted-foreground">Change in share points vs the previous {days} days.</p>
+          </>
+        )}
+      </div>
+    </Panel>
+  )
+}
+
+function AccuracyByModelCard({ a, stats, loading }: { a: Analytics | null; stats: ModelStats | null; loading: boolean }) {
+  const byModel = useMemo(() => (stats ? [...stats.models].filter((m) => m.claims > 0).sort((x, y) => (y.accuracy ?? -1) - (x.accuracy ?? -1) || y.claims - x.claims) : []), [stats])
+  return (
+    <Panel className="shadow-(--card-shadow-raised)">
+      <PanelHeader title="Accuracy by model" description={a ? `${pct(accuracy(a.current))} of ${reviewed(a.current).toLocaleString()} reviewed claims are supported` : "Supported ÷ reviewed claims"} />
+      <div className="p-2 pt-2">
+        {loading || !stats ? (
+          <ListSkeleton />
+        ) : byModel.length === 0 ? (
+          <p className="px-2 py-8 text-center text-xs text-muted-foreground">No reviewed claims yet.</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_3rem_3.5rem] gap-3 px-2 pb-1 text-[11px] text-muted-foreground">
+              <span>Model</span>
+              <span>Verdicts</span>
+              <span className="text-right">Accurate</span>
+              <span className="text-right">Wrong</span>
+            </div>
+            {byModel.map((m) => (
+              <div key={m.series.key} className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_3rem_3.5rem] items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-foreground/[0.03]">
+                <span className="flex min-w-0 items-center gap-2 text-xs">
+                  <SeriesLogo series={m.series} className="size-4" />
+                  <span className="truncate font-medium">{m.series.label}</span>
+                </span>
+                <VerdictBar counts={m.counts} className="h-1.5" />
+                <span className="text-right text-xs font-medium tabular-nums">{pct(m.accuracy)}</span>
+                <span className="text-right text-xs text-muted-foreground tabular-nums">{m.counts.wrong}</span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </Panel>
+  )
+}
+
+function NeedsALookCard({ businessId }: { businessId: string }) {
   const issues = useApi(`issues:${businessId}`, () => Issues.list(businessId))
   const representations = useApi(`representations:${businessId}`, () => Representations.list(businessId))
   const facts = useApi(`facts:${businessId}`, () => Facts.list(businessId))
+  const [tab, setTab] = useState<"claims" | "sources">("claims")
   const loading = issues.loading || representations.loading || facts.loading
-
-  const counts = useMemo(() => {
-    const list = issues.data?.issues ?? []
-    const reps = representations.data?.representations ?? []
-    return {
-      wrong: list.filter((i) => i.state === "WRONG").length,
-      partial: list.filter((i) => i.state === "PARTIAL").length,
-      drift: reps.filter((r) => r.finding.state === "DRIFT").length,
-      review: list.filter((i) => i.state === "NEEDS_REVIEW").length,
-      unknown: reps.filter((r) => r.finding.state === "UNKNOWN").length,
-      inSync: reps.filter((r) => r.finding.state === "IN_SYNC").length,
-      activeFacts: (facts.data?.facts ?? []).filter((f) => f.status === "ACTIVE").length,
-      recent: [...list].slice(0, 3),
-      topDrift: reps.filter((r) => r.finding.state === "DRIFT").slice(0, 3),
-    }
-  }, [issues.data, representations.data, facts.data])
-  const mode = facts.data?.authority?.mode ?? "HOSTED"
-
-  if (loading) {
-    return <Skeleton className="h-48 rounded-xl" />
-  }
-
-  const attention: Array<{ label: string; value: number; to: string }> = [
-    { label: "Wrong AI claims", value: counts.wrong, to: `/businesses/${businessId}/issues` },
-    { label: "Partial AI claims", value: counts.partial, to: `/businesses/${businessId}/issues` },
-    { label: "Source drift", value: counts.drift, to: `/businesses/${businessId}/representations` },
-    { label: "Needs review", value: counts.review, to: `/businesses/${businessId}/issues` },
-    { label: "Unknown source state", value: counts.unknown, to: `/businesses/${businessId}/representations` },
-  ]
+  const groups = useMemo(() => groupClaims(issues.data?.issues ?? [], "frequent").slice(0, 6), [issues.data])
+  const reps = representations.data?.representations ?? []
+  const drift = reps.filter((r) => r.finding.state !== "IN_SYNC")
+  const max = Math.max(1, ...groups.map((g) => g.occurrences.length))
+  const activeFacts = (facts.data?.facts ?? []).filter((f) => f.status === "ACTIVE").length
 
   return (
-    <div className="space-y-6">
-      <Card className="gap-0 py-0 shadow-(--float-shadow)">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-          {attention.map((a) => (
+    <Panel className="shadow-(--card-shadow-raised)">
+      <PanelHeader title="Needs a look" description={`${activeFacts} approved facts · ${reps.filter((r) => r.finding.state === "IN_SYNC").length} of ${reps.length} sources in sync`}>
+        <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
+          <Link to={`/businesses/${businessId}/${tab === "claims" ? "issues" : "representations"}`}>
+            View all
+            <ArrowRightIcon />
+          </Link>
+        </Button>
+      </PanelHeader>
+      <div className="px-4 pt-2">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "claims" | "sources")}>
+          <TabsList>
+            <TabsTrigger value="claims">Repeated claims</TabsTrigger>
+            <TabsTrigger value="sources">
+              Sources <span className="text-muted-foreground tabular-nums">{drift.length}</span>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+      <div className="p-2">
+        {loading ? (
+          <ListSkeleton />
+        ) : tab === "claims" ? (
+          groups.length === 0 ? (
+            <p className="px-2 py-8 text-center text-xs text-muted-foreground">Nothing disagrees with your approved truth right now.</p>
+          ) : (
+            <div className="space-y-1">
+            {groups.map((g) => {
+              const target = g.occurrences.find((o) => o.state !== "NEEDS_REVIEW") ?? g.latest
+              return (
+                <Link
+                  key={g.key}
+                  to={target.state === "NEEDS_REVIEW" ? `/observations/${target.observation_id}?claim=${target.claim_id}` : `/businesses/${businessId}/issues/${target.claim_id}`}
+                  className="block rounded-md transition-colors hover:bg-foreground/[0.03]"
+                >
+                  <ShareRow share={g.occurrences.length / max} value={`${g.occurrences.length}×`}>
+                    <span className="min-w-0 flex-1 truncate">{g.text}</span>
+                    <IssueStateBadge state={g.state} />
+                  </ShareRow>
+                </Link>
+              )
+            })}
+            </div>
+          )
+        ) : drift.length === 0 ? (
+          <p className="px-2 py-8 text-center text-xs text-muted-foreground">{reps.length ? "Every tracked source matches your approved facts." : "No sources are tracked yet."}</p>
+        ) : (
+          <div className="space-y-1">
+          {drift.slice(0, 6).map((r) => (
             <Link
-              key={a.label}
-              to={a.to}
-              className="border-b border-border p-5 outline-none transition-colors last:border-r-0 hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring lg:border-b-0 [&:not(:last-child)]:border-r max-sm:[&:nth-child(2n)]:border-r-0 sm:max-lg:[&:nth-child(3n)]:border-r-0"
+              key={r.binding_id}
+              to={`/businesses/${businessId}/representations/${r.binding_id}`}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-foreground/[0.03]"
             >
-              <div className="text-sm text-muted-foreground">{a.label}</div>
-              <div className="mt-2 text-[28px] leading-none font-semibold tracking-tight tabular-nums">{a.value}</div>
+              <RepresentationStateBadge state={r.finding.state} />
+              <span className="min-w-0 flex-1 truncate">
+                <span className="font-medium">{sentenceCase(r.fact.predicate)}</span>{" "}
+                <span className="text-muted-foreground">
+                  shows {r.effective_observation?.extracted_value ?? "nothing yet"}, approved {r.fact.valueText}
+                </span>
+              </span>
+              <ControlBadge control={r.source.control} />
             </Link>
           ))}
-        </div>
-      </Card>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="shadow-(--float-shadow)">
-          <CardHeader>
-            <CardTitle>Needs a look</CardTitle>
-            <CardDescription>The most recent issues and drifting sources.</CardDescription>
-            <CardAction>
-              <Button asChild variant="ghost" size="sm">
-                <Link to={`/businesses/${businessId}/issues`}>
-                  All issues
-                  <ArrowRightIcon />
-                </Link>
-              </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {counts.recent.length === 0 && counts.topDrift.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nothing disagrees with your approved truth right now.</p>
-            ) : (
-              <>
-                {counts.recent.map((i) => (
-                  <Link
-                    key={i.claim_id}
-                    to={`/businesses/${businessId}/issues/${i.claim_id}`}
-                    className="flex items-center gap-3 rounded-lg border px-4 py-3 outline-none transition-colors hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring"
-                  >
-                    <IssueStateBadge state={i.state} />
-                    <span className="min-w-0 flex-1 truncate text-sm">{i.claim_text}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(i.collected_at)}</span>
-                  </Link>
-                ))}
-                {counts.topDrift.map((r) => (
-                  <Link
-                    key={r.binding_id}
-                    to={`/businesses/${businessId}/representations/${r.binding_id}`}
-                    className="flex items-center gap-3 rounded-lg border px-4 py-3 outline-none transition-colors hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring"
-                  >
-                    <RepresentationStateBadge state={r.finding.state} />
-                    <span className="min-w-0 flex-1 truncate text-sm">
-                      {sentenceCase(r.fact.predicate)} · {r.effective_observation?.extracted_value ?? "—"}
-                    </span>
-                    <ControlBadge control={r.source.control} />
-                  </Link>
-                ))}
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-(--float-shadow)">
-          <CardHeader>
-            <CardTitle>Truth & representations</CardTitle>
-            <CardDescription>What you stand behind, and where it is observed.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-              <span className="text-muted-foreground">Approved facts</span>
-              <Link to={`/businesses/${businessId}/truth`} className="font-medium tabular-nums hover:underline">
-                {counts.activeFacts} active
-              </Link>
-              <span className="text-muted-foreground">{mode === "REPOSITORY_MANIFEST" ? "Managed by repository manifest" : "Managed in OpenRecord"}</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Sources</span>
-              <span className="font-medium tabular-nums">{counts.inSync} in sync</span>
-              <span aria-hidden className="text-muted-foreground">
-                ·
-              </span>
-              <span className="font-medium tabular-nums">{counts.drift} drift</span>
-              <span aria-hidden className="text-muted-foreground">
-                ·
-              </span>
-              <span className="font-medium tabular-nums">{counts.unknown} unknown</span>
-              <Button asChild variant="ghost" size="sm" className="ml-auto">
-                <Link to={`/businesses/${businessId}/representations`}>
-                  All representations
-                  <ArrowRightIcon />
-                </Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="space-y-1 pt-2">
-        <h2 className="text-lg font-semibold tracking-tight">AI analytics</h2>
-        <p className="text-sm text-muted-foreground">Collection volume and verdict mix. Operational state is above; these charts describe measurement, not health.</p>
-      </div>
-    </div>
-  )
-}
-
-function KpiStrip({ a, loading }: { a: Analytics | null; loading: boolean }) {
-  const reviewed = (c: VerdictCounts) => c.supported + c.wrong + c.partial + c.unknown
-  const items = useMemo(() => {
-    if (!a) return null
-    const d = a.range.days
-    return [
-      { label: "Answers collected", value: a.current.answers, prev: a.previous.answers, goodWhenUp: true, hint: `${a.current.checks} checks run` },
-      { label: "Claims reviewed", value: reviewed(a.current), prev: reviewed(a.previous), goodWhenUp: true, hint: `${totalClaims(a.current)} transcribed` },
-      { label: "Wrong", value: a.current.wrong, prev: a.previous.wrong, goodWhenUp: false, cssVar: "--chart-wrong", hint: null },
-      { label: "Partially correct", value: a.current.partial, prev: a.previous.partial, goodWhenUp: false, cssVar: "--chart-partial", hint: null },
-      { label: "Waiting for review", value: a.current.unreviewed, prev: a.previous.unreviewed, goodWhenUp: false, cssVar: "--chart-unreviewed", hint: null },
-    ].map((i) => ({ ...i, days: d }))
-  }, [a])
-
-  return (
-    <Card className="gap-0 py-0 shadow-(--float-shadow)">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-        {(items ?? Array.from({ length: 5 }, () => null)).map((i, idx) => (
-          <div key={idx} className="border-b border-border p-5 lg:border-b-0 [&:not(:last-child)]:border-r max-sm:[&:nth-child(2n)]:border-r-0 sm:max-lg:[&:nth-child(3n)]:border-r-0">
-            {loading || !i ? (
-              <div className="space-y-3">
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-7 w-12" />
-                <Skeleton className="h-3 w-28" />
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  {i.cssVar ? <Swatch cssVar={i.cssVar} className="size-2" /> : null}
-                  {i.label}
-                </div>
-                <div className="mt-2 text-[28px] leading-none font-semibold tracking-tight tabular-nums">{i.value}</div>
-                <Delta value={i.value} prev={i.prev} goodWhenUp={i.goodWhenUp} days={i.days} />
-              </>
-            )}
           </div>
-        ))}
+        )}
       </div>
-    </Card>
+    </Panel>
   )
 }
 
-function Delta({ value, prev, goodWhenUp, days }: { value: number; prev: number; goodWhenUp: boolean; days: number }) {
-  const diff = value - prev
-  if (diff === 0) {
-    return (
-      <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-        <MinusIcon className="size-3.5" />
-        Same as previous {days} days
-      </div>
-    )
-  }
-  const up = diff > 0
-  const good = up === goodWhenUp
-  const Icon = up ? ArrowUpRightIcon : ArrowDownRightIcon
+function QuestionsCard({ businessId, a, loading, days }: { businessId: string; a: Analytics | null; loading: boolean; days: number }) {
+  const [tab, setTab] = useState<"questions" | "facts">("questions")
   return (
-    <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-      <span className={cn("inline-flex items-center gap-0.5 font-medium", good ? "text-supported" : "text-wrong")}>
-        <Icon className="size-3.5" />
-        {up ? "+" : ""}
-        {diff}
-      </span>
-      vs previous {days} days
-    </div>
-  )
-}
-
-function VerdictMix({ counts }: { counts: VerdictCounts }) {
-  const total = totalClaims(counts)
-  if (total === 0) {
-    return <p className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">No claims in this period yet.</p>
-  }
-  return (
-    <div className="space-y-5">
-      <div>
-        <div className="text-[28px] leading-none font-semibold tracking-tight tabular-nums">{total}</div>
-        <div className="mt-1 text-sm text-muted-foreground">claims transcribed</div>
+    <Panel className="shadow-(--card-shadow-raised)">
+      <PanelHeader title="What buyers ask" description="Accuracy per question and per approved fact">
+        <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
+          <Link to={`/businesses/${businessId}/${tab === "questions" ? "checks" : "truth"}`}>
+            {tab === "questions" ? "Manage questions" : "Approved facts"}
+            <ArrowRightIcon />
+          </Link>
+        </Button>
+      </PanelHeader>
+      <div className="px-4 pt-2">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "questions" | "facts")}>
+          <TabsList>
+            <TabsTrigger value="questions">Questions</TabsTrigger>
+            <TabsTrigger value="facts">Facts</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
-      <VerdictBar counts={counts} className="h-3" />
-      <ul className="space-y-2.5">
-        {[...verdictSeries].reverse().map((s) => {
-          const n = counts[s.key]
-          return (
-            <li key={s.key} className="flex items-center gap-2.5 text-sm">
-              <Swatch cssVar={s.cssVar} />
-              <span className="flex-1 text-muted-foreground">{s.label}</span>
-              <span className="font-medium tabular-nums">{n}</span>
-              <span className="w-10 text-right text-xs text-muted-foreground tabular-nums">{Math.round((n / total) * 100)}%</span>
-            </li>
+      <div className="p-2">
+        {loading || !a ? (
+          <ListSkeleton />
+        ) : tab === "questions" ? (
+          a.questions.length === 0 ? (
+            <p className="px-2 py-8 text-center text-xs text-muted-foreground">No buyer questions yet. Add the questions prospects ask, then run checks.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-[minmax(0,1fr)_6rem_3rem_3rem] gap-3 px-2 pb-1 text-[11px] text-muted-foreground">
+                <span>Question</span>
+                <span>Verdicts</span>
+                <span className="text-right">Accurate</span>
+                <span className="text-right">Checks</span>
+              </div>
+              {a.questions.map((q) => (
+                <div key={q.id} className="grid grid-cols-[minmax(0,1fr)_6rem_3rem_3rem] items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-foreground/[0.03]">
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-medium">{q.label || q.prompt}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">{q.last_checked_at ? `Last asked ${relativeTime(q.last_checked_at)}` : "Never asked"}</span>
+                  </span>
+                  <VerdictBar counts={q} className="h-1.5" />
+                  <span className="text-right text-xs font-medium tabular-nums">{pct(accuracy(q))}</span>
+                  <span className="text-right text-xs text-muted-foreground tabular-nums">{q.checks}</span>
+                </div>
+              ))}
+            </>
           )
-        })}
-      </ul>
+        ) : a.facts.length === 0 ? (
+          <p className="px-2 py-8 text-center text-xs text-muted-foreground">No reviewed claims were linked to an approved fact in the last {days} days.</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-[minmax(0,1fr)_6rem_3rem_3rem] gap-3 px-2 pb-1 text-[11px] text-muted-foreground">
+              <span>Approved fact</span>
+              <span>Verdicts</span>
+              <span className="text-right">Accurate</span>
+              <span className="text-right">Wrong</span>
+            </div>
+            {a.facts.map((f) => (
+              <div key={f.id} className="grid grid-cols-[minmax(0,1fr)_6rem_3rem_3rem] items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-foreground/[0.03]">
+                <span className="min-w-0">
+                  <span className="block truncate text-xs font-medium">{sentenceCase(f.predicate)}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    Approved {f.value_text}
+                    {f.status !== "ACTIVE" ? ` · ${sentenceCase(f.status).toLowerCase()}` : ""}
+                  </span>
+                </span>
+                <VerdictBar counts={f} className="h-1.5" />
+                <span className="text-right text-xs font-medium tabular-nums">{pct(accuracy(f))}</span>
+                <span className="text-right text-xs text-muted-foreground tabular-nums">{f.wrong}</span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </Panel>
+  )
+}
+
+function ListSkeleton() {
+  return (
+    <div className="space-y-2 p-2">
+      {Array.from({ length: 5 }, (_, i) => (
+        <Skeleton key={i} className="h-6" />
+      ))}
     </div>
   )
 }
 
 function ChartEmpty({ days, what }: { days: number; what: string }) {
   return (
-    <div className="flex h-[200px] flex-col items-center justify-center rounded-lg border border-dashed text-center">
-      <p className="text-sm font-medium">No {what} in the last {days} days</p>
-      <p className="mt-1 max-w-xs text-sm text-muted-foreground">Try a longer period, or run a check to collect fresh answers.</p>
+    <div className="flex h-[280px] flex-col items-center justify-center rounded-xl border border-dashed text-center">
+      <p className="text-xs font-medium">
+        No {what} in the last {days} days
+      </p>
+      <p className="mt-1 max-w-xs text-xs text-muted-foreground">Try a longer period, or run a check to collect fresh answers.</p>
     </div>
   )
 }

@@ -217,16 +217,21 @@ const loadAnalytics = (businessId: string, days: number) =>
     const providerRows = (yield* sql.unsafe(
       `${CLAIMS_CTE},
        answers AS (
-         SELECT provider, count(*)::int AS answers FROM observations
-         WHERE business_id = $1 AND collected_at >= $2 GROUP BY provider
+         SELECT provider,
+                count(*) FILTER (WHERE collected_at >= $2)::int AS answers,
+                count(*) FILTER (WHERE collected_at < $2)::int AS prev_answers
+         FROM observations
+         WHERE business_id = $1 AND collected_at >= $3 GROUP BY provider
        ),
        claims AS (SELECT provider, ${verdictCounts("true")} FROM claim_rows WHERE collected_at >= $2 GROUP BY provider)
        SELECT COALESCE(a.provider, c.provider) AS provider, COALESCE(a.answers, 0) AS answers,
+              COALESCE(a.prev_answers, 0) AS prev_answers,
               COALESCE(c.supported, 0) AS supported, COALESCE(c.wrong, 0) AS wrong, COALESCE(c.partial, 0) AS partial,
               COALESCE(c.unknown, 0) AS unknown, COALESCE(c.unreviewed, 0) AS unreviewed
        FROM answers a FULL OUTER JOIN claims c ON c.provider = a.provider
+       WHERE COALESCE(a.answers, 0) > 0 OR c.provider IS NOT NULL
        ORDER BY answers DESC`,
-      args.slice(0, 2),
+      args,
     )) as Array<Record<string, unknown>>
     const questionRows = (yield* sql.unsafe(
       `${CLAIMS_CTE}
@@ -250,6 +255,22 @@ const loadAnalytics = (businessId: string, days: number) =>
        WHERE cr.collected_at >= $2
        GROUP BY f.id
        ORDER BY wrong DESC, partial DESC`,
+      args.slice(0, 2),
+    )) as Array<Record<string, unknown>>
+    // Mentions per provider per day: every collected answer is one model
+    // mentioning the brand. Days with no answers still emit a zero row so
+    // line charts render continuous series.
+    const providerDailyRows = (yield* sql.unsafe(
+      `WITH day_series AS (SELECT generate_series(($2::timestamptz AT TIME ZONE 'UTC')::date, (now() AT TIME ZONE 'UTC')::date, interval '1 day')::date AS day),
+        present AS (SELECT DISTINCT provider FROM observations WHERE business_id = $1 AND collected_at >= $2),
+        answers AS (
+          SELECT (collected_at AT TIME ZONE 'UTC')::date AS day, provider, count(*)::int AS mentions
+          FROM observations WHERE business_id = $1 AND collected_at >= $2 GROUP BY 1, 2
+        )
+       SELECT to_char(d.day, 'YYYY-MM-DD') AS date, p.provider, COALESCE(o.mentions, 0) AS mentions
+       FROM day_series d CROSS JOIN present p
+       LEFT JOIN answers o ON o.day = d.day AND o.provider = p.provider
+       ORDER BY d.day, p.provider`,
       args.slice(0, 2),
     )) as Array<Record<string, unknown>>
 
@@ -278,6 +299,11 @@ const loadAnalytics = (businessId: string, days: number) =>
       },
       daily: dailyRows,
       providers: providerRows,
+      providerDaily: providerDailyRows.map((r: Record<string, unknown>) => ({
+        date: r["date"] as string,
+        provider: r["provider"] as string,
+        mentions: Number(r["mentions"] ?? 0),
+      })),
       questions: questionRows.map((r: Record<string, unknown>) => ({
         ...r,
         last_checked_at: r["last_checked_at"] ? new Date(r["last_checked_at"] as string).toISOString() : null,

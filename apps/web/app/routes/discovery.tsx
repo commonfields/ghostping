@@ -179,7 +179,7 @@ export function DiscoveryPage() {
               {scopeList.map((s) => (
                 <li key={s.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{s.root_url}</p>
+                    <p className="truncate text-xs font-medium">{s.root_url}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">Marked as owned by the operator.</p>
                   </div>
                   {s.id === scopeId ? (
@@ -234,7 +234,7 @@ export function DiscoveryPage() {
                     <span className="text-xs text-muted-foreground">Finished {formatDateTime(latest.completed_at)}</span>
                   ) : null}
                 </div>
-                <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
+                <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
                   <span>
                     Pages checked: <span className="font-medium text-foreground tabular-nums">{latest.pages_checked}</span>
                   </span>
@@ -275,7 +275,7 @@ export function DiscoveryPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 px-5 pb-5">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               OpenRecord found {latest.candidates_found} {latest.candidates_found === 1 ? "candidate" : "candidates"} in this scan.
             </p>
             {truthChanged ? (
@@ -475,8 +475,8 @@ function TrackCandidateButton({ businessId, candidate }: { businessId: string; c
                 </SelectContent>
               </Select>
             </div>
-            {error ? <p className="text-sm text-wrong">{error}</p> : null}
-            {done ? <p className="text-sm text-muted-foreground">Tracked. See it under Representations.</p> : null}
+            {error ? <p className="text-xs text-wrong">{error}</p> : null}
+            {done ? <p className="text-xs text-muted-foreground">Tracked. See it under Representations.</p> : null}
             <DialogFooter>
               <Button type="submit" disabled={pending || !selector.trim()}>
                 {pending ? "Tracking…" : "Track source"}
@@ -549,7 +549,7 @@ function AddOwnedSiteDialog({
               placeholder="https://example.com"
             />
           </div>
-          {error ? <p className="text-sm text-wrong">{error}</p> : null}
+          {error ? <p className="text-xs text-wrong">{error}</p> : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel

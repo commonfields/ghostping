@@ -55,14 +55,18 @@ export function Overview() {
         <div className="pointer-events-none sticky bottom-5 z-20 mt-auto flex justify-center pt-8">
           <Tabs
             value={view}
-            onValueChange={(v) => setParams({ view: v }, { replace: true })}
+            onValueChange={(v) => {
+              const next = new URLSearchParams(params)
+              next.set("view", v)
+              setParams(next, { replace: true })
+            }}
             className="pointer-events-auto"
           >
-            <TabsList className="h-10 rounded-full border border-sidebar-border bg-sidebar/85 p-1 text-sidebar-foreground shadow-(--float-shadow-strong) backdrop-blur supports-[backdrop-filter]:bg-sidebar/70">
-              <TabsTrigger value="agent" className="rounded-full px-4 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_3px_rgb(0_0_0/0.10)]">
+            <TabsList className="h-10 rounded-full border border-sidebar-border bg-sidebar p-1 text-sidebar-foreground shadow-(--float-shadow-strong)">
+              <TabsTrigger value="agent" className="h-8 rounded-full px-4 text-xs data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-(--card-shadow)">
                 Agent
               </TabsTrigger>
-              <TabsTrigger value="today" className="rounded-full px-4 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_3px_rgb(0_0_0/0.10)]">
+              <TabsTrigger value="today" className="h-8 rounded-full px-4 text-xs data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-(--card-shadow)">
                 Today
               </TabsTrigger>
             </TabsList>

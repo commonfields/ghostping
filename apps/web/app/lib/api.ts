@@ -498,7 +498,8 @@ export type Analytics = {
   current: VerdictCounts & { checks: number; answers: number; failed: number }
   previous: VerdictCounts & { checks: number; answers: number }
   daily: Array<VerdictCounts & { date: string; checks: number; failed: number }>
-  providers: Array<VerdictCounts & { provider: string; answers: number }>
+  providers: Array<VerdictCounts & { provider: string; answers: number; prev_answers: number }>
+  providerDaily: Array<{ date: string; provider: string; mentions: number }>
   questions: Array<VerdictCounts & { id: string; prompt: string; label: string | null; checks: number; last_checked_at: string | null }>
   facts: Array<VerdictCounts & { id: string; predicate: string; value_text: string; status: string }>
 }

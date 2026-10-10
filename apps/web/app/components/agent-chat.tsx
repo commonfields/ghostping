@@ -105,7 +105,7 @@ export function AgentChat({
     return (
       <div className="flex flex-1 flex-col items-center justify-center pb-[12vh]">
         <div className="w-full max-w-3xl space-y-7">
-          <h1 className="text-center text-[20px] font-semibold tracking-tight text-balance text-muted-foreground">
+          <h1 className="text-center text-2xl font-medium tracking-tight text-balance text-foreground">
             What should we look into for {businessName}?
           </h1>
           <Composer onSend={send} placeholder={`Ask anything about ${businessName}`} />
@@ -133,12 +133,12 @@ export function AgentChat({
                   </div>
                 ) : null}
                 {m.text ? (
-                  <p className="max-w-[80%] rounded-2xl bg-muted px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap">{m.text}</p>
+                  <p className="max-w-[80%] rounded-2xl bg-muted px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap">{m.text}</p>
                 ) : null}
               </>
             ) : (
               <div className="max-w-[90%] space-y-1.5">
-                <p className={cn("text-sm leading-relaxed whitespace-pre-wrap text-foreground/80", m.pending && "animate-pulse")}>{m.text}</p>
+                <p className={cn("text-xs leading-relaxed whitespace-pre-wrap text-foreground/80", m.pending && "animate-pulse")}>{m.text}</p>
                 {m.tools && m.tools.length > 0 ? (
                   <p className="text-xs text-muted-foreground">Tools: {m.tools.map((t) => t.tool).join(" · ")}</p>
                 ) : null}
@@ -148,7 +148,7 @@ export function AgentChat({
           </li>
         ))}
       </ol>
-      {failed ? <p className="pb-2 text-sm text-wrong">{failed}</p> : null}
+      {failed ? <p className="pb-2 text-xs text-wrong">{failed}</p> : null}
       <div ref={endRef} />
 
       <div className="sticky bottom-0 z-10 -mx-2 bg-gradient-to-t from-background from-70% to-transparent px-2 pt-6 pb-1">
@@ -297,7 +297,7 @@ function Composer({
       )}
     >
       {dragging ? (
-        <div className="pointer-events-none absolute inset-1.5 z-10 flex items-center justify-center rounded-[1.25rem] border border-dashed border-foreground/20 bg-background/90 text-sm text-muted-foreground">
+        <div className="pointer-events-none absolute inset-1.5 z-10 flex items-center justify-center rounded-[1.25rem] border border-dashed border-foreground/20 bg-background/90 text-xs text-muted-foreground">
           Drop files to attach
         </div>
       ) : null}
@@ -357,7 +357,7 @@ function Composer({
           }
         }}
         placeholder={listening ? "Listening" : placeholder}
-        className="field-sizing-content block max-h-72 min-h-28 w-full resize-none bg-transparent px-5 pt-4 pb-1 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/80"
+        className="field-sizing-content block max-h-72 min-h-28 w-full resize-none bg-transparent px-5 pt-4 pb-1 text-xs leading-relaxed outline-none placeholder:text-muted-foreground/80"
       />
 
       <div className="flex items-center gap-1 px-3 pb-3">

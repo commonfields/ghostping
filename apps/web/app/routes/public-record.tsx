@@ -37,7 +37,7 @@ export function AnswerEvidence({ answer }: { answer: PublicAnswer }) {
         <p className="mb-2">Approved fact at this check: {answer.fact.label}: {answer.fact.value}</p>
         <p className="mb-2">Question asked: “{answer.question}”</p>
         <figcaption className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">AI answer, exactly as recorded</figcaption>
-        <blockquote className="whitespace-pre-wrap rounded-md border-l-4 bg-muted/50 px-4 py-3 text-base">{answer.answer}</blockquote>
+        <blockquote className="whitespace-pre-wrap rounded-lg bg-muted/50 px-4 py-3 text-sm leading-relaxed">{answer.answer}</blockquote>
       </figure>
       {answer.syntheticFixture ? <p className="font-medium text-amber-700">This answer is test data, not a live AI answer.</p> : null}
       <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
@@ -90,7 +90,7 @@ function FactRecord({ fact }: { fact: PublicFact }) {
     <article className="space-y-4 rounded-xl border p-5">
       <header className="space-y-1">
         <p className="text-xs uppercase tracking-wide text-muted-foreground">Approved fact {fact.position}</p>
-        <h2 className="text-lg font-semibold">{fact.fact.label}: {fact.fact.value}</h2>
+        <h2 className="text-sm font-semibold">{fact.fact.label}: {fact.fact.value}</h2>
         {fact.fact.source ? <p className="text-sm">Source: <ExternalLink href={fact.fact.source}>{fact.fact.source}</ExternalLink></p> : null}
       </header>
       <p className="text-sm"><span className="text-muted-foreground">Question asked: </span>“{fact.question}”</p>
@@ -101,7 +101,7 @@ function FactRecord({ fact }: { fact: PublicFact }) {
           <Step label="Before" answer={c.before} />
           <Actions actions={c.actions} title="Agency action" />
           <Step label="After" answer={c.after} />
-          <div className={cn("rounded-md border-l-4 bg-muted/40 px-4 py-3", outcomeTone[c.outcome])}>
+          <div className={cn("rounded-lg bg-muted/40 px-4 py-3", outcomeTone[c.outcome])}>
             <p className="font-semibold">{OUTCOME_LABELS[c.outcome]}</p>
             <p className="text-sm">{c.explanation}</p>
           </div>
@@ -118,7 +118,7 @@ export function PublicRecordView({ record }: { record: PublicRecord }) {
       {record.fixture ? <p role="note" className="rounded-md border border-amber-500 px-4 py-2 text-sm font-medium">Test fixture — not a real business record.</p> : null}
       <header className="space-y-2">
         <p className="text-sm text-muted-foreground">Checked by {record.checkedBy}</p>
-        <h1 className="text-3xl font-semibold tracking-tight">{record.client.name}</h1>
+        <h1 className="text-base font-semibold tracking-tight">{record.client.name}</h1>
         {record.client.website ? <p className="text-sm"><ExternalLink href={record.client.website}>{record.client.website}</ExternalLink></p> : null}
         <p className="text-sm text-muted-foreground">
           Last checked {date(record.lastCheckedAt)}
@@ -157,6 +157,6 @@ export function PublicRecordPage() {
   useEffect(() => { if (state.record) document.title = `${state.record.client.name} — OpenRecord` }, [state.record])
   if (state.loading) return <main className="mx-auto max-w-3xl px-5 py-10 text-sm text-muted-foreground">Loading record…</main>
   if (state.error) return <main className="mx-auto max-w-3xl px-5 py-10">{state.error}</main>
-  if (!state.record) return <main className="mx-auto max-w-3xl px-5 py-10"><h1 className="text-xl font-semibold">Record not available</h1><p className="text-sm text-muted-foreground">This link is not active.</p></main>
+  if (!state.record) return <main className="mx-auto max-w-3xl px-5 py-10"><h1 className="text-sm font-semibold">Record not available</h1><p className="text-sm text-muted-foreground">This link is not active.</p></main>
   return <PublicRecordView record={state.record} />
 }
